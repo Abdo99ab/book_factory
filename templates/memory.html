@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Learned preferences | Book Factory{% endblock %}
+{% block content %}
+  <a class="back-link" href="{{ url_for('index') }}">← Back</a>
+  <section class="form-header">
+    <p class="eyebrow">Preference memory</p>
+    <h1>What the AI learned</h1>
+    <p>Durable preferences extracted from your change requests. They are injected into story, page, and illustration prompts on future jobs.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Active preferences ({{ memory.preferences|length }})</h2>
+    {% if not memory.preferences %}
+      <p>None yet. Finish a book and request edits in natural language.</p>
+    {% else %}
+      <ul class="pref-list">
+        {% for pref in memory.preferences|reverse %}
+          <li>{{ pref.text }} <code>{{ pref.source_job[:8] if pref.source_job else '' }}</code></li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <h2>Recent change history</h2>
+    {% if not memory.history %}
+      <p>No change history yet.</p>
+    {% else %}
+      <div class="log-list">
+        {% for item in memory.history|reverse %}
+          <div class="log-row">
+            <strong>{{ item.job_id[:8] }}</strong>
+            <span>{{ item.demand }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

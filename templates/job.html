@@ -1,0 +1,522 @@
+{% extends "base.html" %}
+{% block title %}{{ job.book_title or job.name }} | Book Factory{% endblock %}
+{% block content %}
+  <a class="back-link" href="{{ url_for('index') }}">← Jobs</a>
+  <div class="job-topline">
+    <div>
+      <p class="eyebrow">{{ job.job_id }}</p>
+      <h1>{{ job.book_title or inputs.name }}</h1>
+      <p>{{ inputs.theme }} · {{ inputs.purpose }} · {{ inputs.name }}, age {{ inputs.age }}</p>
+    </div>
+    <div class="job-actions">
+      {% if preview_available %}
+        <form action="{{ url_for('preview_job', job_id=job.job_id) }}" method="post"
+              onsubmit="this.querySelector('button').disabled = true">
+          <button class="button{% if preferred_next == 'full' %} secondary{% endif %}" type="submit">
+            Preview {{ preview_page_count }} pages
+          </button>
+        </form>
+      {% endif %}
+      {% if validate_build_available %}
+        <form action="{{ url_for('validate_and_build_job', job_id=job.job_id) }}" method="post"
+              onsubmit="this.querySelector('button').disabled = true">
+          <button class="button{% if preferred_next != 'full' %} secondary{% endif %}" type="submit">
+            Validate &amp; build
+          </button>
+        </form>
+      {% endif %}
+      {% if retry_available %}
+        <form action="{{ url_for('retry_job', job_id=job.job_id) }}" method="post"
+              onsubmit="this.querySelector('button').disabled = true">
+          <button class="button secondary" type="submit">Retry</button>
+        </form>
+      {% endif %}
+      <a class="button secondary {% if not job.pdf %}disabled{% endif %}"
+         href="{% if job.pdf %}{{ url_for('download_job', job_id=job.job_id) }}{% else %}#{% endif %}">
+        Download PDF
+      </a>
+    </div>
+  </div>
+
+  {% if job.status == 'rebuilding_content' %}
+  <section class="panel preview-banner review-banner">
+    <p class="eyebrow">Rebuilding after cast change</p>
+    <h2>Rewriting story and page briefs…</h2>
+    <p>Please wait. When status returns to Content Ready, review the new text (Leo/Bun-Bun style extras should be gone), then Preview again.</p>
+  </section>
+  {% elif job.status == 'content_ready' %}
+  <section class="panel preview-banner review-banner">
+    <p class="eyebrow">Review before illustration</p>
+    <h2>Edit the story brief, then continue</h2>
+    <p>
+      Check title, supporting characters, outfit, and page scenes/text below.
+      Remove anything invented (toys, mascots) that should not appear, then Save so the story rebuilds.
+      Then click
+      {% if preferred_next == 'full' %}<strong>Validate &amp; build</strong>{% else %}<strong>Preview {{ preview_page_count }} pages</strong>{% endif %}
+      (or the other option).
+    </p>
+  </section>
+  {% elif job.status == 'preview_ready' or job.preview_ready %}
+  <section class="panel preview-banner">
+    <p class="eyebrow">Preview ready</p>
+    <h2>First {{ preview_page_count }} content pages are ready</h2>
+    <p>
+      Cover was not generated yet.
+      {% if job.preview_page_numbers %}
+        Preview pages: {{ job.preview_page_numbers|join(', ') }}.
+      {% endif %}
+      You can still edit content below (edited pages clear their art). Then click <strong>Validate &amp; build</strong>.
+    </p>
+  </section>
+  {% endif %}
+
+  <section class="panel status-panel" data-job-status="{{ url_for('job_status', job_id=job.job_id) }}">
+    <div class="status-row">
+      <strong id="status-label">{{ job.status|replace('_', ' ')|title }}</strong>
+      <span id="status-detail">
+        {% if job.status == 'applying_changes' and job.change_progress %}
+          Change {{ job.change_progress.completed_actions or 0 }}/{{ job.change_progress.total_actions or 0 }}
+        {% elif job.total_pages %}
+          {{ job.current_page }}/{{ job.total_pages }} pages
+        {% endif %}
+      </span>
+    </div>
+    <div class="progress"><span id="progress-bar" style="width: {{
+      (
+        ((job.change_progress.completed_actions / job.change_progress.total_actions) * 100)
+        if job.status == 'applying_changes' and job.change_progress and job.change_progress.total_actions
+        else ((job.current_page / job.total_pages) * 100 if job.total_pages else 0)
+      )|round|int
+    }}%"></span></div>
+    <p class="error-text" id="job-error">{{ job.error or '' }}</p>
+    <p class="status-note" id="status-note">
+      {% if job.change_progress and job.change_progress.current_action %}
+        {{ job.change_progress.current_action }}
+      {% elif job.status == 'validating_content' %}
+        Checking story, pages, and prompts before illustration…
+      {% elif job.status == 'generating_preview' %}
+        Generating {{ preview_page_count }} content-page preview (no cover)…
+      {% elif job.status == 'preview_ready' %}
+        Preview ready — review pages, then Validate &amp; build.
+      {% elif job.status == 'content_ready' %}
+        Content ready — Preview {{ preview_page_count }} pages, or Validate &amp; build.
+      {% elif job.status == 'rebuilding_content' %}
+        Rebuilding story and page briefs for the new cast…
+      {% endif %}
+    </p>
+    {% if retry_available %}
+      <p class="retry-hint">
+        {% if job.status == 'validation_failed' %}
+          Fix the content issues below (or adjust the draft/design rules and retry). Validation runs again before building art.
+        {% else %}
+          Fix the cause (for example the API key in <code>.env</code>), then click <strong>Retry generation</strong>. Finished steps are kept.
+        {% endif %}
+      </p>
+    {% endif %}
+  </section>
+
+  <section class="panel change-progress-panel {% if not change_progress or change_progress.phase == 'complete' %}is-idle{% endif %}" id="change-progress-panel">
+    <p class="eyebrow">Change queue</p>
+    <h2 id="change-summary">{{ (change_progress.summary if change_progress else 'No change requests yet') }}</h2>
+    <p id="change-demand" class="change-demand">{{ change_progress.demand if change_progress else '' }}</p>
+    <div class="change-meta" id="change-meta">
+      {% if change_progress %}
+        Phase: <strong id="change-phase">{{ change_progress.phase }}</strong>
+        · Actions: <span id="change-counts">{{ change_progress.completed_actions or 0 }}/{{ change_progress.total_actions or 0 }}</span>
+        {% if change_progress.queue_length %}
+          · Queue: <span id="change-queue-len">{{ change_progress.queue_length }}</span>
+        {% endif %}
+      {% endif %}
+    </div>
+    <ul class="action-list" id="change-action-list">
+      {% if change_progress and change_progress.actions %}
+        {% for action in change_progress.actions %}
+          <li class="action-{{ action.status }}">
+            <span class="action-status">{{ action.status }}</span>
+            {{ action.label }}
+          </li>
+        {% endfor %}
+      {% endif %}
+    </ul>
+    {% if queued_changes %}
+      <div class="queued-list" id="queued-list">
+        <p class="eyebrow">Queued / running</p>
+        {% for item in queued_changes %}
+          <div class="queued-row">
+            <strong>{{ item.status }}</strong>
+            <span>{{ item.demand }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+
+  {% if overlay_rebuild_available %}
+  <section class="panel font-panel">
+    <p class="eyebrow">Story text font</p>
+    <h2>Choose a font</h2>
+    <p class="hint">Re-applies overlays on existing art (no new AI images). Current: <strong>{{ selected_font_id|replace('_', ' ')|title }}</strong></p>
+    <form method="post" action="{{ url_for('rebuild_overlays', job_id=job.job_id) }}">
+      <div class="font-grid">
+        {% for font in fonts %}
+          <label class="font-card" style="--swatch: {{ font.swatch }}">
+            <input type="radio" name="font_id" value="{{ font.id }}"
+                   {% if font.id == selected_font_id %}checked{% endif %}>
+            <span class="font-card-inner">
+              <span class="font-sample" style="font-family: {{ font.web_family }}">{{ font.label }}</span>
+              <span class="font-card-meta">View example</span>
+            </span>
+          </label>
+        {% endfor %}
+      </div>
+      <div class="editor-actions">
+        <button class="button" type="submit">Apply font &amp; rebuild PDF</button>
+      </div>
+    </form>
+  </section>
+  {% endif %}
+
+  {% if validation %}
+  <section class="panel validation-panel {% if validation.passed %}is-pass{% else %}is-fail{% endif %}">
+    <p class="eyebrow">Pre-build validation</p>
+    <h2>{{ 'Passed' if validation.passed else 'Needs attention' }}{% if validation.score is not none %} · score {{ validation.score }}{% endif %}</h2>
+    <p>{{ validation.summary }}</p>
+    {% if validation.invented_elements %}
+      <p><strong>Invented elements flagged:</strong> {{ validation.invented_elements|join(', ') }}</p>
+    {% endif %}
+    {% if validation.issues %}
+      <ul class="issue-list">
+        {% for issue in validation.issues %}
+          <li class="issue-{{ issue.severity }}">
+            <strong>{{ issue.severity }}{% if issue.page %} · page {{ issue.page }}{% endif %}</strong>
+            {{ issue.message }}
+            {% if issue.fix_hint %}<em>{{ issue.fix_hint }}</em>{% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% if story and content_editable %}
+  <form class="panel content-editor" method="post" action="{{ url_for('save_content', job_id=job.job_id) }}" id="content-editor">
+    <div class="editor-topline">
+      <div>
+        <p class="eyebrow">Pre-build content editor</p>
+        <h2>Story, characters &amp; pages</h2>
+        <p>Remove unwanted cast members, then <strong>Save</strong>. Changing the cast <strong>rebuilds the full story and every page brief</strong> so rabbits/siblings/toys are written out of the plot — then run Preview again.</p>
+      </div>
+      <div class="collapse-actions">
+        <button type="button" class="small-button secondary-btn" id="expand-all-sections">Expand all</button>
+        <button type="button" class="small-button secondary-btn" id="collapse-all-sections">Collapse all</button>
+      </div>
+    </div>
+
+    <details class="editor-section" open>
+      <summary>Story fields</summary>
+      <div class="form-grid">
+        <label class="wide">Title
+          <input name="title" value="{{ story.title or '' }}" required>
+        </label>
+        <label class="wide">Subtitle
+          <input name="subtitle" value="{{ story.subtitle or '' }}">
+        </label>
+        <label class="wide">Moral
+          <input name="moral" value="{{ story.moral or '' }}">
+        </label>
+        <label class="wide">Synopsis
+          <textarea name="synopsis" rows="3">{{ story.synopsis or '' }}</textarea>
+        </label>
+        <label class="wide">Locked outfit
+          <textarea name="recurring_outfit" rows="2" required>{{ story.recurring_outfit or '' }}</textarea>
+        </label>
+        <label class="wide">Story beats (one per line)
+          <textarea name="story_beats" rows="6">{% for beat in story.story_beats or [] %}{{ beat }}
+{% endfor %}</textarea>
+        </label>
+        <label class="wide">Full rebuilt story
+          <textarea name="rebuilt_story" rows="10" required>{{ story.rebuilt_story or '' }}</textarea>
+        </label>
+      </div>
+    </details>
+
+    <details class="editor-section" open>
+      <summary>Supporting characters</summary>
+      <div class="support-block" id="support-block">
+        <div class="support-head">
+          <p class="hint">Only keep people/creatures that should appear. Removing a name and saving also deletes that name from story/page text.</p>
+          <button type="button" class="small-button" id="add-support">Add character</button>
+        </div>
+        <div id="support-rows">
+          {% for character in story.supporting_characters or [] %}
+            <div class="support-row">
+              <input name="support_name" value="{{ character.name }}" placeholder="Name">
+              <input name="support_description" value="{{ character.description }}" placeholder="Visual description / role">
+              <button type="button" class="text-button remove-support">Remove</button>
+            </div>
+          {% else %}
+            <div class="support-row">
+              <input name="support_name" value="" placeholder="Name (optional)">
+              <input name="support_description" value="" placeholder="Visual description / role">
+              <button type="button" class="text-button remove-support">Remove</button>
+            </div>
+          {% endfor %}
+        </div>
+        <p class="hint scrub-check">Saving after add/remove will AI-rebuild synopsis, full story, beats, and all page scenes/text for the approved cast only.</p>
+      </div>
+    </details>
+
+    <details class="editor-section page-editor" open>
+      <summary>Page briefs ({{ pages|length }})</summary>
+      {% for page in pages %}
+        <details class="page-edit-card editor-section" {% if loop.index <= 3 %}open{% endif %}>
+          <summary>Page {{ page.number }} — {{ page.title }}{% if page.art_exists %} · art ready{% endif %}</summary>
+          <div class="form-grid">
+            <label>Title
+              <input name="page_{{ page.number }}_title" value="{{ page.title or '' }}">
+            </label>
+            <label>Text placement
+              <select name="page_{{ page.number }}_text_placement">
+                {% for option in ['top', 'upper_third', 'middle', 'lower_third', 'bottom'] %}
+                  <option value="{{ option }}" {% if page.text_placement == option %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label class="check"><input type="checkbox" name="page_{{ page.number }}_personalized" {% if page.personalized %}checked{% endif %}> Personalized (uses hero)</label>
+            <label class="check"><input type="checkbox" name="page_{{ page.number }}_blank" {% if page.blank %}checked{% endif %}> Blank page</label>
+            <label class="wide">Scene (illustration brief — no painted text)
+              <textarea name="page_{{ page.number }}_scene" rows="4">{{ page.scene or '' }}</textarea>
+            </label>
+            <label class="wide">Story text (overlay later)
+              <textarea name="page_{{ page.number }}_text" rows="3">{{ page.text or '' }}</textarea>
+            </label>
+          </div>
+        </details>
+      {% endfor %}
+    </details>
+
+    <div class="editor-actions">
+      <button class="button" type="submit">Save content edits</button>
+      <span class="hint">After removing cast members, save, confirm text no longer mentions them, then Preview again.</span>
+    </div>
+  </form>
+  {% elif story %}
+  <section class="panel">
+    <p class="eyebrow">Rebuilt story</p>
+    <h2>{{ story.title }}</h2>
+    {% if story.subtitle %}<p>{{ story.subtitle }}</p>{% endif %}
+    <p><strong>Moral:</strong> {{ story.moral }}</p>
+    <p>{{ story.synopsis }}</p>
+    <p><strong>Locked outfit:</strong> {{ story.recurring_outfit }}</p>
+    {% if story.supporting_characters %}
+      <p><strong>Supporting characters:</strong>
+        {% for character in story.supporting_characters %}
+          {{ character.name }}{% if not loop.last %}, {% endif %}
+        {% endfor %}
+      </p>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  <section class="cover-progress panel">
+    <div class="cover-heading">
+      <div>
+        <span class="eyebrow">Wraparound cover</span>
+        <h2>Front art + assembled print cover</h2>
+      </div>
+    </div>
+    <div class="cover-grid">
+      <div class="cover-image">
+        {% if cover_front_exists %}
+          <img src="{{ cover_front_url }}?v={{ job.status }}" alt="Front cover art">
+        {% else %}
+          <div class="blank-page">Front art pending</div>
+        {% endif %}
+      </div>
+      <div class="cover-image wide">
+        {% if cover_print_exists %}
+          <img src="{{ cover_print_url }}?v={{ job.status }}" alt="Wraparound cover">
+        {% else %}
+          <div class="blank-page">Print cover pending</div>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+
+  <div class="page-grid">
+    {% for page in pages %}
+      <article class="page-card">
+        <div class="page-image portrait">
+          {% if page.composed_exists %}
+            <img src="{{ page.composed_url }}?v={{ job.status }}-{{ loop.index }}" alt="Page {{ page.number }}">
+          {% elif page.art_exists %}
+            <img src="{{ page.art_url }}?v={{ job.status }}-{{ loop.index }}" alt="Page {{ page.number }} art">
+          {% elif page.blank %}
+            <div class="blank-page">Blank</div>
+          {% else %}
+            <div class="blank-page">Waiting</div>
+          {% endif %}
+        </div>
+        <div class="page-info">
+          <span>Page {{ page.number }} · {{ page.text_placement }}</span>
+          <h2>{{ page.title }}</h2>
+          <p class="page-text">{{ page.text }}</p>
+        </div>
+      </article>
+    {% endfor %}
+  </div>
+
+  <section class="panel change-panel">
+    <p class="eyebrow">Natural language edits</p>
+    <h2>Request a change</h2>
+    <p>Example: “Remove the dinosaur from every page. Shorten page 7. Make the cover warmer.” Requests queue if one is already running; progress updates above.</p>
+    <form method="post" action="{{ url_for('job_changes', job_id=job.job_id) }}">
+      <label class="wide">Change request
+        <textarea name="demand" rows="4" {% if not change_enabled %}disabled{% endif %}
+          placeholder="Describe what to change…"></textarea>
+      </label>
+      <button class="button" type="submit" {% if not change_enabled %}disabled{% endif %}>
+        {% if job.status == 'applying_changes' %}Queue change{% else %}Apply changes{% endif %}
+      </button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Activity log</p>
+    <h2>What the system did</h2>
+    <div class="log-list" id="event-list">
+      {% for event in events %}
+        <div class="log-row">
+          <code>{{ event.iso }}</code>
+          <strong>{{ event.type }}</strong>
+          <span>{{ event.message }}</span>
+        </div>
+      {% else %}
+        <p>No events yet.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <script>
+    (function setupSupportEditor() {
+      const rows = document.getElementById('support-rows');
+      const addButton = document.getElementById('add-support');
+      if (!rows || !addButton) return;
+      const template = () => {
+        const div = document.createElement('div');
+        div.className = 'support-row';
+        div.innerHTML = `
+          <input name="support_name" value="" placeholder="Name">
+          <input name="support_description" value="" placeholder="Visual description / role">
+          <button type="button" class="text-button remove-support">Remove</button>`;
+        return div;
+      };
+      addButton.addEventListener('click', () => rows.appendChild(template()));
+      rows.addEventListener('click', (event) => {
+        if (event.target.classList.contains('remove-support')) {
+          const row = event.target.closest('.support-row');
+          if (row) row.remove();
+          if (!rows.children.length) rows.appendChild(template());
+        }
+      });
+    })();
+
+    (function setupSectionCollapse() {
+      const root = document.getElementById('content-editor');
+      const expandBtn = document.getElementById('expand-all-sections');
+      const collapseBtn = document.getElementById('collapse-all-sections');
+      if (!root || !expandBtn || !collapseBtn) return;
+      const sections = () => root.querySelectorAll('details.editor-section');
+      expandBtn.addEventListener('click', () => {
+        sections().forEach((el) => { el.open = true; });
+      });
+      collapseBtn.addEventListener('click', () => {
+        sections().forEach((el) => { el.open = false; });
+      });
+    })();
+
+    const statusPanel = document.querySelector('[data-job-status]');
+    const statusUrl = statusPanel.dataset.jobStatus;
+    const statusLabel = document.getElementById('status-label');
+    const statusDetail = document.getElementById('status-detail');
+    const progressBar = document.getElementById('progress-bar');
+    const errorText = document.getElementById('job-error');
+    const statusNote = document.getElementById('status-note');
+    const changePanel = document.getElementById('change-progress-panel');
+    const changeSummary = document.getElementById('change-summary');
+    const changeDemand = document.getElementById('change-demand');
+    const changePhase = document.getElementById('change-phase');
+    const changeCounts = document.getElementById('change-counts');
+    const changeActionList = document.getElementById('change-action-list');
+    const active = new Set([
+      'queued', 'starting', 'generating_character', 'rebuilding_story',
+      'compiling_pages', 'rebuilding_content', 'generating_preview', 'validating_content',
+      'generating_cover', 'generating_pages', 'building_pdf', 'applying_changes'
+    ]);
+    const decision = new Set(['content_ready', 'preview_ready']);
+    let lastStatus = '{{ job.status }}';
+    function titleCase(value) {
+      return String(value || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+    function renderChangeProgress(progress) {
+      if (!progress) return;
+      changePanel.classList.remove('is-idle');
+      changeSummary.textContent = progress.summary || 'Working on changes…';
+      changeDemand.textContent = progress.demand || '';
+      if (changePhase) changePhase.textContent = progress.phase || '';
+      if (changeCounts) {
+        changeCounts.textContent = `${progress.completed_actions || 0}/${progress.total_actions || 0}`;
+      }
+      if (changeActionList && Array.isArray(progress.actions)) {
+        changeActionList.innerHTML = progress.actions.map((action) => (
+          `<li class="action-${action.status}">` +
+          `<span class="action-status">${action.status}</span> ${action.label || action.type}` +
+          `</li>`
+        )).join('');
+      }
+      statusNote.textContent = progress.current_action || progress.summary || '';
+    }
+    async function poll() {
+      try {
+        const response = await fetch(statusUrl, { headers: { Accept: 'application/json' } });
+        if (!response.ok) return;
+        const job = await response.json();
+        statusLabel.textContent = titleCase(job.status);
+        const progress = job.change_progress;
+        if (job.status === 'applying_changes' && progress) {
+          const total = progress.total_actions || 0;
+          const done = progress.completed_actions || 0;
+          statusDetail.textContent = total ? `Change ${done}/${total}` : 'Planning changes…';
+          progressBar.style.width = `${total ? Math.round((done / total) * 100) : 8}%`;
+          renderChangeProgress(progress);
+        } else {
+          statusDetail.textContent = job.total_pages ? `${job.current_page}/${job.total_pages} pages` : '';
+          const pct = job.total_pages ? Math.round((job.current_page / job.total_pages) * 100) : 0;
+          progressBar.style.width = `${pct}%`;
+          if (job.status === 'validating_content') {
+            statusNote.textContent = 'Checking story, pages, and prompts before illustration…';
+          } else if (job.status === 'generating_preview') {
+            statusNote.textContent = 'Generating content-page preview (no cover)…';
+          } else if (job.status === 'rebuilding_content') {
+            statusNote.textContent = 'Rebuilding story and page briefs for the new cast…';
+          } else if (progress && progress.phase === 'complete') {
+            renderChangeProgress(progress);
+          }
+        }
+        errorText.textContent = job.error || '';
+        if (active.has(job.status)) {
+          lastStatus = job.status;
+          setTimeout(poll, 2500);
+        } else if (
+          lastStatus !== job.status &&
+          (decision.has(job.status) || ['complete', 'failed', 'validation_failed'].includes(job.status))
+        ) {
+          location.reload();
+        }
+      } catch (error) {
+        setTimeout(poll, 6000);
+      }
+    }
+    if (active.has(lastStatus)) poll();
+  </script>
+{% endblock %}

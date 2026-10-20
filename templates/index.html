@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Book Factory{% endblock %}
+{% block content %}
+  <section class="hero">
+    <p class="eyebrow">Internal A–Z studio</p>
+    <h1>Draft in. Full book out.</h1>
+    <p>Rebuild a drafted story for a Magical-style theme, cast the child as hero from one photo, overlay text, and ship a wraparound print PDF. Every step and edit is logged; preferences feed the next run.</p>
+    <p class="meta">{{ preference_count }} learned preferences · Themes: {{ themes|join(', ') }}</p>
+    <a class="button" href="{{ url_for('create_form') }}">Create a book</a>
+  </section>
+
+  <section class="panel">
+    <h2>Recent jobs</h2>
+    {% if not jobs %}
+      <p>No jobs yet.</p>
+    {% else %}
+      <div class="job-list">
+        {% for job in jobs %}
+          <a class="job-row" href="{{ url_for('job_page', job_id=job.job_id) }}">
+            <div>
+              <strong>{{ job.book_title or job.name }}</strong>
+              <span>{{ job.theme }} · {{ job.page_count }} pages · {{ job.status }}</span>
+            </div>
+            <span class="chevron">Open</span>
+          </a>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

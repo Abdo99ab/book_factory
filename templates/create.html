@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Create book | Book Factory{% endblock %}
+{% block content %}
+  <a class="back-link" href="{{ url_for('index') }}">← Back</a>
+  <section class="form-header">
+    <p class="eyebrow">New job</p>
+    <h1>Build a full book</h1>
+    <p>Paste the drafted story and pick a theme. We first rebuild the manuscript and stop so you can review and edit supporting characters, outfit, and pages — then you choose a 3-page preview or validate &amp; build.</p>
+  </section>
+
+  <form class="panel form-panel" method="post" action="{{ url_for('create_job') }}" enctype="multipart/form-data">
+    <div class="form-grid">
+      <label>Child name
+        <input name="name" required placeholder="e.g. Mia">
+      </label>
+      <label>Age
+        <input name="age" required type="number" min="1" max="14" placeholder="5">
+      </label>
+      <label>Gender
+        <select name="gender" required>
+          <option value="">Choose</option>
+          <option value="female">Girl</option>
+          <option value="male">Boy</option>
+        </select>
+      </label>
+      <label>Theme
+        <select name="theme" required>
+          <option value="">Choose</option>
+          {% for theme in themes %}
+            <option value="{{ theme }}">{{ theme }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Purpose
+        <select name="purpose" required>
+          {% for purpose in purposes %}
+            <option value="{{ purpose }}">{{ purpose }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Pages (24–30)
+        <input name="page_count" type="number" min="24" max="30" value="26" required>
+      </label>
+      <label class="wide">Child photo
+        <input name="reference_image" type="file" accept="image/png,image/jpeg,image/webp" required>
+        <small>One hero photo. Everything else is generated.</small>
+      </label>
+      <label class="wide">Drafted story
+        <textarea name="draft_story" rows="12" required placeholder="Paste the full drafted story here. It will be rebuilt for the chosen theme and age."></textarea>
+      </label>
+      <label class="wide">Design rules
+        <textarea name="design_rules" rows="5" placeholder="Colors, art style, outfit notes, mood… e.g. soft watercolor, coral and navy palette, teal buttoned shirt locked for the hero."></textarea>
+      </label>
+
+      <fieldset class="wide font-picker">
+        <legend>Choose a font</legend>
+        <p class="hint">Used for story text overlays on every page and the cover title.</p>
+        <div class="font-grid">
+          {% for font in fonts %}
+            <label class="font-card" style="--swatch: {{ font.swatch }}">
+              <input type="radio" name="font_id" value="{{ font.id }}"
+                     {% if font.id == default_font_id %}checked{% endif %}>
+              <span class="font-card-inner">
+                <span class="font-sample" style="font-family: {{ font.web_family }}">{{ font.label }}</span>
+                <span class="font-card-meta">View example</span>
+              </span>
+            </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+
+      <fieldset class="wide start-mode">
+        <legend>Preferred step after content review</legend>
+        <label class="radio-card">
+          <input type="radio" name="start_mode" value="preview" checked>
+          <span>
+            <strong>Then preview 3 content pages</strong>
+            <small>After you approve/edit the story brief, generate 3 interior pages (not the cover) before the full book.</small>
+          </span>
+        </label>
+        <label class="radio-card">
+          <input type="radio" name="start_mode" value="full">
+          <span>
+            <strong>Then validate &amp; build full book</strong>
+            <small>After you approve/edit the story brief, skip image preview and go straight to validate + full generation.</small>
+          </span>
+        </label>
+      </fieldset>
+    </div>
+
+    <details class="memory-box">
+      <summary>Preferences that will be injected</summary>
+      <pre>{{ memory_preview }}</pre>
+    </details>
+
+    <button class="button" type="submit">Start</button>
+  </form>
+{% endblock %}

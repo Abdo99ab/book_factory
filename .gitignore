@@ -1,0 +1,8 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+book_assets/
+data/preferences/*.json
+!data/preferences/.gitkeep
+.DS_Store

@@ -1,0 +1,5 @@
+cd "D:\Desktop\Personnalized Children Books\book-making\book_factory"
+.venv\Scripts\activate
+flask --app app run --debug --port 5001
+
+Then open: http://127.0.0.1:5001
