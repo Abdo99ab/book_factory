@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 import threading
 import time
 import uuid
@@ -25,7 +26,7 @@ load_dotenv(BASE_DIR / ".env")
 
 from pipeline.cast_rebuild import rebuild_content_for_cast
 from pipeline.changes import enqueue_change, process_change_queue
-from pipeline.constants import JOB_ROOT, PURPOSES, THEMES
+from pipeline.constants import ARCHIVE_ROOT, JOB_ROOT, PURPOSES, THEMES
 from pipeline.content_edit import apply_content_edits
 from pipeline.fonts import DEFAULT_FONT_ID, FONT_OPTIONS, normalize_font_id
 from pipeline.job_log import append_event, read_events, read_json, write_json
@@ -53,17 +54,24 @@ def create_app():
     app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY", "local-development-key")
     app.config["MAX_CONTENT_LENGTH"] = MAX_REFERENCE_BYTES
     JOB_ROOT.mkdir(parents=True, exist_ok=True)
+    ARCHIVE_ROOT.mkdir(parents=True, exist_ok=True)
 
     @app.get("/")
     def index():
-        jobs = _list_jobs()
+        jobs = _list_jobs(JOB_ROOT)
         memory = load_memory()
         return render_template(
             "index.html",
             jobs=jobs,
             themes=THEMES,
             preference_count=len(memory.get("preferences") or []),
+            archived_count=_count_jobs(ARCHIVE_ROOT),
         )
+
+    @app.get("/archived")
+    def archived_jobs():
+        jobs = _list_jobs(ARCHIVE_ROOT)
+        return render_template("archived.html", jobs=jobs)
 
     @app.get("/create")
     def create_form():
@@ -604,6 +612,90 @@ def create_app():
         filename = secure_filename(f"{job.get('name', 'book')}-{job_id[:8]}.pdf")
         return send_file(path, as_attachment=True, download_name=filename)
 
+    @app.post("/jobs/<job_id>/archive")
+    def archive_job(job_id):
+        job_dir = _job_dir(job_id)
+        job = read_json(job_dir / "job.json")
+        if not job:
+            abort(404)
+        if _job_is_busy(job):
+            flash("Wait until generation/changes finish before archiving.", "error")
+            return redirect(url_for("job_page", job_id=job_id))
+        try:
+            ARCHIVE_ROOT.mkdir(parents=True, exist_ok=True)
+            dest = ARCHIVE_ROOT / job_id
+            if dest.exists():
+                flash("An archived copy of this job already exists.", "error")
+                return redirect(url_for("job_page", job_id=job_id))
+            job["archived_at"] = time.time()
+            write_json(job_dir / "job.json", job)
+            append_event(job_dir, "job_archived", "Job moved to archive.")
+            shutil.move(str(job_dir), str(dest))
+            flash("Job archived.", "success")
+            return redirect(url_for("archived_jobs"))
+        except Exception as error:
+            logger.exception("Archive failed for %s", job_id)
+            flash(f"Archive failed: {error}", "error")
+            return redirect(url_for("job_page", job_id=job_id))
+
+    @app.post("/jobs/<job_id>/unarchive")
+    def unarchive_job(job_id):
+        archived_dir = _archived_job_dir(job_id)
+        job = read_json(archived_dir / "job.json")
+        if not job:
+            abort(404)
+        try:
+            dest = JOB_ROOT / job_id
+            if dest.exists():
+                flash("An active job with this id already exists.", "error")
+                return redirect(url_for("archived_jobs"))
+            job.pop("archived_at", None)
+            write_json(archived_dir / "job.json", job)
+            append_event(archived_dir, "job_unarchived", "Job restored from archive.")
+            shutil.move(str(archived_dir), str(dest))
+            flash("Job restored to active jobs.", "success")
+            return redirect(url_for("job_page", job_id=job_id))
+        except Exception as error:
+            logger.exception("Unarchive failed for %s", job_id)
+            flash(f"Restore failed: {error}", "error")
+            return redirect(url_for("archived_jobs"))
+
+    @app.post("/jobs/<job_id>/delete")
+    def delete_job(job_id):
+        # Prefer active job; fall back to archived.
+        if (_job_dir(job_id) / "job.json").is_file():
+            job_dir = _job_dir(job_id)
+            redirect_to = "index"
+            job_page_fallback = True
+        elif (_archived_job_dir(job_id) / "job.json").is_file():
+            job_dir = _archived_job_dir(job_id)
+            redirect_to = "archived_jobs"
+            job_page_fallback = False
+        else:
+            abort(404)
+
+        job = read_json(job_dir / "job.json") or {}
+        if _job_is_busy(job):
+            flash("Wait until generation/changes finish before deleting.", "error")
+            return redirect(
+                url_for("job_page", job_id=job_id)
+                if job_page_fallback
+                else url_for("archived_jobs")
+            )
+        try:
+            append_event(job_dir, "job_deleted", "Job permanently deleted.")
+            shutil.rmtree(job_dir)
+            flash("Job deleted permanently.", "success")
+            return redirect(url_for(redirect_to))
+        except Exception as error:
+            logger.exception("Delete failed for %s", job_id)
+            flash(f"Delete failed: {error}", "error")
+            return redirect(
+                url_for("job_page", job_id=job_id)
+                if job_page_fallback
+                else url_for("archived_jobs")
+            )
+
     @app.get("/memory")
     def memory_page():
         memory = load_memory()
@@ -612,17 +704,53 @@ def create_app():
     return app
 
 
+BUSY_JOB_STATUSES = {
+    "queued",
+    "starting",
+    "generating_character",
+    "rebuilding_story",
+    "compiling_pages",
+    "validating_content",
+    "generating_preview",
+    "generating_cover",
+    "generating_pages",
+    "building_pdf",
+    "applying_changes",
+    "rebuilding_content",
+}
+
+
+def _job_is_busy(job: dict) -> bool:
+    return (job or {}).get("status") in BUSY_JOB_STATUSES
+
+
+def _valid_job_id(job_id: str) -> bool:
+    return len(job_id) == 32 and all(c in "0123456789abcdef" for c in job_id)
+
+
 def _job_dir(job_id: str) -> Path:
-    if len(job_id) != 32 or any(c not in "0123456789abcdef" for c in job_id):
+    if not _valid_job_id(job_id):
         abort(404)
     return JOB_ROOT / job_id
 
 
-def _list_jobs(limit=40):
-    if not JOB_ROOT.exists():
+def _archived_job_dir(job_id: str) -> Path:
+    if not _valid_job_id(job_id):
+        abort(404)
+    return ARCHIVE_ROOT / job_id
+
+
+def _count_jobs(root: Path) -> int:
+    if not root.exists():
+        return 0
+    return sum(1 for path in root.iterdir() if path.is_dir() and (path / "job.json").is_file())
+
+
+def _list_jobs(root: Path, limit=40):
+    if not root.exists():
         return []
     jobs = []
-    for path in sorted(JOB_ROOT.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+    for path in sorted(root.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
         if not path.is_dir():
             continue
         job = read_json(path / "job.json")

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Archived jobs | Book Factory{% endblock %}
+{% block content %}
+  <a class="back-link" href="{{ url_for('index') }}">← Active jobs</a>
+  <section class="form-header">
+    <p class="eyebrow">Archive</p>
+    <h1>Archived jobs</h1>
+    <p>Jobs moved out of the active list. Restore to work on them again, or delete permanently.</p>
+  </section>
+
+  <section class="panel">
+    {% if not jobs %}
+      <p>No archived jobs.</p>
+    {% else %}
+      <div class="job-list">
+        {% for job in jobs %}
+          <div class="job-row job-row-static">
+            <div>
+              <strong>{{ job.book_title or job.name }}</strong>
+              <span>{{ job.theme }} · {{ job.page_count }} pages · {{ job.status }} · {{ job.job_id[:8] }}…</span>
+            </div>
+            <div class="job-row-actions">
+              <form method="post" action="{{ url_for('unarchive_job', job_id=job.job_id) }}">
+                <button class="small-button" type="submit">Restore</button>
+              </form>
+              <form method="post" action="{{ url_for('delete_job', job_id=job.job_id) }}"
+                    onsubmit="return confirm('Delete this archived job permanently? This cannot be undone.');">
+                <button class="small-button danger-btn" type="submit">Delete</button>
+              </form>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

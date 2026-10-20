@@ -73,7 +73,34 @@ p { color: var(--muted); line-height: 1.55; }
   text-decoration: none;
 }
 .button.secondary { background: var(--teal); }
+.button.danger-btn,
+.small-button.danger-btn {
+  background: #b4473a;
+  color: #fff;
+}
+.button.danger-btn:hover,
+.small-button.danger-btn:hover { background: #93362b; }
 .button.disabled { opacity: 0.4; pointer-events: none; }
+.hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
+.panel-topline {
+  align-items: baseline;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.panel-topline h2 { margin: 0; }
+.job-row-static {
+  text-decoration: none;
+  cursor: default;
+}
+.job-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.job-row-actions form { margin: 0; }
 .back-link { display: inline-block; margin-bottom: 28px; }
 .form-header { max-width: 760px; margin-bottom: 28px; }
 .form-panel { max-width: 820px; }

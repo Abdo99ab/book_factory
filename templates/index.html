@@ -6,13 +6,21 @@
     <h1>Draft in. Full book out.</h1>
     <p>Rebuild a drafted story for a Magical-style theme, cast the child as hero from one photo, overlay text, and ship a wraparound print PDF. Every step and edit is logged; preferences feed the next run.</p>
     <p class="meta">{{ preference_count }} learned preferences · Themes: {{ themes|join(', ') }}</p>
-    <a class="button" href="{{ url_for('create_form') }}">Create a book</a>
+    <div class="hero-actions">
+      <a class="button" href="{{ url_for('create_form') }}">Create a book</a>
+      <a class="button secondary" href="{{ url_for('archived_jobs') }}">
+        Archived{% if archived_count %} ({{ archived_count }}){% endif %}
+      </a>
+    </div>
   </section>
 
   <section class="panel">
-    <h2>Recent jobs</h2>
+    <div class="panel-topline">
+      <h2>Recent jobs</h2>
+      <a class="text-button" href="{{ url_for('archived_jobs') }}">View archive →</a>
+    </div>
     {% if not jobs %}
-      <p>No jobs yet.</p>
+      <p>No active jobs. Archived ones live in <a href="{{ url_for('archived_jobs') }}">Archive</a>.</p>
     {% else %}
       <div class="job-list">
         {% for job in jobs %}

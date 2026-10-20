@@ -4,6 +4,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 ASSET_ROOT = BASE_DIR / "book_assets"
 JOB_ROOT = ASSET_ROOT / "jobs"
+ARCHIVE_ROOT = ASSET_ROOT / "archived_jobs"
 PREFERENCES_DIR = BASE_DIR / "data" / "preferences"
 FONTS_DIR = BASE_DIR / "assets" / "fonts"
 

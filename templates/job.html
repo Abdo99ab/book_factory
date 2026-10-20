@@ -35,6 +35,14 @@
          href="{% if job.pdf %}{{ url_for('download_job', job_id=job.job_id) }}{% else %}#{% endif %}">
         Download PDF
       </a>
+      <form method="post" action="{{ url_for('archive_job', job_id=job.job_id) }}"
+            onsubmit="return confirm('Archive this job? You can restore it later from Archive.');">
+        <button class="button secondary" type="submit">Archive</button>
+      </form>
+      <form method="post" action="{{ url_for('delete_job', job_id=job.job_id) }}"
+            onsubmit="return confirm('Delete this job permanently? This cannot be undone.');">
+        <button class="button danger-btn" type="submit">Delete</button>
+      </form>
     </div>
   </div>
 
