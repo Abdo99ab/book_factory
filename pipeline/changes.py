@@ -26,9 +26,11 @@ Return JSON:
               "regen_cover" | "rewrite_story_title" | "noop",
       "page": number or null,
       "text": "new page text if rewriting",
-      "scene": "new scene if updating",
+      "scene": "full updated scene brief when visuals change (REQUIRED for props/outfit)",
+      "edit_instruction": "short must-show visual directive for the illustrator",
       "title": "new book title if rewriting title",
       "text_placement": "optional new placement",
+      "force_character_lock": false,
       "reason": "why"
     }
   ]
@@ -36,16 +38,18 @@ Return JSON:
 
 Rules:
 - Prefer the smallest change that satisfies the request.
-- If the request is about face/likeness/outfit/photo consistency, use regen_page_art
-  (and cover if needed). Set force_character_lock=true on that action so production
-  passes the locked hero character sheet into image edit (never text-only generate).
-- If the target page currently has personalized=false (e.g. dedication) but the
-  operator wants the hero face, also provide an updated scene that clearly includes
-  the child hero, and set force_character_lock=true.
+- Face/likeness/photo match ONLY (same scene, fix the child's face): regen_page_art
+  with force_character_lock=true. Cover too if needed.
+- ANY visible prop, accessory, clothing, sunglasses, hat, object, or "what's in the
+  picture" change: you MUST use update_page_scene OR regen_page_art WITH a new
+  scene string that includes the change (e.g. "Aicha wears kid-sized dark sunglasses").
+  Also set edit_instruction to a short must-show line. Bare regen_page_art with
+  null scene is NOT enough — the image model never sees the operator request otherwise.
+- If the target page is personalized=false but the operator wants the hero face,
+  update scene to include the hero and set force_character_lock=true.
 - If only wording/spelling, rewrite_page_text (no art regen).
-- If composition/background/mood, update_page_scene + regen_page_art.
+- Composition/background/mood: update_page_scene with full new scene + regen via that type.
 - Multiple actions allowed.
-  Optional action fields: force_character_lock (boolean), scene, text, text_placement.
 """
 
 
@@ -66,6 +70,31 @@ def _mentions_face_lock(text: str) -> bool:
         "picture as input",
     )
     return any(n in lowered for n in needles)
+
+
+def _edit_instruction_for_action(action: dict, demand: str) -> str | None:
+    """Directive that must reach the image model (planner field or full demand)."""
+    for key in ("edit_instruction", "visual_note", "instruction"):
+        value = (action.get(key) or "").strip()
+        if value:
+            return value
+    demand = (demand or "").strip()
+    return demand or None
+
+
+def _merge_visual_into_scene(scene: str, instruction: str) -> str:
+    """Append operator visual change so later regenerations keep it."""
+    scene = (scene or "").rstrip()
+    instruction = (instruction or "").strip()
+    if not instruction:
+        return scene
+    marker = "REQUIRED VISUAL CHANGE:"
+    if marker.lower() in scene.lower() and instruction.lower() in scene.lower():
+        return scene
+    addition = f"{marker} {instruction}"
+    if not scene:
+        return addition
+    return f"{scene} {addition}"
 
 
 def _update_job(job_dir: Path, **updates):
@@ -285,14 +314,22 @@ def apply_changes(client, job_dir: Path, demand: str, inputs: dict, change_id: s
                     )
                     if lock_face:
                         page["personalized"] = True
+                    edit_instruction = _edit_instruction_for_action(action, demand)
                     generate_page_image(
-                        client, job_dir, page, inputs, story, character_path
+                        client,
+                        job_dir,
+                        page,
+                        inputs,
+                        story,
+                        character_path,
+                        edit_instruction=edit_instruction,
                     )
                     applied.append(
                         {
                             "type": action_type,
                             "page": page["number"],
                             "scene": page["scene"],
+                            "edit_instruction": edit_instruction,
                             "personalized": page.get("personalized"),
                             "reason": reason,
                         }
@@ -319,13 +356,27 @@ def apply_changes(client, job_dir: Path, demand: str, inputs: dict, change_id: s
                                 f"Show {hero} clearly in the scene; face, hair, and skin "
                                 "must match the locked hero character reference exactly."
                             ).strip()
+                    edit_instruction = _edit_instruction_for_action(action, demand)
+                    # Persist visual demand into the scene when the planner forgot to.
+                    if edit_instruction and not action.get("scene"):
+                        page["scene"] = _merge_visual_into_scene(
+                            page.get("scene") or "", edit_instruction
+                        )
                     generate_page_image(
-                        client, job_dir, page, inputs, story, character_path
+                        client,
+                        job_dir,
+                        page,
+                        inputs,
+                        story,
+                        character_path,
+                        edit_instruction=edit_instruction,
                     )
                     applied.append(
                         {
                             "type": action_type,
                             "page": page["number"],
+                            "scene": page.get("scene"),
+                            "edit_instruction": edit_instruction,
                             "personalized": page.get("personalized"),
                             "character_lock": lock_face,
                             "reason": reason,

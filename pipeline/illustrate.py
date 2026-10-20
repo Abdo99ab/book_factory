@@ -7,7 +7,12 @@ from .memory import format_memory_for_prompt
 from .openai_util import image_edit, image_generate
 
 
-def _page_prompt(page: dict, inputs: dict, story: dict) -> str:
+def _page_prompt(
+    page: dict,
+    inputs: dict,
+    story: dict,
+    edit_instruction: str | None = None,
+) -> str:
     preference_memory = format_memory_for_prompt()
     outfit = story.get("recurring_outfit", "")
     design_rules = inputs.get("design_rules") or ""
@@ -36,6 +41,16 @@ def _page_prompt(page: dict, inputs: dict, story: dict) -> str:
         "bottom": "Leave soft clear space in the BOTTOM 28% for later text overlay.",
     }[page["text_placement"]]
 
+    directive = (edit_instruction or "").strip()
+    directive_block = ""
+    if directive:
+        directive_block = f"""
+OPERATOR CHANGE REQUEST (must be clearly visible in the illustration):
+{directive}
+Apply this even if the locked outfit or character reference image omits it
+(e.g. add sunglasses, hats, or props named here).
+"""
+
     return f"""Create a complete children's picture-book illustration for Page {page['number']},
 titled '{page['title']}' (title is metadata only — do not paint the title).
 
@@ -43,7 +58,7 @@ Theme: {inputs['theme']}
 Purpose: {inputs['purpose']}
 Hero name: {inputs['name']} (age {inputs['age']})
 Locked hero outfit: {outfit}
-
+{directive_block}
 Scene:
 {page['scene']}
 
@@ -61,7 +76,15 @@ Composition: portrait 3:4, full-bleed, warm polished picture-book style.
 """
 
 
-def generate_page_image(client, job_dir: Path, page: dict, inputs: dict, story: dict, character_path: Path):
+def generate_page_image(
+    client,
+    job_dir: Path,
+    page: dict,
+    inputs: dict,
+    story: dict,
+    character_path: Path,
+    edit_instruction: str | None = None,
+):
     page_dir = job_dir / "pages" / f"page-{page['number']:02d}"
     page_dir.mkdir(parents=True, exist_ok=True)
 
@@ -73,10 +96,15 @@ def generate_page_image(client, job_dir: Path, page: dict, inputs: dict, story: 
         append_event(job_dir, "page_blank", f"Page {page['number']} reserved blank.")
         return None
 
-    prompt = _page_prompt(page, inputs, story)
+    prompt = _page_prompt(page, inputs, story, edit_instruction=edit_instruction)
     write_json(
         page_dir / "page.json",
-        {**page, "prompt": prompt, "status": "generating"},
+        {
+            **page,
+            "prompt": prompt,
+            "edit_instruction": edit_instruction,
+            "status": "generating",
+        },
     )
     append_event(job_dir, "page_start", f"Illustrating page {page['number']}.")
 
@@ -87,12 +115,14 @@ def generate_page_image(client, job_dir: Path, page: dict, inputs: dict, story: 
             raise FileNotFoundError(
                 f"Character sheet missing for personalized page {page['number']}"
             )
-        # Strengthen face lock in the edit prompt
+        # Face lock: keep identity; allow scene/operator accessories to differ from sheet.
         prompt = (
             prompt
             + "\n\nFACE LOCK: The supplied reference image is the hero character sheet. "
             "Match this child's exact face, hair, skin tone, and proportions. "
-            "Do not invent a different child."
+            "Do not invent a different child. "
+            "Accessories and props required by the scene or OPERATOR CHANGE REQUEST "
+            "(sunglasses, hats, etc.) MUST appear even if absent from the reference sheet."
         )
         result = image_edit(
             client,
