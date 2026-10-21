@@ -34,6 +34,7 @@ from pipeline.memory import format_memory_for_prompt, load_memory
 from pipeline.openai_util import create_client
 from pipeline.pdf_build import build_pdf
 from pipeline.runner import PREVIEW_PAGE_COUNT, run_job
+from pipeline.self_revise import run_self_revise
 
 logging.basicConfig(
     level=logging.INFO,
@@ -458,7 +459,31 @@ def create_app():
             in {"complete", "failed", "validation_failed", "applying_changes"},
             overlay_rebuild_available=job.get("status")
             in {"complete", "preview_ready", "failed"},
+            self_revise_available=job.get("status") == "complete"
+            and bool(job.get("pdf")),
+            self_revise=job.get("self_revise"),
         )
+
+    @app.post("/jobs/<job_id>/self-revise")
+    def self_revise_job(job_id):
+        job_dir = _job_dir(job_id)
+        job = read_json(job_dir / "job.json")
+        inputs = read_json(job_dir / "inputs.json") or {}
+        if not job:
+            abort(404)
+        if job.get("status") not in {"complete", "failed"}:
+            flash("Self-revise is available after the book has finished generating.", "error")
+            return redirect(url_for("job_page", job_id=job_id))
+        if not job.get("pdf") and not (job_dir / "print" / "pages").exists():
+            flash("Composited pages are not ready yet.", "error")
+            return redirect(url_for("job_page", job_id=job_id))
+        if _job_is_busy(job):
+            flash("Wait until the current run finishes, then try self-revise.", "error")
+            return redirect(url_for("job_page", job_id=job_id))
+
+        job_executor.submit(_safe_self_revise, job_id, job_dir, inputs)
+        flash("Self-revise started — AI is reviewing every page, then applying fixes.", "success")
+        return redirect(url_for("job_page", job_id=job_id))
 
     @app.get("/api/jobs/<job_id>")
     def job_status(job_id):
@@ -717,6 +742,7 @@ BUSY_JOB_STATUSES = {
     "building_pdf",
     "applying_changes",
     "rebuilding_content",
+    "self_revising",
 }
 
 
@@ -811,6 +837,32 @@ def _safe_process_change_queue(job_id, job_dir):
         ]
         if pending:
             job_executor.submit(_safe_process_change_queue, job_id, job_dir)
+
+
+def _safe_self_revise(job_id, job_dir, inputs):
+    if not change_lock.acquire(blocking=False):
+        job = read_json(job_dir / "job.json") or {}
+        job["error"] = "Another change is running; try self-revise again when it finishes."
+        write_json(job_dir / "job.json", job)
+        return
+    try:
+        load_dotenv(BASE_DIR / ".env", override=True)
+        client = create_client()
+        run_self_revise(client, job_dir, inputs or read_json(job_dir / "inputs.json"), force=True)
+    except Exception as error:
+        logger.exception("Self-revise failed for %s", job_id)
+        job = read_json(job_dir / "job.json") or {}
+        job.update(
+            {
+                "status": "complete",
+                "error": f"Self-revise failed: {error}",
+                "self_revise": {"phase": "failed", "summary": str(error)},
+            }
+        )
+        write_json(job_dir / "job.json", job)
+        append_event(job_dir, "self_revise_failed", str(error))
+    finally:
+        change_lock.release()
 
 
 app = create_app()

@@ -35,6 +35,12 @@
          href="{% if job.pdf %}{{ url_for('download_job', job_id=job.job_id) }}{% else %}#{% endif %}">
         Download PDF
       </a>
+      {% if self_revise_available %}
+        <form method="post" action="{{ url_for('self_revise_job', job_id=job.job_id) }}"
+              onsubmit="this.querySelector('button').disabled = true; return confirm('Run AI self-revise? It will review every page and auto-fix issues like text covering faces.');">
+          <button class="button secondary" type="submit">Self revise</button>
+        </form>
+      {% endif %}
       <form method="post" action="{{ url_for('archive_job', job_id=job.job_id) }}"
             onsubmit="return confirm('Archive this job? You can restore it later from Archive.');">
         <button class="button secondary" type="submit">Archive</button>
@@ -45,6 +51,29 @@
       </form>
     </div>
   </div>
+
+  {% if self_revise or job.status == 'self_revising' %}
+  <section class="panel preview-banner review-banner">
+    <p class="eyebrow">Self revise</p>
+    <h2>
+      {% if job.status == 'self_revising' %}
+        Reviewing pages…
+      {% elif self_revise and self_revise.phase == 'failed' %}
+        Self-revise failed
+      {% elif self_revise and self_revise.phase == 'complete' %}
+        Self-revise finished
+      {% else %}
+        Self-revise
+      {% endif %}
+    </h2>
+    <p>
+      {{ (self_revise.summary if self_revise else 'AI is checking every composited page for text-over-face, composition, and face issues, then applying precise fixes.') }}
+      {% if self_revise and self_revise.action_count is defined and self_revise.phase == 'complete' %}
+        · {{ self_revise.action_count }} fix(es) · {{ self_revise.issue_count or 0 }} issue(s) flagged
+      {% endif %}
+    </p>
+  </section>
+  {% endif %}
 
   {% if job.status == 'rebuilding_content' %}
   <section class="panel preview-banner review-banner">
@@ -110,6 +139,8 @@
         Content ready — Preview {{ preview_page_count }} pages, or Validate &amp; build.
       {% elif job.status == 'rebuilding_content' %}
         Rebuilding story and page briefs for the new cast…
+      {% elif job.status == 'self_revising' %}
+        Self-revise: reviewing pages and applying automatic fixes…
       {% endif %}
     </p>
     {% if retry_available %}
@@ -459,7 +490,8 @@
     const active = new Set([
       'queued', 'starting', 'generating_character', 'rebuilding_story',
       'compiling_pages', 'rebuilding_content', 'generating_preview', 'validating_content',
-      'generating_cover', 'generating_pages', 'building_pdf', 'applying_changes'
+      'generating_cover', 'generating_pages', 'building_pdf', 'applying_changes',
+      'self_revising'
     ]);
     const decision = new Set(['content_ready', 'preview_ready']);
     let lastStatus = '{{ job.status }}';
@@ -491,11 +523,14 @@
         const job = await response.json();
         statusLabel.textContent = titleCase(job.status);
         const progress = job.change_progress;
-        if (job.status === 'applying_changes' && progress) {
+        if ((job.status === 'applying_changes' || job.status === 'self_revising') && progress) {
           const total = progress.total_actions || 0;
           const done = progress.completed_actions || 0;
-          statusDetail.textContent = total ? `Change ${done}/${total}` : 'Planning changes…';
-          progressBar.style.width = `${total ? Math.round((done / total) * 100) : 8}%`;
+          const label = job.status === 'self_revising' ? 'Self-revise' : 'Change';
+          statusDetail.textContent = total
+            ? `${label} ${done}/${total}`
+            : (progress.phase === 'reviewing' ? 'Reviewing pages…' : `${label} planning…`);
+          progressBar.style.width = `${total ? Math.round((done / total) * 100) : 12}%`;
           renderChangeProgress(progress);
         } else {
           statusDetail.textContent = job.total_pages ? `${job.current_page}/${job.total_pages} pages` : '';
@@ -507,6 +542,8 @@
             statusNote.textContent = 'Generating content-page preview (no cover)…';
           } else if (job.status === 'rebuilding_content') {
             statusNote.textContent = 'Rebuilding story and page briefs for the new cast…';
+          } else if (job.status === 'self_revising') {
+            statusNote.textContent = 'Self-revise: reviewing pages and applying fixes…';
           } else if (progress && progress.phase === 'complete') {
             renderChangeProgress(progress);
           }

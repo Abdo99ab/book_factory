@@ -192,7 +192,14 @@ def enqueue_change(job_dir: Path, demand: str) -> dict:
     return item
 
 
-def apply_changes(client, job_dir: Path, demand: str, inputs: dict, change_id: str | None = None):
+def apply_changes(
+    client,
+    job_dir: Path,
+    demand: str,
+    inputs: dict,
+    change_id: str | None = None,
+    prebuilt_plan: dict | None = None,
+):
     story = read_json(job_dir / "story" / "rebuilt_story.json")
     pages_payload = read_json(job_dir / "story" / "pages.json")
     pages = pages_payload["pages"]
@@ -208,7 +215,7 @@ def apply_changes(client, job_dir: Path, demand: str, inputs: dict, change_id: s
         "summary": "Planning changes…",
         "total_actions": 0,
         "completed_actions": 0,
-        "current_action": "Planning with AI…",
+        "current_action": "Planning with AI…" if not prebuilt_plan else "Using self-revise plan…",
         "queue_position": 1,
         "queue_length": 1,
         "actions": [],
@@ -216,7 +223,17 @@ def apply_changes(client, job_dir: Path, demand: str, inputs: dict, change_id: s
     _set_progress(job_dir, progress)
     _update_job(job_dir, status="applying_changes", error=None)
 
-    plan = plan_changes(client, job_dir, demand, inputs, story, pages)
+    if prebuilt_plan is not None:
+        plan = prebuilt_plan
+        append_event(
+            job_dir,
+            "change_plan_done",
+            plan.get("summary") or "Using prebuilt self-revise plan.",
+            actions=plan.get("actions") or [],
+            prebuilt=True,
+        )
+    else:
+        plan = plan_changes(client, job_dir, demand, inputs, story, pages)
     raw_actions = plan.get("actions") or []
     tracked = []
     for index, action in enumerate(raw_actions):

@@ -86,6 +86,23 @@ def chat_json(client, system, user, description="Text request"):
     return result.choices[0].message.content
 
 
+def chat_json_vision(client, system, user_content, description="Vision request", temperature=0.3):
+    """user_content: string or OpenAI multimodal content list (text + image_url parts)."""
+    def request():
+        return client.chat.completions.create(
+            model=TEXT_MODEL,
+            temperature=temperature,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_content},
+            ],
+        )
+
+    result = with_retries(request, description)
+    return result.choices[0].message.content
+
+
 def image_edit(client, image_path, prompt, size, quality="low", description="Image edit"):
     def request():
         with Path(image_path).open("rb") as image:
