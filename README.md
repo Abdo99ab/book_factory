@@ -22,7 +22,7 @@ Plus purpose: `educational` | `entertaining` | `both`.
 7. **Illustrate remaining pages** — skips any preview pages already on disk
 8. **PDF** — overlay text panels, stitch wraparound cover + interiors
 9. **NL changes** — queueable requests with live action progress → log → learn preferences
-10. **Self-revise** — after the PDF is built, vision-QA reviews every composited page (text-over-face, composition, face drift), plans precise fixes, and applies them once automatically; **Self revise** button re-runs anytime
+10. **Self-revise** — after the PDF is built, vision-QA reviews every composited page and proposes a plan (text-over-face, composition, face drift). You edit / add / remove actions, then click **Apply approved plan**. **Self revise** / **Re-run review** regenerates a new plan anytime.
 
 On create, the job always **prepares content first** and stops for review. Edit supporting characters, outfit, and page briefs, save, then choose **Preview 3 pages** or **Validate & build**. After a preview, **Validate & build** keeps unchanged pages.
 

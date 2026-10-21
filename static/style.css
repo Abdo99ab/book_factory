@@ -101,6 +101,23 @@ p { color: var(--muted); line-height: 1.55; }
   align-items: center;
 }
 .job-row-actions form { margin: 0; }
+.self-revise-plan { margin-top: 16px; }
+.revise-action-row {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  margin-bottom: 12px;
+  padding: 14px;
+}
+.revise-action-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr 1fr;
+  margin-bottom: 8px;
+}
+.revise-action-grid .wide { grid-column: 1 / -1; }
+@media (max-width: 720px) {
+  .revise-action-grid { grid-template-columns: 1fr; }
+}
 .back-link { display: inline-block; margin-bottom: 28px; }
 .form-header { max-width: 760px; margin-bottom: 28px; }
 .form-panel { max-width: 820px; }

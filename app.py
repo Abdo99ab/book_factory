@@ -34,7 +34,7 @@ from pipeline.memory import format_memory_for_prompt, load_memory
 from pipeline.openai_util import create_client
 from pipeline.pdf_build import build_pdf
 from pipeline.runner import PREVIEW_PAGE_COUNT, run_job
-from pipeline.self_revise import run_self_revise
+from pipeline.self_revise import apply_self_revise_plan, parse_actions_from_form, run_self_revise
 
 logging.basicConfig(
     level=logging.INFO,
@@ -456,11 +456,25 @@ def create_app():
             in {"content_ready", "preview_ready", "failed", "validation_failed"},
             retry_available=job.get("status") in {"failed", "validation_failed", "rebuilding_content"},
             change_enabled=job.get("status")
-            in {"complete", "failed", "validation_failed", "applying_changes"},
+            in {
+                "complete",
+                "failed",
+                "validation_failed",
+                "applying_changes",
+                "self_revise_ready",
+            },
             overlay_rebuild_available=job.get("status")
-            in {"complete", "preview_ready", "failed"},
-            self_revise_available=job.get("status") == "complete"
-            and bool(job.get("pdf")),
+            in {"complete", "preview_ready", "failed", "self_revise_ready"},
+            self_revise_available=job.get("status")
+            in {"complete", "failed", "self_revise_ready"}
+            and (
+                bool(job.get("pdf"))
+                or (job_dir / "print" / "pages").exists()
+            ),
+            self_revise_plan_ready=job.get("status") == "self_revise_ready"
+            or (
+                (job.get("self_revise") or {}).get("phase") == "awaiting_approval"
+            ),
             self_revise=job.get("self_revise"),
         )
 
@@ -471,7 +485,7 @@ def create_app():
         inputs = read_json(job_dir / "inputs.json") or {}
         if not job:
             abort(404)
-        if job.get("status") not in {"complete", "failed"}:
+        if job.get("status") not in {"complete", "failed", "self_revise_ready"}:
             flash("Self-revise is available after the book has finished generating.", "error")
             return redirect(url_for("job_page", job_id=job_id))
         if not job.get("pdf") and not (job_dir / "print" / "pages").exists():
@@ -482,7 +496,40 @@ def create_app():
             return redirect(url_for("job_page", job_id=job_id))
 
         job_executor.submit(_safe_self_revise, job_id, job_dir, inputs)
-        flash("Self-revise started — AI is reviewing every page, then applying fixes.", "success")
+        flash(
+            "Self-revise started — AI will propose a plan. You can edit it, then click Apply.",
+            "success",
+        )
+        return redirect(url_for("job_page", job_id=job_id))
+
+    @app.post("/jobs/<job_id>/self-revise/apply")
+    def apply_self_revise_job(job_id):
+        job_dir = _job_dir(job_id)
+        job = read_json(job_dir / "job.json")
+        inputs = read_json(job_dir / "inputs.json") or {}
+        if not job:
+            abort(404)
+        revise = job.get("self_revise") or {}
+        if job.get("status") not in {"self_revise_ready", "complete"} and revise.get(
+            "phase"
+        ) != "awaiting_approval":
+            flash("No self-revise plan is waiting for approval.", "error")
+            return redirect(url_for("job_page", job_id=job_id))
+        if _job_is_busy(job):
+            flash("Wait until the current run finishes.", "error")
+            return redirect(url_for("job_page", job_id=job_id))
+
+        actions = parse_actions_from_form(request.form)
+        summary = (request.form.get("plan_summary") or "").strip() or None
+        job_executor.submit(
+            _safe_apply_self_revise, job_id, job_dir, inputs, actions, summary
+        )
+        flash(
+            f"Applying {len(actions)} approved self-revise action(s)…"
+            if actions
+            else "Dismissing plan with no actions…",
+            "success",
+        )
         return redirect(url_for("job_page", job_id=job_id))
 
     @app.get("/api/jobs/<job_id>")
@@ -848,7 +895,12 @@ def _safe_self_revise(job_id, job_dir, inputs):
     try:
         load_dotenv(BASE_DIR / ".env", override=True)
         client = create_client()
-        run_self_revise(client, job_dir, inputs or read_json(job_dir / "inputs.json"), force=True)
+        run_self_revise(
+            client,
+            job_dir,
+            inputs or read_json(job_dir / "inputs.json"),
+            force=True,
+        )
     except Exception as error:
         logger.exception("Self-revise failed for %s", job_id)
         job = read_json(job_dir / "job.json") or {}
@@ -861,6 +913,42 @@ def _safe_self_revise(job_id, job_dir, inputs):
         )
         write_json(job_dir / "job.json", job)
         append_event(job_dir, "self_revise_failed", str(error))
+    finally:
+        change_lock.release()
+
+
+def _safe_apply_self_revise(job_id, job_dir, inputs, actions, summary):
+    if not change_lock.acquire(blocking=False):
+        job = read_json(job_dir / "job.json") or {}
+        job["error"] = "Another change is running; try applying the plan again when it finishes."
+        write_json(job_dir / "job.json", job)
+        return
+    try:
+        load_dotenv(BASE_DIR / ".env", override=True)
+        client = create_client()
+        apply_self_revise_plan(
+            client,
+            job_dir,
+            inputs or read_json(job_dir / "inputs.json"),
+            actions,
+            summary=summary,
+        )
+    except Exception as error:
+        logger.exception("Self-revise apply failed for %s", job_id)
+        job = read_json(job_dir / "job.json") or {}
+        job.update(
+            {
+                "status": "self_revise_ready",
+                "error": f"Applying self-revise failed: {error}",
+                "self_revise": {
+                    **(job.get("self_revise") or {}),
+                    "phase": "awaiting_approval",
+                    "summary": f"Apply failed: {error}",
+                },
+            }
+        )
+        write_json(job_dir / "job.json", job)
+        append_event(job_dir, "self_revise_apply_failed", str(error))
     finally:
         change_lock.release()
 

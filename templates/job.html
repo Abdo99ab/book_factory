@@ -37,8 +37,10 @@
       </a>
       {% if self_revise_available %}
         <form method="post" action="{{ url_for('self_revise_job', job_id=job.job_id) }}"
-              onsubmit="this.querySelector('button').disabled = true; return confirm('Run AI self-revise? It will review every page and auto-fix issues like text covering faces.');">
-          <button class="button secondary" type="submit">Self revise</button>
+              onsubmit="this.querySelector('button').disabled = true; return confirm('Run AI self-revise review? You will get a plan to edit before anything is applied.');">
+          <button class="button secondary" type="submit">
+            {% if self_revise_plan_ready %}Re-run review{% else %}Self revise{% endif %}
+          </button>
         </form>
       {% endif %}
       <form method="post" action="{{ url_for('archive_job', job_id=job.job_id) }}"
@@ -52,14 +54,16 @@
     </div>
   </div>
 
-  {% if self_revise or job.status == 'self_revising' %}
-  <section class="panel preview-banner review-banner">
+  {% if self_revise or job.status == 'self_revising' or self_revise_plan_ready %}
+  <section class="panel preview-banner review-banner" id="self-revise-panel">
     <p class="eyebrow">Self revise</p>
     <h2>
       {% if job.status == 'self_revising' %}
         Reviewing pages…
       {% elif self_revise and self_revise.phase == 'failed' %}
         Self-revise failed
+      {% elif self_revise_plan_ready or (self_revise and self_revise.phase == 'awaiting_approval') %}
+        Plan ready — edit, then apply
       {% elif self_revise and self_revise.phase == 'complete' %}
         Self-revise finished
       {% else %}
@@ -67,11 +71,86 @@
       {% endif %}
     </h2>
     <p>
-      {{ (self_revise.summary if self_revise else 'AI is checking every composited page for text-over-face, composition, and face issues, then applying precise fixes.') }}
-      {% if self_revise and self_revise.action_count is defined and self_revise.phase == 'complete' %}
-        · {{ self_revise.action_count }} fix(es) · {{ self_revise.issue_count or 0 }} issue(s) flagged
+      {{ (self_revise.summary if self_revise else 'AI is checking every composited page for text-over-face, composition, and face issues.') }}
+      {% if self_revise and self_revise.issue_count is defined %}
+        · {{ self_revise.issue_count or 0 }} issue(s) · {{ self_revise.action_count or 0 }} proposed action(s)
       {% endif %}
     </p>
+
+    {% if self_revise and self_revise.issues %}
+      <ul class="issue-list">
+        {% for issue in self_revise.issues %}
+          <li class="issue-{{ issue.severity or 'warning' }}">
+            <strong>{{ issue.severity or 'note' }}{% if issue.page %} · page {{ issue.page }}{% endif %}</strong>
+            {{ issue.problem }}
+            {% if issue.fix %}<em>{{ issue.fix }}</em>{% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+
+    {% if self_revise_plan_ready or (self_revise and self_revise.phase == 'awaiting_approval') %}
+    <form class="self-revise-plan" method="post" action="{{ url_for('apply_self_revise_job', job_id=job.job_id) }}" id="self-revise-form">
+      <label class="wide">Plan summary
+        <input name="plan_summary" value="{{ self_revise.summary or '' }}">
+      </label>
+      <div class="support-head">
+        <p class="hint">Add, remove, or edit actions. Empty / invalid rows are ignored. Click Apply only when the plan looks right.</p>
+        <button type="button" class="small-button" id="add-revise-action">Add action</button>
+      </div>
+      <div id="revise-action-rows">
+        {% for action in self_revise.actions or [] %}
+          <div class="revise-action-row">
+            <div class="revise-action-grid">
+              <label>Type
+                <select name="action_type">
+                  {% for option in ['rewrite_page_text', 'regen_page_art', 'update_page_scene'] %}
+                    <option value="{{ option }}" {% if action.type == option %}selected{% endif %}>{{ option }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label>Page
+                <input name="action_page" type="number" min="1" value="{{ action.page or '' }}" required>
+              </label>
+              <label>Text placement
+                <select name="action_text_placement">
+                  <option value="">(unchanged)</option>
+                  {% for option in ['top', 'upper_third', 'middle', 'lower_third', 'bottom'] %}
+                    <option value="{{ option }}" {% if action.text_placement == option %}selected{% endif %}>{{ option }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label>Force face lock
+                <select name="action_force_character_lock">
+                  <option value="false" {% if not action.force_character_lock %}selected{% endif %}>No</option>
+                  <option value="true" {% if action.force_character_lock %}selected{% endif %}>Yes</option>
+                </select>
+              </label>
+              <label class="wide">Reason
+                <input name="action_reason" value="{{ action.reason or '' }}">
+              </label>
+              <label class="wide">Edit instruction (must-show for illustrator)
+                <input name="action_edit_instruction" value="{{ action.edit_instruction or '' }}">
+              </label>
+              <label class="wide">Story text (for rewrite_page_text)
+                <textarea name="action_text" rows="2">{{ action.text or '' }}</textarea>
+              </label>
+              <label class="wide">Scene (for update_page_scene / optional on regen)
+                <textarea name="action_scene" rows="3">{{ action.scene or '' }}</textarea>
+              </label>
+            </div>
+            <button type="button" class="text-button remove-revise-action">Remove</button>
+          </div>
+        {% else %}
+          <p class="hint" id="no-revise-actions">No actions proposed. Add one, or Apply to dismiss.</p>
+        {% endfor %}
+      </div>
+      <div class="editor-actions">
+        <button class="button" type="submit">Apply approved plan</button>
+        <span class="hint">This regenerates only the pages in the plan, then rebuilds the PDF.</span>
+      </div>
+    </form>
+    {% endif %}
   </section>
   {% endif %}
 
@@ -140,7 +219,9 @@
       {% elif job.status == 'rebuilding_content' %}
         Rebuilding story and page briefs for the new cast…
       {% elif job.status == 'self_revising' %}
-        Self-revise: reviewing pages and applying automatic fixes…
+        Self-revise: reviewing pages and preparing a plan for your approval…
+      {% elif job.status == 'self_revise_ready' %}
+        Self-revise plan ready — edit actions below, then Apply.
       {% endif %}
     </p>
     {% if retry_available %}
@@ -437,6 +518,70 @@
   </section>
 
   <script>
+    (function setupRevisePlanEditor() {
+      const rows = document.getElementById('revise-action-rows');
+      const addButton = document.getElementById('add-revise-action');
+      if (!rows || !addButton) return;
+      const emptyHint = document.getElementById('no-revise-actions');
+      const template = () => {
+        const div = document.createElement('div');
+        div.className = 'revise-action-row';
+        div.innerHTML = `
+          <div class="revise-action-grid">
+            <label>Type
+              <select name="action_type">
+                <option value="rewrite_page_text">rewrite_page_text</option>
+                <option value="regen_page_art" selected>regen_page_art</option>
+                <option value="update_page_scene">update_page_scene</option>
+              </select>
+            </label>
+            <label>Page
+              <input name="action_page" type="number" min="1" value="" required>
+            </label>
+            <label>Text placement
+              <select name="action_text_placement">
+                <option value="">(unchanged)</option>
+                <option value="top">top</option>
+                <option value="upper_third">upper_third</option>
+                <option value="middle">middle</option>
+                <option value="lower_third">lower_third</option>
+                <option value="bottom">bottom</option>
+              </select>
+            </label>
+            <label>Force face lock
+              <select name="action_force_character_lock">
+                <option value="false" selected>No</option>
+                <option value="true">Yes</option>
+              </select>
+            </label>
+            <label class="wide">Reason
+              <input name="action_reason" value="">
+            </label>
+            <label class="wide">Edit instruction (must-show for illustrator)
+              <input name="action_edit_instruction" value="">
+            </label>
+            <label class="wide">Story text (for rewrite_page_text)
+              <textarea name="action_text" rows="2"></textarea>
+            </label>
+            <label class="wide">Scene (for update_page_scene / optional on regen)
+              <textarea name="action_scene" rows="3"></textarea>
+            </label>
+          </div>
+          <button type="button" class="text-button remove-revise-action">Remove</button>`;
+        return div;
+      };
+      addButton.addEventListener('click', () => {
+        if (emptyHint) emptyHint.remove();
+        rows.appendChild(template());
+      });
+      rows.addEventListener('click', (event) => {
+        if (event.target.classList.contains('remove-revise-action')) {
+          const row = event.target.closest('.revise-action-row');
+          if (row) row.remove();
+        }
+      });
+    })();
+
     (function setupSupportEditor() {
       const rows = document.getElementById('support-rows');
       const addButton = document.getElementById('add-support');
@@ -493,7 +638,7 @@
       'generating_cover', 'generating_pages', 'building_pdf', 'applying_changes',
       'self_revising'
     ]);
-    const decision = new Set(['content_ready', 'preview_ready']);
+    const decision = new Set(['content_ready', 'preview_ready', 'self_revise_ready']);
     let lastStatus = '{{ job.status }}';
     function titleCase(value) {
       return String(value || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());

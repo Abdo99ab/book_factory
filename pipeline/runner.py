@@ -301,14 +301,14 @@ def run_validate_and_build(job_id: str, job_dir: Path):
         # Auto self-revise once: vision-QA composited pages and apply precise fixes.
         # Failures here must not mark the finished PDF job as failed.
         job_now = read_json(job_dir / "job.json") or {}
-        if not job_now.get("self_revise_done"):
+        if not job_now.get("self_revise_reviewed") and job_now.get("status") != "self_revise_ready":
             try:
                 from .self_revise import run_self_revise
 
                 append_event(
                     job_dir,
                     "self_revise_auto_start",
-                    "Starting automatic self-revise QA on completed book.",
+                    "Starting automatic self-revise review (plan awaits your approval).",
                 )
                 run_self_revise(client, job_dir, inputs, force=False)
             except Exception as revise_error:
