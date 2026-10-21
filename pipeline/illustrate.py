@@ -149,18 +149,54 @@ def generate_page_image(
     return art_path
 
 
+def _cover_cast_block(inputs: dict, story: dict) -> str:
+    hero = inputs.get("name") or "the hero"
+    outfit = story.get("recurring_outfit") or ""
+    supporting = story.get("supporting_characters") or []
+    if supporting:
+        support_lines = "\n".join(
+            f"- {c.get('name')}: {c.get('description')}" for c in supporting
+        )
+        support_block = (
+            "APPROVED supporting characters only (keep consistent with the story):\n"
+            f"{support_lines}\n"
+            "Do NOT invent extra children, siblings, teachers, or adults not listed above."
+        )
+    else:
+        support_block = (
+            "No approved supporting characters. Show only the hero child. "
+            "Do NOT invent extra children or named side characters. "
+            "An unnamed adult caregiver may appear only if the scene clearly needs one."
+        )
+    return f"""CAST LOCK (critical):
+Hero: {hero}, age {inputs.get('age')} — MUST match the supplied character-sheet reference
+exactly (face, hair, skin tone, proportions). Do not replace with a different child.
+Locked hero outfit: {outfit}
+{support_block}
+"""
+
+
 def generate_cover_panels(client, job_dir: Path, inputs: dict, story: dict, character_path: Path):
     """Generate front and back cover art without typography (text overlaid later)."""
+    if not Path(character_path).is_file():
+        raise FileNotFoundError("Character sheet missing; cannot generate cover panels.")
+
     preference_memory = format_memory_for_prompt()
     design_rules = inputs.get("design_rules") or ""
+    cast_block = _cover_cast_block(inputs, story)
     cover_dir = job_dir / "cover"
     cover_dir.mkdir(parents=True, exist_ok=True)
+
+    face_lock = (
+        "\n\nFACE LOCK: The supplied reference image is the hero character sheet. "
+        "Match this child's exact face, hair, skin tone, and proportions. "
+        "Do not invent a different child."
+    )
 
     front_prompt = f"""Create the FRONT COVER illustration only for a personalized children's
 picture book titled "{story['title']}". Portrait 3:4, full bleed.
 
-Hero: {inputs['name']}, age {inputs['age']}, is the clear focal character.
-Locked outfit: {story.get('recurring_outfit', '')}
+{cast_block}
 Theme: {inputs['theme']}
 Synopsis mood: {story.get('synopsis', '')}
 
@@ -170,19 +206,33 @@ Design rules:
 {preference_memory}
 
 Leave soft clear space in the UPPER third of the image for a title overlay later.
-Show the hero prominently in the lower/middle area.
+Show the hero prominently in the lower/middle area as the clear focal character.
+One cohesive scene only — not a collage of many small vignettes.
 {NO_TEXT_RULE}
+{face_lock}
 """
 
     back_prompt = f"""Create the BACK COVER illustration only for the children's picture book
-"{story['title']}". Portrait 3:4, full bleed. Same world and art style as the story.
-Theme: {inputs['theme']}. Mood: {story.get('synopsis', '')}.
-Optional subtle scene without the hero, or a quiet epilogue atmosphere.
-Leave a soft clear lower area for an optional blurb overlay.
+"{story['title']}". Portrait 3:4, full bleed.
+
+{cast_block}
+Theme: {inputs['theme']}
+Mood / synopsis: {story.get('synopsis', '')}
+
+Same world, art style, palette, and cast as the front cover and interior story.
+Show the hero ({inputs['name']}) clearly — a quiet epilogue or gentle story moment —
+with the SAME face and outfit as the character sheet. Supporting characters only if
+they are on the approved list above; never invent a different child or random adults.
+
 Design rules:
 {design_rules}
+
 {preference_memory}
+
+Leave a soft clear lower area for an optional blurb overlay.
+One cohesive scene only — not a collage of many small vignettes.
 {NO_TEXT_RULE}
+{face_lock}
 """
 
     append_event(job_dir, "cover_start", "Generating wraparound cover panels (front + back).")
@@ -197,8 +247,11 @@ Design rules:
     front_path = cover_dir / "front_art.png"
     front_path.write_bytes(base64.b64decode(front_result.data[0].b64_json))
 
-    back_result = image_generate(
+    # Back cover must also use the character sheet — text-only generate invents a
+    # different child every time (the left panel on the wraparound print cover).
+    back_result = image_edit(
         client,
+        character_path,
         back_prompt,
         size=PAGE_IMAGE_SIZE,
         description="Back cover art",
@@ -215,7 +268,8 @@ Design rules:
             "back_prompt": back_prompt,
             "front_art": "front_art.png",
             "back_art": "back_art.png",
+            "character_locked": True,
         },
     )
-    append_event(job_dir, "cover_done", "Front and back cover art saved.")
+    append_event(job_dir, "cover_done", "Front and back cover art saved (both character-locked).")
     return front_path, back_path
