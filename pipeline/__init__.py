@@ -1,5 +1,5 @@
-"""A-to-Z personalized picture-book generation pipeline."""
+"""Raised Ready picture-book generation pipeline."""
 
-from .constants import THEMES, PURPOSES
+from .catalogue import get_title, list_titles, load_catalogue
 
-__all__ = ["THEMES", "PURPOSES"]
+__all__ = ["load_catalogue", "list_titles", "get_title"]

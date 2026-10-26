@@ -1,0 +1,620 @@
+{
+  "version": 1,
+  "order": [
+    "big_kid_list",
+    "nursery_day",
+    "bed_boat",
+    "night_rocket",
+    "dinosaur_egg",
+    "ocean_map",
+    "tells_truth",
+    "worry_jar",
+    "new_front_door",
+    "too_good_picture"
+  ],
+  "titles": {
+    "big_kid_list": {
+      "title_id": "big_kid_list",
+      "family": "next_steps",
+      "colour": "rust",
+      "band": "READY FOR THE POTTY",
+      "question_form": "Ready for the potty, {name}?",
+      "title_template": "{name} and the Big-Kid List",
+      "age_band": "2-3.5",
+      "route": "morning_light",
+      "outfit": "rust jumper and star-print trousers with white trainers",
+      "anchor": {
+        "description": "paper list on the fridge with five pictures: shoes, coat, cup, hands, potty; ticks added spread by spread",
+        "state_schedule": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          5,
+          5,
+          5
+        ],
+        "state_kind": "ticks"
+      },
+      "must_not_show": [
+        "deadline or countdown",
+        "unhappy adult face at an accident",
+        "child ahead of another",
+        "reward chart, sticker or present",
+        "nappy shaming",
+        "toilet humour making the potty the joke"
+      ],
+      "personalisation_slots": [
+        {
+          "id": "school_name",
+          "label": "Nursery or school name",
+          "type": "text",
+          "required": false
+        },
+        {
+          "id": "sibling_friend",
+          "label": "Sibling or friend name",
+          "type": "text",
+          "required": false
+        },
+        {
+          "id": "potty_or_seat",
+          "label": "Potty or toilet seat",
+          "type": "select",
+          "options": [
+            "potty",
+            "toilet seat"
+          ],
+          "required": true
+        },
+        {
+          "id": "underwear",
+          "label": "Underwear colour or pattern",
+          "type": "text",
+          "required": false
+        }
+      ],
+      "blurb": "A warm story where the child chooses each step on a big-kid list — shoes, coat, cup, hands, potty — at their own pace.",
+      "parent_spread": {
+        "you_could_say": "It's your turn to choose. Sitting counts. Oops is fine.",
+        "try_together": "What would you like to try first on your list?",
+        "in_real_life": "Keep the list on the fridge and let the child choose the next tick.",
+        "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
+      },
+      "last_line": "The list waits on the fridge. {name} can choose again tomorrow.",
+      "approved": false,
+      "post_grade": null
+    },
+    "nursery_day": {
+      "title_id": "nursery_day",
+      "family": "next_steps",
+      "colour": "rust",
+      "band": "READY FOR NURSERY",
+      "question_form": "Ready for nursery, {name}?",
+      "title_template": "{name}'s Nursery Day — and Then You Come Back",
+      "age_band": "3-6",
+      "route": "morning_light",
+      "outfit": "soft navy jumper, grey trousers, and a yellow coat",
+      "anchor": {
+        "description": "comfort object on at least eight spreads; locked nursery interior",
+        "state_schedule": null
+      },
+      "must_not_show": [
+        "crying child alone",
+        "parent looking back sadly through the window",
+        "big boys/girls do not cry",
+        "late parent"
+      ],
+      "personalisation_slots": [
+        {
+          "id": "second_carer",
+          "label": "Pick-up carer name",
+          "type": "text",
+          "required": false
+        },
+        {
+          "id": "nursery_name",
+          "label": "Nursery name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "id": "teacher_name",
+          "label": "Teacher name",
+          "type": "text",
+          "required": false
+        },
+        {
+          "id": "goodbye_ritual",
+          "label": "Goodbye ritual",
+          "type": "text",
+          "required": false
+        },
+        {
+          "id": "peg_symbol",
+          "label": "Peg symbol",
+          "type": "text",
+          "required": false
+        }
+      ],
+      "blurb": "The child goes to nursery, keeps a comfort object close, and knows who will come back after nursery.",
+      "parent_spread": {
+        "you_could_say": "We can feel excited and unsure at the same time. I will come back after nursery.",
+        "try_together": "Who could you ask if you needed help?",
+        "in_real_life": "Choose a simple goodbye phrase to practise together.",
+        "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
+      },
+      "last_line": "And then you come back.",
+      "approved": false,
+      "post_grade": null
+    },
+    "bed_boat": {
+      "title_id": "bed_boat",
+      "family": "next_steps",
+      "colour": "rust",
+      "band": "READY FOR THE BIG BED",
+      "question_form": "Ready for the big bed, {name}?",
+      "title_template": "The Night {name}'s Bed Became a Boat",
+      "age_band": "3-6",
+      "route": "morning_light",
+      "outfit": "soft striped pyjamas",
+      "anchor": {
+        "description": "the bed/room set plus comfort object as first mate",
+        "state_schedule": null
+      },
+      "must_not_show": [
+        "monsters",
+        "scary dark corners",
+        "parent sleeping in child bed",
+        "child climbing out to parents room",
+        "threats"
+      ],
+      "personalisation_slots": [
+        {
+          "id": "bed_type",
+          "label": "Bed type",
+          "type": "select",
+          "options": [
+            "toddler bed",
+            "single bed"
+          ],
+          "required": true
+        },
+        {
+          "id": "night_light",
+          "label": "Night light",
+          "type": "select",
+          "options": [
+            "yes",
+            "no"
+          ],
+          "required": true
+        },
+        {
+          "id": "door",
+          "label": "Door",
+          "type": "select",
+          "options": [
+            "open",
+            "closed"
+          ],
+          "required": true
+        },
+        {
+          "id": "exit_line",
+          "label": "Exit line in your words",
+          "type": "text",
+          "required": false
+        }
+      ],
+      "blurb": "On one calm night, the child and a comfort object sail the big bed as a boat — then sleep safe in their own room.",
+      "parent_spread": {
+        "you_could_say": "Your bed is ready. I am nearby. Goodnight.",
+        "try_together": "What helps you feel safe when the light goes low?",
+        "in_real_life": "Practise the bedtime routine and the exit line together.",
+        "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
+      },
+      "last_line": "The boat is still a bed. {name} is still here.",
+      "approved": false,
+      "post_grade": "night"
+    },
+    "night_rocket": {
+      "title_id": "night_rocket",
+      "family": "adventures",
+      "colour": "teal",
+      "band": "READY FOR ADVENTURE",
+      "question_form": "Ready for adventure, {name}?",
+      "title_template": "{name} and the Night Rocket",
+      "age_band": "5-8",
+      "route": "open",
+      "outfit": "pyjamas with a small rocket print",
+      "anchor": {
+        "description": "rocket and helmet; visor never covers the face",
+        "state_schedule": null
+      },
+      "must_not_show": [
+        "scary aliens",
+        "being lost",
+        "fire or crash",
+        "real space-agency logos",
+        "helmet visor covering the face"
+      ],
+      "personalisation_slots": [
+        {
+          "id": "rocket_initial",
+          "label": "Initial on the rocket",
+          "type": "text",
+          "required": false
+        },
+        {
+          "id": "skyline",
+          "label": "City skyline set",
+          "type": "text",
+          "required": false
+        },
+        {
+          "id": "pyjama_colour",
+          "label": "Pyjama colour",
+          "type": "text",
+          "required": false
+        }
+      ],
+      "blurb": "The child asks good questions on a night rocket ride that begins and ends in a real bedroom.",
+      "parent_spread": {
+        "you_could_say": "What question would you ask next?",
+        "try_together": "What would you pack for a night ride?",
+        "in_real_life": "Look at the night sky together and name one thing you notice.",
+        "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
+      },
+      "last_line": "The rocket is quiet. The questions stay.",
+      "approved": false,
+      "post_grade": "night"
+    },
+    "dinosaur_egg": {
+      "title_id": "dinosaur_egg",
+      "family": "adventures",
+      "colour": "teal",
+      "band": "READY FOR ADVENTURE",
+      "question_form": "Ready for adventure, {name}?",
+      "title_template": "{name} and the Lost Dinosaur Egg",
+      "age_band": "3-6",
+      "route": "morning_light",
+      "outfit": "green jumper and sturdy boots",
+      "anchor": {
+        "description": "Pip the baby dinosaur (design locked on spread 2); shiny shell from spread 12",
+        "state_schedule": null
+      },
+      "must_not_show": [
+        "predators",
+        "fights",
+        "chase",
+        "fierce dinosaurs"
+      ],
+      "personalisation_slots": [
+        {
+          "id": "setting",
+          "label": "Garden or park",
+          "type": "select",
+          "options": [
+            "garden",
+            "park"
+          ],
+          "required": true
+        },
+        {
+          "id": "pip_name",
+          "label": "Pip's name",
+          "type": "text",
+          "required": false
+        },
+        {
+          "id": "family_song",
+          "label": "Family song title",
+          "type": "text",
+          "required": false
+        }
+      ],
+      "blurb": "The child finds a lost egg, meets gentle Pip, and helps someone smaller get home.",
+      "parent_spread": {
+        "you_could_say": "Helping can be quiet and kind.",
+        "try_together": "What would you have packed for Pip?",
+        "in_real_life": "Do one kind help for someone smaller this week.",
+        "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
+      },
+      "last_line": "Pip is safe. The shell shines once more.",
+      "approved": false,
+      "post_grade": null
+    },
+    "ocean_map": {
+      "title_id": "ocean_map",
+      "family": "adventures",
+      "colour": "teal",
+      "band": "READY FOR ADVENTURE",
+      "question_form": "Ready for adventure, {name}?",
+      "title_template": "{name}'s Ocean Map",
+      "age_band": "5-8",
+      "route": "field_guide",
+      "outfit": "striped swimsuit and a light towel cape",
+      "anchor": {
+        "description": "turtle guide and sea-glass compass",
+        "state_schedule": null
+      },
+      "must_not_show": [
+        "drowning peril",
+        "attacking sharks",
+        "anyone stuck in distress",
+        "mask covering the face"
+      ],
+      "personalisation_slots": [
+        {
+          "id": "opening",
+          "label": "Beach or bathtub",
+          "type": "select",
+          "options": [
+            "beach",
+            "bathtub"
+          ],
+          "required": true
+        },
+        {
+          "id": "swimsuit_colour",
+          "label": "Swimsuit colour",
+          "type": "text",
+          "required": false
+        },
+        {
+          "id": "turtle_name",
+          "label": "Turtle's name",
+          "type": "text",
+          "required": false
+        }
+      ],
+      "blurb": "With a turtle guide and a sea-glass compass, the child tries again when the map is hard to read.",
+      "parent_spread": {
+        "you_could_say": "Trying again is part of the map.",
+        "try_together": "Where would your compass point next?",
+        "in_real_life": "Draw a tiny map of somewhere familiar together.",
+        "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
+      },
+      "last_line": "The compass rests. The trying stays.",
+      "approved": false,
+      "post_grade": "underwater"
+    },
+    "tells_truth": {
+      "title_id": "tells_truth",
+      "family": "growing_skills",
+      "colour": "sage",
+      "band": "READY TO TELL THE TRUTH",
+      "question_form": "Ready to tell the truth, {name}?",
+      "title_template": "{name} Tells the Truth",
+      "age_band": "5-8",
+      "route": "open",
+      "outfit": "cream jumper and sage cardigan",
+      "anchor": {
+        "description": "the broken object the parent chose (spreads 2-9)",
+        "state_schedule": null
+      },
+      "must_not_show": [
+        "punishment",
+        "angry face",
+        "time-out",
+        "lying shown succeeding"
+      ],
+      "personalisation_slots": [
+        {
+          "id": "broken_object",
+          "label": "Broken object",
+          "type": "text",
+          "required": true
+        },
+        {
+          "id": "praise_words",
+          "label": "Praise words",
+          "type": "text",
+          "required": false
+        },
+        {
+          "id": "school_name",
+          "label": "School name",
+          "type": "text",
+          "required": false
+        }
+      ],
+      "blurb": "When something breaks, the child practises telling the truth — and hears kind words for the telling.",
+      "parent_spread": {
+        "you_could_say": "Thank you for telling me. We can mend this together.",
+        "try_together": "What words help when something goes wrong?",
+        "in_real_life": "Practise one praise line for honesty this week.",
+        "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
+      },
+      "last_line": "The truth is out. The mend can begin.",
+      "approved": false,
+      "post_grade": null
+    },
+    "worry_jar": {
+      "title_id": "worry_jar",
+      "family": "growing_skills",
+      "colour": "sage",
+      "band": "READY TO SHARE A WORRY",
+      "question_form": "Ready to share a worry, {name}?",
+      "title_template": "{name}'s Worry Jar",
+      "age_band": "5-8",
+      "route": "field_guide",
+      "outfit": "soft sage hoodie and jeans",
+      "anchor": {
+        "description": "the jar; grey stones that never look like faces",
+        "state_schedule": null
+      },
+      "must_not_show": [
+        "catastrophe drawn",
+        "do not be silly adult",
+        "diagnosis words",
+        "stones that look like faces"
+      ],
+      "personalisation_slots": [
+        {
+          "id": "school_name",
+          "label": "School name",
+          "type": "text",
+          "required": false
+        },
+        {
+          "id": "worry_1",
+          "label": "Worry one",
+          "type": "text",
+          "required": false
+        },
+        {
+          "id": "calm_move",
+          "label": "Calm-down move",
+          "type": "text",
+          "required": false
+        }
+      ],
+      "blurb": "The child names a worry, sorts it, and places a stone in a jar — the worry never comes true on the page.",
+      "parent_spread": {
+        "you_could_say": "We can say it, sort it, and jar it.",
+        "try_together": "What worry would you put in the jar tonight?",
+        "in_real_life": "Make a simple jar and try one calm-down move together.",
+        "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
+      },
+      "last_line": "The jar is quiet. {name} can open it again if needed.",
+      "approved": false,
+      "post_grade": null
+    },
+    "new_front_door": {
+      "title_id": "new_front_door",
+      "family": "growing_skills",
+      "colour": "sage",
+      "band": "READY FOR A NEW HOME",
+      "question_form": "Ready for a new home, {name}?",
+      "title_template": "{name}'s New Front Door",
+      "age_band": "5-8",
+      "route": "open",
+      "outfit": "travel jumper and a backpack",
+      "anchor": {
+        "description": "first-night box; old and new home reference sheets",
+        "state_schedule": null
+      },
+      "must_not_show": [
+        "crying alone",
+        "lost pet",
+        "arguments",
+        "you will forget your old friends"
+      ],
+      "personalisation_slots": [
+        {
+          "id": "old_home_type",
+          "label": "Old home type",
+          "type": "select",
+          "options": [
+            "flat",
+            "house"
+          ],
+          "required": true
+        },
+        {
+          "id": "new_home_type",
+          "label": "New home type",
+          "type": "select",
+          "options": [
+            "flat",
+            "house"
+          ],
+          "required": true
+        },
+        {
+          "id": "new_place_name",
+          "label": "New place name",
+          "type": "text",
+          "required": false
+        },
+        {
+          "id": "box_item",
+          "label": "First-night box item",
+          "type": "text",
+          "required": false
+        }
+      ],
+      "blurb": "The child packs a first-night box, walks through the move, and ends with relief at a new front door.",
+      "parent_spread": {
+        "you_could_say": "Our things come with us. So do we.",
+        "try_together": "What goes in the first-night box?",
+        "in_real_life": "Pack the box together before moving day.",
+        "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
+      },
+      "last_line": "The new door closes softly. {name} is home.",
+      "approved": false,
+      "post_grade": null
+    },
+    "too_good_picture": {
+      "title_id": "too_good_picture",
+      "family": "tomorrows_world",
+      "colour": "butter",
+      "band": "READY TO ASK \"IS IT REAL?\"",
+      "question_form": "Ready to ask \"is it real?\", {name}?",
+      "title_template": "{name} and the Too-Good-To-Be-True Picture",
+      "age_band": "7-10",
+      "route": "field_guide",
+      "outfit": "denim jacket over a plain tee",
+      "anchor": {
+        "description": "truth-detective notebook; same flying cat on spreads 1-10",
+        "state_schedule": null
+      },
+      "must_not_show": [
+        "deepfakes of real people",
+        "scams",
+        "adults losing money",
+        "named apps or platforms",
+        "child using an AI image tool"
+      ],
+      "personalisation_slots": [
+        {
+          "id": "school_name",
+          "label": "School name",
+          "type": "text",
+          "required": false
+        },
+        {
+          "id": "friend_1",
+          "label": "Friend one",
+          "type": "text",
+          "required": false
+        },
+        {
+          "id": "friend_2",
+          "label": "Friend two",
+          "type": "text",
+          "required": false
+        },
+        {
+          "id": "device",
+          "label": "Tablet or computer",
+          "type": "select",
+          "options": [
+            "tablet",
+            "computer"
+          ],
+          "required": true
+        }
+      ],
+      "blurb": "The child uses four checks in a truth-detective notebook when a flying-cat picture looks too good to be true.",
+      "parent_spread": {
+        "you_could_say": "We can ask: is it real?",
+        "try_together": "Which check would you try first?",
+        "in_real_life": "Look at one picture together and run the four checks.",
+        "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
+      },
+      "last_line": "The notebook closes. The questions stay open.",
+      "approved": false,
+      "post_grade": null
+    }
+  }
+}

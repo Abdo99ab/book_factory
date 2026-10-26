@@ -5,3 +5,5 @@ Pillow>=10.0
 reportlab>=4.0
 python-dotenv>=1.0
 gunicorn>=22,<24
+pytest>=8.0
+textstat>=0.7
