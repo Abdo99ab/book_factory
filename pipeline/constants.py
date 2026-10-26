@@ -8,8 +8,8 @@ ARCHIVE_ROOT = ASSET_ROOT / "archived_jobs"
 PREFERENCES_DIR = BASE_DIR / "data" / "preferences"
 FONTS_DIR = BASE_DIR / "assets" / "fonts"
 
-TEXT_MODEL = os.getenv("TEXT_MODEL", "gpt-4.1")
-IMAGE_MODEL = os.getenv("IMAGE_MODEL", "gpt-image-2")
+TEXT_MODEL = os.getenv("TEXT_MODEL", "gpt-6-luna")
+IMAGE_MODEL = os.getenv("IMAGE_MODEL", "gpt-image-2.5-flare")
 PAGE_CONCURRENCY = max(1, int(os.getenv("PAGE_CONCURRENCY", "1")))
 OPENAI_TIMEOUT_SECONDS = max(1.0, float(os.getenv("OPENAI_TIMEOUT_SECONDS", "300")))
 OPENAI_MAX_ATTEMPTS = max(1, int(os.getenv("OPENAI_MAX_ATTEMPTS", "3")))

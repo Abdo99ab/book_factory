@@ -12,7 +12,7 @@ Plus purpose: `educational` | `entertaining` | `both`.
 
 ## Pipeline
 
-1. **Character** — photo → locked hero sheet (`gpt-image-2` edit)
+1. **Character** — photo → locked hero sheet (`gpt-image-2.5-flare` edit)
 2. **Story rebuild** — draft + theme + purpose + age → title, moral, outfit lock, rebuilt prose  
    (no invented mascots/toys unless in the draft)
 3. **Page compile** — 24–30 pages with scene, text, text placement (no letters in art)
@@ -66,4 +66,4 @@ Global prefs: `data/preferences/global.json`.
 - English only in v1.
 - Text is **not** painted by the image model; Pillow overlays it, then ReportLab builds the PDF.
 - Story text fonts: pick one of 8 styles on create (or re-apply on a finished job). TTFs live in `assets/fonts/`.
-- Same OpenAI stack as `full_book_pdf` (`_OPENAI_API_KEY`, `gpt-image-2`, chat model for planning).
+- Same OpenAI stack as `full_book_pdf` (`_OPENAI_API_KEY`, `gpt-image-2.5-flare`, `gpt-6-luna` for planning).
