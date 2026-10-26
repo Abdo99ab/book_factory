@@ -1,88 +1,75 @@
-"""Story-text font catalog for PDF overlays (Magical-style choices)."""
+"""Raised Ready brand fonts — Noto Serif, Nunito, DM Mono only (spec §5)."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
+from .brand import FONT_FILES
 from .constants import FONTS_DIR
 
-# id → display name, local TTF, web preview family, card tint
+# ReportLab registration names (must match pdf_build usage)
+REPORTLAB_NAMES = {
+    "title": "NotoSerif-SemiBold",
+    "body": "Nunito-Regular",
+    "body_bold": "Nunito-SemiBold",
+    "label": "DMMono-Medium",
+}
+
+DEFAULT_FONT_ID = "brand"
 FONT_OPTIONS = [
     {
-        "id": "storybook_classic",
-        "label": "Storybook Classic",
-        "file": "Merriweather-Bold.ttf",
-        "web_family": '"Merriweather", Georgia, serif',
-        "swatch": "#f6d7c3",
-    },
-    {
-        "id": "smooth_sands",
-        "label": "Smooth Sands",
-        "file": "Nunito-Bold.ttf",
+        "id": "brand",
+        "label": "Raised Ready (brand)",
+        "file": FONT_FILES["body"],
         "web_family": '"Nunito", "Segoe UI", sans-serif',
-        "swatch": "#cfe8d8",
-    },
-    {
-        "id": "bubbly_tales",
-        "label": "Bubbly Tales",
-        "file": "Fredoka-SemiBold.ttf",
-        "web_family": '"Fredoka", "Segoe UI", sans-serif',
-        "swatch": "#f5cfdc",
-    },
-    {
-        "id": "candy_dreams",
-        "label": "Candy Dreams",
-        "file": "DancingScript-Bold.ttf",
-        "web_family": '"Dancing Script", cursive',
-        "swatch": "#e8d4f5",
-    },
-    {
-        "id": "neon_nexus",
-        "label": "Neon Nexus",
-        "file": "Montserrat-Bold.ttf",
-        "web_family": '"Montserrat", "Segoe UI", sans-serif',
-        "swatch": "#c9dff7",
-    },
-    {
-        "id": "cozy_curves",
-        "label": "Cozy Curves",
-        "file": "Quicksand-Bold.ttf",
-        "web_family": '"Quicksand", "Segoe UI", sans-serif',
-        "swatch": "#f8e2b8",
-    },
-    {
-        "id": "school_script",
-        "label": "School Script",
-        "file": "PatrickHand-Regular.ttf",
-        "web_family": '"Patrick Hand", "Comic Sans MS", cursive',
-        "swatch": "#d8f0e4",
-    },
-    {
-        "id": "adventure_book",
-        "label": "Adventure Book",
-        "file": "LuckiestGuy-Regular.ttf",
-        "web_family": '"Luckiest Guy", Impact, sans-serif',
-        "swatch": "#f5d0c0",
-    },
+        "swatch": "#F3EBDD",
+    }
 ]
-
-DEFAULT_FONT_ID = "smooth_sands"
 FONT_BY_ID = {item["id"]: item for item in FONT_OPTIONS}
+
+_REGISTERED = False
 
 
 def normalize_font_id(font_id: str | None) -> str:
-    if font_id and font_id in FONT_BY_ID:
-        return font_id
-    return DEFAULT_FONT_ID
+    """Backward compatible; always brand."""
+    return "brand"
 
 
-def font_file_path(font_id: str | None) -> Path | None:
-    option = FONT_BY_ID.get(normalize_font_id(font_id))
-    if not option:
-        return None
-    path = FONTS_DIR / option["file"]
+def font_file_path(font_id: str | None = None) -> Path | None:
+    path = FONTS_DIR / FONT_FILES["body"]
     return path if path.is_file() else None
 
 
-def font_label(font_id: str | None) -> str:
-    return FONT_BY_ID[normalize_font_id(font_id)]["label"]
+def font_label(font_id: str | None = None) -> str:
+    return "Raised Ready"
+
+
+def brand_font_path(role: str) -> Path:
+    filename = FONT_FILES[role]
+    path = FONTS_DIR / filename
+    if not path.is_file():
+        raise RuntimeError(
+            f"Missing brand font file for role={role}: {path}. "
+            f"Install {filename} into assets/fonts/."
+        )
+    return path
+
+
+def register_brand_fonts() -> list[str]:
+    """Register all four brand TTFs with ReportLab. Raises if any file is missing."""
+    global _REGISTERED
+    names = []
+    for role, rl_name in REPORTLAB_NAMES.items():
+        path = brand_font_path(role)
+        if rl_name not in pdfmetrics.getRegisteredFontNames():
+            pdfmetrics.registerFont(TTFont(rl_name, str(path)))
+        names.append(rl_name)
+    _REGISTERED = True
+    return names
+
+
+# Register at import — fail loudly if fonts are absent.
+register_brand_fonts()
