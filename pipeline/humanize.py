@@ -264,8 +264,55 @@ def humanize_json(client, payload: dict, description: str) -> dict:
 
 
 def humanize_story_fields(client, job_dir: Path, story: dict) -> dict:
-    """Humanize rebuilt_story (+ synopsis) after generation; keep structure fields."""
+    """Humanize spread texts (Raised Ready) or legacy rebuilt_story prose."""
     if not humanize_enabled():
+        return story
+
+    spreads = story.get("spreads") or []
+    if spreads:
+        source = {
+            "spreads": [
+                {"n": int(s.get("n")), "text": s.get("text") or ""}
+                for s in spreads
+                if s.get("n") is not None
+            ]
+        }
+        if not any(item["text"].strip() for item in source["spreads"]):
+            return story
+        append_event(
+            job_dir,
+            "humanize_story_start",
+            "Humanizing spread texts with blader/humanizer skill.",
+        )
+        try:
+            rewritten = humanize_json(client, source, "Humanize spread texts")
+        except Exception as error:  # noqa: BLE001
+            logger.exception("Spread humanize failed")
+            append_event(job_dir, "humanize_story_failed", str(error))
+            story = {**story, "humanized": False, "humanize_error": str(error)}
+            write_json(job_dir / "story" / "rebuilt_story.json", story)
+            return story
+
+        by_n = {
+            int(item["n"]): (item.get("text") or "").strip()
+            for item in (rewritten.get("spreads") or [])
+            if item.get("n") is not None
+        }
+        updated_spreads = []
+        for spread in spreads:
+            item = dict(spread)
+            n = int(item.get("n") or 0)
+            if n in by_n and by_n[n]:
+                item["text"] = by_n[n]
+            updated_spreads.append(item)
+        story = {
+            **story,
+            "spreads": updated_spreads,
+            "humanized": True,
+            "humanize_error": None,
+        }
+        write_json(job_dir / "story" / "rebuilt_story.json", story)
+        append_event(job_dir, "humanize_story_done", "Spread texts humanized.")
         return story
 
     source = {
@@ -285,12 +332,7 @@ def humanize_story_fields(client, job_dir: Path, story: dict) -> dict:
     except Exception as error:  # noqa: BLE001
         logger.exception("Story humanize failed")
         append_event(job_dir, "humanize_story_failed", str(error))
-        # Non-fatal: keep AI draft so the pipeline can continue.
-        story = {
-            **story,
-            "humanized": False,
-            "humanize_error": str(error),
-        }
+        story = {**story, "humanized": False, "humanize_error": str(error)}
         write_json(job_dir / "story" / "rebuilt_story.json", story)
         return story
 
@@ -302,72 +344,5 @@ def humanize_story_fields(client, job_dir: Path, story: dict) -> dict:
         "humanize_error": None,
     }
     write_json(job_dir / "story" / "rebuilt_story.json", story)
-    (job_dir / "story" / "rebuilt_story.txt").write_text(
-        story.get("rebuilt_story") or "", encoding="utf-8"
-    )
-    (job_dir / "story" / "rebuilt_story.ai.txt").write_text(
-        source["rebuilt_story"], encoding="utf-8"
-    )
     append_event(job_dir, "humanize_story_done", "Manuscript humanized.")
     return story
-
-
-def humanize_page_texts(client, job_dir: Path, pages: list) -> list:
-    """Humanize the reader-facing page text that appears in the printed book."""
-    if not humanize_enabled():
-        return pages
-
-    batch = [
-        {
-            "number": page.get("number"),
-            "text": page.get("text") or "",
-        }
-        for page in pages
-        if not page.get("blank") and (page.get("text") or "").strip()
-    ]
-    if not batch:
-        return pages
-
-    append_event(
-        job_dir,
-        "humanize_pages_start",
-        f"Humanizing {len(batch)} page text(s) with blader/humanizer skill.",
-    )
-    try:
-        rewritten = humanize_json(
-            client,
-            {"pages": batch},
-            "Humanize page texts",
-        )
-    except Exception as error:  # noqa: BLE001
-        logger.exception("Page humanize failed")
-        append_event(job_dir, "humanize_pages_failed", str(error))
-        write_json(
-            job_dir / "story" / "pages.json",
-            {"pages": pages, "humanized": False, "humanize_error": str(error)},
-        )
-        return pages
-
-    by_number = {
-        int(item["number"]): item.get("text") or ""
-        for item in (rewritten.get("pages") or [])
-        if item.get("number") is not None
-    }
-    updated = []
-    for page in pages:
-        item = dict(page)
-        number = int(item.get("number") or 0)
-        if number in by_number and by_number[number].strip():
-            item["text"] = by_number[number].strip()
-        updated.append(item)
-
-    write_json(
-        job_dir / "story" / "pages.json",
-        {"pages": updated, "humanized": True},
-    )
-    append_event(
-        job_dir,
-        "humanize_pages_done",
-        f"Humanized text on {len(by_number)} page(s).",
-    )
-    return updated
