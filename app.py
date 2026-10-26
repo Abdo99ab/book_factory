@@ -25,10 +25,12 @@ BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
 
 from pipeline.book_templates import (
+    STANDARD_SLOTS,
     delete_template,
     get_template,
     list_templates,
     materialize_template_into_job,
+    missing_slots,
     save_job_as_template,
 )
 from pipeline.cast_rebuild import rebuild_content_for_cast
@@ -676,6 +678,8 @@ def create_app():
         return render_template(
             "reuse_template.html",
             template=meta,
+            standard_slots=STANDARD_SLOTS,
+            title_slots=[s for s in meta.get("slots") or [] if s["id"] not in {x["id"] for x in STANDARD_SLOTS}],
         )
 
     @app.post("/templates/<template_id>/reuse")
@@ -683,48 +687,41 @@ def create_app():
         meta = get_template(template_id)
         if not meta:
             abort(404)
+        back = redirect(url_for("reuse_template_form", template_id=template_id))
 
-        name = request.form.get("name", "").strip()
-        age = request.form.get("age", "").strip()
-        gender = request.form.get("gender", "").strip().lower()
-        font_id = normalize_font_id(None)
+        # Every slot is re-asked: nothing from the source child is carried over.
+        values = {s["id"]: (request.form.get(f"slot_{s['id']}") or "").strip() for s in meta.get("slots") or []}
         reference = request.files.get("reference_image")
-
-        if not name or not age or gender not in {"male", "female"}:
-            flash("Name, age, and gender are required.", "error")
-            return redirect(url_for("reuse_template_form", template_id=template_id))
+        missing = missing_slots(meta["title_id"], values)
+        if missing:
+            flash("Please fill: " + ", ".join(missing), "error")
+            return back
+        if not validate_order_id(values.get("order_id", "")):
+            flash("Order ID is required (letters, numbers and hyphens only).", "error")
+            return back
         if not reference or not reference.filename:
             flash("Upload the new child reference photo.", "error")
-            return redirect(url_for("reuse_template_form", template_id=template_id))
+            return back
         if not os.getenv("_OPENAI_API_KEY"):
             flash("_OPENAI_API_KEY is not configured.", "error")
-            return redirect(url_for("reuse_template_form", template_id=template_id))
-
+            return back
         extension = Path(secure_filename(reference.filename)).suffix.lower()
         if extension not in ALLOWED_IMAGE_EXTENSIONS:
             flash("Reference image must be PNG, JPG, JPEG, or WEBP.", "error")
-            return redirect(url_for("reuse_template_form", template_id=template_id))
+            return back
 
         job_id = uuid.uuid4().hex
         job_dir = JOB_ROOT / job_id
-        character_dir = job_dir / "character"
-        character_dir.mkdir(parents=True, exist_ok=True)
-        reference_path = character_dir / f"reference{extension}"
-        reference.save(reference_path)
-
         try:
-            packed = materialize_template_into_job(
-                template_id,
-                job_dir,
-                name=name,
-                age=age,
-                gender=gender,
-                font_id=font_id,
-            )
+            packed = materialize_template_into_job(template_id, job_dir, values=values)
         except Exception as error:
             shutil.rmtree(job_dir, ignore_errors=True)
             flash(f"Could not start from template: {error}", "error")
-            return redirect(url_for("reuse_template_form", template_id=template_id))
+            return back
+        character_dir = job_dir / "character"
+        character_dir.mkdir(parents=True, exist_ok=True)
+        # PARKED: data protection (spec ?14) - consent, retention, redaction
+        reference.save(character_dir / f"reference{extension}")
 
         inputs = packed["inputs"]
         story = packed["story"]
@@ -737,10 +734,12 @@ def create_app():
                 "run_mode": "from_template",
                 "from_template_id": template_id,
                 "book_title": story.get("title"),
-                "name": name,
-                "theme": inputs.get("theme"),
-                "purpose": inputs.get("purpose"),
-                "page_count": inputs.get("page_count"),
+                "name": inputs["name"],
+                "title_id": inputs["title_id"],
+                "band": meta.get("band"),
+                "order_id": inputs["order_id"],
+                "age_band": inputs["age_band"],
+                "page_count": CONTENT_PAGE_COUNT,
                 "current_page": 0,
                 "total_pages": len(pages),
                 "preview_requested": False,
@@ -755,12 +754,12 @@ def create_app():
         append_event(
             job_dir,
             "job_created_from_template",
-            f"Created from template {template_id}; story locked, regenerating art for {name}.",
+            f"Created from template {template_id}; text locked, regenerating sheets, art and PDF for {inputs['name']}.",
             template_id=template_id,
             inputs=inputs,
         )
         job_executor.submit(_safe_run_job, job_id, job_dir, "from_template")
-        flash(f"Building “{story.get('title')}” for {name} from template…", "success")
+        flash(f"Building \u201c{story.get('title')}\u201d for {inputs['name']} from template.", "success")
         return redirect(url_for("job_page", job_id=job_id))
 
     @app.post("/templates/<template_id>/delete")

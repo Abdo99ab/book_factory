@@ -1,41 +1,39 @@
 {% extends "base.html" %}
 {% block title %}Reuse {{ template.label or template.title }} | Book Factory{% endblock %}
 {% block content %}
-  <a class="back-link" href="{{ url_for('template_list') }}">← Templates</a>
+  <a class="back-link" href="{{ url_for('template_list') }}">&larr; Templates</a>
   <section class="hero">
     <p class="eyebrow">Reuse template</p>
     <h1>{{ template.label or template.title }}</h1>
     <p>
-      Story, scenes, and page text stay locked from the approved book.
-      Only the child photo and name change — then we regenerate the character sheet, cover, and every page illustration.
+      The approved story text stays. Every slot below is asked again for the new child; nothing from the
+      previous child (photo, sheets, name, dedication, order) is kept. We regenerate the character, set and
+      anchor sheets, the cover and all 28 page images, then rebuild the PDF.
     </p>
-    <p class="meta">{{ template.theme }} · {{ template.purpose }} · {{ template.page_count }} pages · was “{{ template.source_name }}”</p>
+    <p class="meta">{{ template.band }} &middot; {{ template.page_count }} pages &middot; ages {{ template.age_band }}</p>
   </section>
 
   <section class="panel">
     <form class="create-form" method="post" action="{{ url_for('reuse_template', template_id=template.template_id) }}" enctype="multipart/form-data">
-      <label>Child name
-        <input name="name" required placeholder="New hero name">
-      </label>
-      <label>Age
-        <input name="age" required type="number" min="1" max="14" placeholder="5">
-      </label>
-      <label>Gender
-        <select name="gender" required>
-          <option value="female">Girl</option>
-          <option value="male">Boy</option>
-        </select>
-      </label>
-      <label class="wide">Story text font
-        <select name="font_id">
-          {% for font in fonts %}
-            <option value="{{ font.id }}" {% if font.id == default_font_id %}selected{% endif %}>{{ font.label }}</option>
-          {% endfor %}
-        </select>
-      </label>
+      {% for slot in standard_slots + title_slots %}
+        <label {% if slot.type == 'text' and slot.id in ('dedication_text',) %}class="wide"{% endif %}>{{ slot.label }}
+          {% if slot.type == 'select' %}
+            <select name="slot_{{ slot.id }}" {% if slot.required %}required{% endif %}>
+              {% for option in slot.options %}
+                <option value="{{ option }}" {% if slot.id == 'pronouns' and option == template.text_pronouns %}selected{% endif %}>{{ option }}</option>
+              {% endfor %}
+            </select>
+          {% else %}
+            <input name="slot_{{ slot.id }}" {% if slot.required %}required{% endif %}>
+          {% endif %}
+        </label>
+      {% endfor %}
+      {% if template.text_pronouns %}
+        <p class="hint wide">This text is written with "{{ template.text_pronouns }}" pronouns. For other pronouns, start a new book from the catalogue.</p>
+      {% endif %}
       <label class="wide">Child photo
         <input name="reference_image" type="file" accept="image/png,image/jpeg,image/webp" required>
-        <small>One hero photo. Manuscript is not rewritten.</small>
+        <small>One reference photo of the new child.</small>
       </label>
       <div class="hero-actions">
         <button class="button" type="submit">Build for this child</button>

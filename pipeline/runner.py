@@ -404,9 +404,9 @@ def run_validate_and_build(job_id: str, job_dir: Path):
 
 
 def run_from_template(job_id: str, job_dir: Path):
-    """Reuse approved template content: new character sheet + all art + PDF.
+    """Reuse approved template text: new sheets + all 28 page images + cover + PDF.
 
-    Story/pages are already on disk (name swapped). Does not rebuild manuscript.
+    Story/pages are already on disk (slots filled, locked copy rebuilt). Does not rewrite the text.
     """
     inputs = read_json(job_dir / "inputs.json")
     if not inputs:
@@ -441,6 +441,9 @@ def run_from_template(job_id: str, job_dir: Path):
         _update_job(job_dir, status="generating_character")
         # Always regenerate the character sheet for the new child.
         character_path = generate_character(client, job_dir, reference_path, inputs)
+        # Templates never carry sheets over: set and anchor sheets are regenerated too.
+        generate_set_sheets(client, job_dir, inputs)
+        generate_anchor_sheet(client, job_dir, inputs)
 
         # Force fresh cover/spread art for the new face (ignore any leftover art).
         for leftover in (

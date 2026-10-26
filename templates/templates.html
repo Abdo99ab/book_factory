@@ -4,7 +4,7 @@
   <section class="hero">
     <p class="eyebrow">Reusable books</p>
     <h1>Templates</h1>
-    <p>Approved books you can remake for a new child — same story and scenes, new photo and name only.</p>
+    <p>Approved books you can remake for a new child — same approved text, every slot asked again, new photo.</p>
   </section>
 
   <section class="panel">
@@ -21,9 +21,8 @@
             <div>
               <strong>{{ t.label or t.title }}</strong>
               <span>
-                {{ t.theme }} · {{ t.page_count }} pages
-                · source hero {{ t.source_name }}
-                {% if t.source_job_id %} · from {{ t.source_job_id[:8] }}…{% endif %}
+                {{ t.band }} &middot; {{ t.page_count }} pages &middot; ages {{ t.age_band }}
+                &middot; {{ t.placeholders|length }} slot(s) in the text
               </span>
             </div>
             <div class="template-actions">
