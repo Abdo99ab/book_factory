@@ -316,10 +316,10 @@
   {% if overlay_rebuild_available %}
   <section class="panel font-panel">
     <p class="eyebrow">Text layer</p>
-    <h2>Re-render overlays</h2>
+    <h2>Re-render text layer</h2>
     <p class="hint">Re-applies Raised Ready brand fonts on existing art (no new AI images).</p>
     <form method="post" action="{{ url_for('rebuild_overlays', job_id=job.job_id) }}">
-      <button class="button" type="submit">Re-render text &amp; PDF</button>
+      <button class="button" type="submit">Re-render text &amp; PDF (no new images)</button>
     </form>
   </section>
   {% endif %}

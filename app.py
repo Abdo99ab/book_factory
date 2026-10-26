@@ -870,47 +870,35 @@ def create_app():
         inputs["font_id"] = font_id
         write_json(job_dir / "inputs.json", inputs)
 
-        cover_front = job_dir / "cover" / "front_art.png"
         pages = pages_payload.get("pages") or []
         has_page_art = any(
-            (job_dir / "pages" / f"page-{p['number']:02d}" / "art.png").is_file()
+            page_art_path(job_dir, p["number"]) is not None
+            and page_art_path(job_dir, p["number"]).is_file()
             for p in pages
-            if not p.get("blank")
+            if p.get("kind") == "spread_half"
         )
         if not has_page_art:
-            flash("No page art yet — finish preview or build first.", "error")
+            flash("No page art yet - finish preview or build first.", "error")
             return redirect(url_for("job_page", job_id=job_id))
 
         try:
-            if cover_front.is_file() and (job_dir / "cover" / "back_art.png").is_file():
-                pdf_path = build_pdf(job_dir, story, pages, inputs)
-                job["pdf"] = pdf_path.name
-                job["status"] = "complete"
-            else:
-                # Preview-only: overlay existing preview pages without full cover/PDF
-                from pipeline.pdf_build import overlay_text_on_image
-
-                print_dir = job_dir / "print" / "pages"
-                print_dir.mkdir(parents=True, exist_ok=True)
-                for page in pages:
-                    art = job_dir / "pages" / f"page-{page['number']:02d}" / "art.png"
-                    if not art.is_file():
-                        continue
-                    overlay_text_on_image(
-                        art,
-                        page.get("text") or "",
-                        page.get("text_placement") or "bottom",
-                        print_dir / f"page-{page['number']:02d}.jpg",
-                        font_id=font_id,
-                    )
+            if not (
+                (job_dir / "cover" / "front_art.png").is_file()
+                and (job_dir / "cover" / "back_art.png").is_file()
+            ):
+                flash("Cover art is missing - generate the full build first.", "error")
+                return redirect(url_for("job_page", job_id=job_id))
+            pdf_path = build_pdf(job_dir, story, pages, inputs)
+            job["pdf"] = pdf_path.relative_to(job_dir).as_posix()
+            job["status"] = "complete"
             write_json(job_dir / "job.json", job)
             append_event(
                 job_dir,
                 "overlays_rebuilt",
-                f"Text overlays rebuilt with font {font_id}.",
+                f"Text layer and PDF rebuilt with font {font_id} (no new AI images).",
                 font_id=font_id,
             )
-            flash("Text overlays re-rendered with Raised Ready brand fonts.", "success")
+            flash("Text layer re-rendered with Raised Ready brand fonts.", "success")
         except Exception as error:
             logger.exception("Overlay rebuild failed")
             flash(f"Overlay rebuild failed: {error}", "error")

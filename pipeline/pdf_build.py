@@ -1,68 +1,254 @@
-"""Overlay story text onto page art and assemble a TJ print PDF.
+"""Raised Ready print PDF: native-resolution art + live vector text (ReportLab).
 
-Inner pages: 210×210 mm trim + 3 mm bleed (single pages, no colour profile).
-Cover flat: 16 mm wrap + 216 back + 8 mm spine + 216 front + 16 mm wrap.
-Endpapers are plain and not counted in the 32 content pages.
+Text is never drawn into an image. Page images are placed at their native pixels in the
+216 mm (trim + bleed) box; nothing is resampled up. Fonts are the four brand TTFs only.
+
+Packaging comes from the printer profile (constants.PRINTER_PROFILES):
+  * ``single_pdf_cover_flat_first``      — TJ Books: cover flat, [endpaper], p1-32, [endpaper]
+  * ``single_pdf_cover_first_back_last`` — Prodigi: front cover, p1-32, back cover
 """
 
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfgen import canvas
 
-from .constants import (
-    BACK_QR_SAFE_PX,
-    BLEED_PX,
-    COVER_HEIGHT_PT,
-    COVER_PANEL_PX,
-    COVER_PIXEL_HEIGHT,
-    COVER_PIXEL_WIDTH,
-    COVER_WIDTH_PT,
-    FONTS_DIR,
-    PAGE_HEIGHT_PT,
-    PAGE_PIXEL_HEIGHT,
-    PAGE_PIXEL_WIDTH,
-    PAGE_WIDTH_PT,
-    SPINE_MM,
-    SPINE_PX,
-    SPINE_WIDTH_PT,
-    WRAP_PX,
+from .brand import (
+    BAND_TEXT_COLOUR,
+    COLOURS,
+    FAMILY_COLOUR,
+    HONESTY_LINE,
+    LOGO_FILES,
+    READ_IT_AGAIN_LINE,
+    ROUTE_PRESETS,
+    SAFE_MM,
+    SIZE_SCALE,
 )
-from .fonts import font_file_path, normalize_font_id
-from .job_log import append_event
+from .catalogue import get_title
+from .constants import (
+    BACK_QR_SAFE_CORNER,
+    BACK_QR_SAFE_MM,
+    BLEED_MM,
+    CONTENT_PAGE_COUNT,
+    COVER_HEIGHT_MM,
+    COVER_WIDTH_MM,
+    PAGE_WITH_BLEED_MM,
+    PRINTED_IN_UK_LINE,
+    PRINTER,
+    PRINTER_PROFILE_NAME,
+    SPINE_MM,
+    SPREAD_COUNT,
+    TEXT_PLATE,
+    WRAP_MM,
+    mm_to_pt,
+)
+from .fonts import normalize_font_id, register_brand_fonts, reportlab_name
+from .illustrate import assert_print_resolution
+from .job_log import append_event, write_json
+from .pages import spread_art_path
+
+SITE_URL = "raisedready.co.uk"
+CONTRAST_TARGET = 4.5
+PLATE_ALPHA = 0.88
+PLATE_LAYERS = 8
+BAND_DEPTH_MM = float(SIZE_SCALE["band_depth_mm"])
+
+INK = COLOURS["ink_navy"]["rgb"]
+PAPER = COLOURS["paper"]["rgb"]
+OAT = COLOURS["oat"]["rgb"]
 
 
-def _load_font(size: int, font_id: str | None = None):
-    candidates = []
-    primary = font_file_path(font_id, role="body")
-    if primary is not None:
-        candidates.append(primary)
-    title_path = font_file_path(font_id, role="title")
-    if title_path is not None:
-        candidates.append(title_path)
-    candidates.extend(
-        [
-            FONTS_DIR / "Nunito-SemiBold.ttf",
-            FONTS_DIR / "Nunito-Regular.ttf",
-        ]
+# --- small helpers -------------------------------------------------------------------------------
+
+
+def _c01(rgb) -> tuple[float, float, float]:
+    return tuple(v / 255.0 for v in rgb)  # type: ignore[return-value]
+
+
+def _lum(rgb) -> float:
+    def lin(v: float) -> float:
+        v /= 255.0
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+
+    r, g, b = rgb[:3]
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+
+
+def contrast_ratio(a, b) -> float:
+    la, lb = _lum(a), _lum(b)
+    hi, lo = max(la, lb), min(la, lb)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def safe_order_id(inputs: dict, job_dir: Path) -> str:
+    raw = str(inputs.get("order_id") or "").strip()
+    cleaned = re.sub(r"[^A-Za-z0-9-]", "", raw)
+    return cleaned or re.sub(r"[^A-Za-z0-9-]", "", job_dir.name) or "order"
+
+
+def pdf_path_for(job_dir: Path, inputs: dict) -> Path:
+    return job_dir / "print" / f"{safe_order_id(inputs, job_dir)}-final.pdf"
+
+
+def apply_post_grade(image: Image.Image, grade: str | None) -> Image.Image:
+    """Lighting grade applied AFTER face QA (spec §8.3.6). Colour only; never resizes."""
+    if not grade:
+        return image
+    from PIL import ImageEnhance
+
+    rgb = image.convert("RGB")
+    if grade == "night":
+        tint, strength, bright = (20, 35, 70), 0.20, 0.74
+    elif grade == "underwater":
+        tint, strength, bright = (15, 82, 87), 0.24, 0.92
+    else:
+        return rgb
+    rgb = ImageEnhance.Brightness(rgb).enhance(bright)
+    return Image.blend(rgb, Image.new("RGB", rgb.size, tint), strength)
+
+
+class _Art:
+    """One page/cover image: embedded at native pixels, sampled (small copy) for contrast."""
+
+    def __init__(self, path: Path, work_dir: Path, grade: str | None = None, tag: str = ""):
+        with Image.open(path) as source:
+            rgb = source.convert("RGB")
+        self.width_px, self.height_px = rgb.size
+        graded = apply_post_grade(rgb, grade)
+        work_dir.mkdir(parents=True, exist_ok=True)
+        self.embed_path = work_dir / f"{tag or path.stem}.jpg"
+        # Same pixel dimensions as the model output; JPEG only keeps the PDF a sane size.
+        graded.save(self.embed_path, format="JPEG", quality=95, subsampling=0)
+        small = graded.copy()
+        small.thumbnail((160, 160))
+        self.small = small
+        self.rect_mm: tuple[float, float, float, float] | None = None
+
+    def stats(self, box_mm: tuple[float, float, float, float]) -> dict:
+        """Luminance stats for a box given in the same mm space the art was placed in."""
+        assert self.rect_mm is not None
+        ax, ay, aw, ah = self.rect_mm
+        x0, y0, x1, y1 = box_mm
+        sw, sh = self.small.size
+        px0 = max(0, min(sw - 1, int((x0 - ax) / aw * sw)))
+        px1 = max(px0 + 1, min(sw, int((x1 - ax) / aw * sw + 0.999)))
+        py0 = max(0, min(sh - 1, int((y0 - ay) / ah * sh)))
+        py1 = max(py0 + 1, min(sh, int((y1 - ay) / ah * sh + 0.999)))
+        region = self.small.crop((px0, py0, px1, py1))
+        pixels = list(region.getdata())
+        lums = sorted(_lum(p) for p in pixels)
+        n = len(lums)
+        mean = sum(lums) / n
+        std = (sum((v - mean) ** 2 for v in lums) / n) ** 0.5
+        return {
+            "p10": lums[int(0.10 * (n - 1))],
+            "p90": lums[int(0.90 * (n - 1))],
+            "std": std,
+        }
+
+
+@dataclass
+class _Ctx:
+    canvas: canvas.Canvas
+    job_dir: Path
+    work_dir: Path
+    inputs: dict
+    story: dict
+    title: dict
+    name: str
+    family: str
+    route: dict
+    grade: str | None
+    layout_log: list
+
+
+def _y(c: canvas.Canvas, y_mm: float) -> float:
+    """Top-left mm -> PDF y (points, origin bottom-left)."""
+    return c._pagesize[1] - mm_to_pt(y_mm)
+
+
+def _x(x_mm: float) -> float:
+    return mm_to_pt(x_mm)
+
+
+def _place(c: canvas.Canvas, art: _Art, x: float, y: float, w: float, h: float, clip=None) -> None:
+    art.rect_mm = (x, y, w, h)
+    c.saveState()
+    if clip is not None:
+        cx, cy, cw, ch = clip
+        path = c.beginPath()
+        path.rect(_x(cx), _y(c, cy + ch), mm_to_pt(cw), mm_to_pt(ch))
+        c.clipPath(path, stroke=0, fill=0)
+    c.drawImage(
+        ImageReader(str(art.embed_path)),
+        _x(x),
+        _y(c, y + h),
+        width=mm_to_pt(w),
+        height=mm_to_pt(h),
     )
-    for path in candidates:
-        if path.is_file():
-            return ImageFont.truetype(str(path), size=size)
-    raise RuntimeError("Missing Raised Ready brand font files under assets/fonts/")
+    c.restoreState()
 
 
-def _text_size(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont):
-    bbox = draw.textbbox((0, 0), text, font=font)
-    return bbox[2] - bbox[0], bbox[3] - bbox[1]
+def _fill_rect(c, x, y, w, h, rgb) -> None:
+    c.saveState()
+    c.setFillColorRGB(*_c01(rgb))
+    c.rect(_x(x), _y(c, y + h), mm_to_pt(w), mm_to_pt(h), stroke=0, fill=1)
+    c.restoreState()
 
 
-def _wrap_lines(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, max_width: int):
-    paragraphs = (text or "").split("\n")
-    lines = []
-    for paragraph in paragraphs:
+def _soft_plate(c, x, y, w, h) -> None:
+    """Soft-edged paper plate (#FAF6EF, ~88 % opacity): feathered layers, no hard white box."""
+    per_layer = 1 - (1 - PLATE_ALPHA) ** (1 / PLATE_LAYERS)
+    c.saveState()
+    c.setFillColorRGB(*_c01(PAPER))
+    for i in range(PLATE_LAYERS):
+        grow = (PLATE_LAYERS - 1 - i) * 0.8
+        c.setFillAlpha(per_layer)
+        c.roundRect(
+            _x(x - grow),
+            _y(c, y + h + grow),
+            mm_to_pt(w + 2 * grow),
+            mm_to_pt(h + 2 * grow),
+            mm_to_pt(5 + grow),
+            stroke=0,
+            fill=1,
+        )
+    c.restoreState()
+
+
+def _decide_ink(ctx: _Ctx, art: _Art | None, box_mm, allow_light_ink: bool = False, label: str = ""):
+    """(ink_rgb, plate_bool). Navy on a light calm zone; plate only when contrast fails."""
+    if art is None:
+        return INK, False
+    s = art.stats(box_mm)
+    navy_contrast = (s["p10"] + 0.05) / (_lum(INK) + 0.05)
+    if navy_contrast >= CONTRAST_TARGET and TEXT_PLATE != "always":
+        return INK, False
+    if TEXT_PLATE == "always":
+        return INK, True
+    if allow_light_ink:
+        light_contrast = (_lum(PAPER) + 0.05) / (s["p90"] + 0.05)
+        if light_contrast >= CONTRAST_TARGET:
+            return PAPER, False
+    if TEXT_PLATE == "none":
+        append_event(
+            ctx.job_dir,
+            "text_contrast_warning",
+            f"{label}: ink navy contrast {navy_contrast:.1f}:1 < {CONTRAST_TARGET} and TEXT_PLATE=none.",
+        )
+        return INK, False
+    return INK, True
+
+
+def _wrap(text: str, font: str, size: float, width_pt: float) -> list[str]:
+    lines: list[str] = []
+    for paragraph in (text or "").split("\n"):
         words = paragraph.split()
         if not words:
             lines.append("")
@@ -70,8 +256,7 @@ def _wrap_lines(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont,
         current = words[0]
         for word in words[1:]:
             trial = f"{current} {word}"
-            width, _ = _text_size(draw, trial, font)
-            if width <= max_width:
+            if pdfmetrics.stringWidth(trial, font, size) <= width_pt:
                 current = trial
             else:
                 lines.append(current)
@@ -80,352 +265,665 @@ def _wrap_lines(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont,
     return lines
 
 
-def _measure_block(
-    draw: ImageDraw.ImageDraw,
-    lines: list[str],
-    font: ImageFont.ImageFont,
-    line_gap: int,
-):
-    if not lines:
-        return 0, 0
-    widths = []
-    heights = []
+def _sentences(text: str) -> list[str]:
+    parts = re.split(r"(?<=[.!?…])\s+", (text or "").strip())
+    return [p for p in parts if p]
+
+
+def _draw_lines(c, lines, font, size, x_mm, top_mm, leading_pt, rgb, align="left", width_mm=None):
+    c.saveState()
+    c.setFillColorRGB(*_c01(rgb))
+    c.setFont(font, size)
+    y = _y(c, top_mm) - size  # first baseline
     for line in lines:
-        w, h = _text_size(draw, line or " ", font)
-        widths.append(w)
-        heights.append(h)
-    total_h = sum(heights) + line_gap * max(0, len(lines) - 1)
-    return max(widths) if widths else 0, total_h
-
-
-def _placement_top(placement: str, height: int, box_height: int) -> int:
-    # Stay inside trim (outside the 3 mm bleed) with a little breathing room.
-    safe = BLEED_PX + int(height * 0.04)
-    if placement == "top":
-        return safe
-    if placement == "upper_third":
-        return int(height * 0.12)
-    if placement == "middle":
-        return max(int(height * 0.5 - box_height / 2), safe)
-    if placement == "lower_third":
-        return int(height * 0.58)
-    return int(height * 0.68)
-
-
-def _fit_text_block(
-    draw: ImageDraw.ImageDraw,
-    text: str,
-    font_id: str | None,
-    max_width: int,
-    max_height: int,
-    min_size: int = 48,
-    max_size: int = 110,
-):
-    """Largest font that fits text in the max box; returns font, lines, sizes."""
-    best = None
-    low, high = min_size, max_size
-    while low <= high:
-        size = (low + high) // 2
-        font = _load_font(size, font_id)
-        line_gap = max(8, size // 5)
-        lines = _wrap_lines(draw, text, font, max_width)
-        block_w, block_h = _measure_block(draw, lines, font, line_gap)
-        if block_h <= max_height and block_w <= max_width:
-            best = (font, lines, block_w, block_h, line_gap, size)
-            low = size + 1
+        if align == "center":
+            c.drawCentredString(_x(x_mm + (width_mm or 0) / 2), y, line)
         else:
-            high = size - 1
-
-    if best:
-        return best
-
-    font = _load_font(min_size, font_id)
-    line_gap = max(8, min_size // 5)
-    lines = _wrap_lines(draw, text, font, max_width)
-    kept = []
-    height = 0
-    for line in lines:
-        _, h = _text_size(draw, line or " ", font)
-        next_h = height + h + (line_gap if kept else 0)
-        if next_h > max_height:
-            break
-        kept.append(line)
-        height = next_h
-    block_w, block_h = _measure_block(draw, kept, font, line_gap)
-    return font, kept, block_w, block_h, line_gap, min_size
+            c.drawString(_x(x_mm), y, line)
+        y -= leading_pt
+    c.restoreState()
 
 
-def overlay_text_on_image(
-    art_path: Path,
-    text: str,
-    placement: str,
-    output_path: Path,
-    title: str | None = None,
-    font_id: str | None = None,
-):
-    font_id = normalize_font_id(font_id)
-    with Image.open(art_path) as source:
-        image = source.convert("RGBA").resize(
-            (PAGE_PIXEL_WIDTH, PAGE_PIXEL_HEIGHT),
-            Image.Resampling.LANCZOS,
-        )
+def _tracked_centered(c, text, font, size, centre_x_mm, baseline_mm, rgb, tracking_pct) -> None:
+    char_space = size * tracking_pct / 100.0
+    width = pdfmetrics.stringWidth(text, font, size) + char_space * max(0, len(text) - 1)
+    t = c.beginText()
+    t.setTextOrigin(_x(centre_x_mm) - width / 2, _y(c, baseline_mm))
+    t.setFont(font, size)
+    t.setCharSpace(char_space)
+    t.setFillColorRGB(*_c01(rgb))
+    t.textOut(text)
+    c.drawText(t)
 
-    draw = ImageDraw.Draw(image, "RGBA")
-    # Keep text inside trim + margin (outside 3 mm bleed).
-    margin_x = BLEED_PX + int(image.width * 0.06)
-    inner_pad_x = 40
-    inner_pad_y = 36
-    max_box_w = image.width - 2 * margin_x
-    text_max_w = max_box_w - 2 * inner_pad_x
-    max_box_h = int(image.height * 0.28)
 
-    body = (text or "").strip()
-    full_text = body
-    if title:
-        full_text = f"{title.strip()}\n{body}".strip() if body else title.strip()
+def _draw_logo(c, key: str, x_mm: float, y_mm: float, w_mm: float, rotate: bool = False) -> tuple[float, float]:
+    path = LOGO_FILES[key]
+    if not Path(path).is_file():
+        raise FileNotFoundError(f"Brand logo master missing: {path}")
+    with Image.open(path) as im:
+        aspect = im.size[1] / im.size[0]
+    h_mm = w_mm * aspect
+    c.drawImage(
+        ImageReader(str(path)),
+        _x(x_mm),
+        _y(c, y_mm + h_mm),
+        width=mm_to_pt(w_mm),
+        height=mm_to_pt(h_mm),
+        mask="auto",
+    )
+    return w_mm, h_mm
 
-    font, lines, block_w, block_h, line_gap, _size = _fit_text_block(
-        draw, full_text, font_id, text_max_w, max_box_h - 2 * inner_pad_y
+
+# --- title string split (cover / title page) -------------------------------------------------------
+
+
+def split_title(title: str, name: str) -> tuple[str | None, str]:
+    """('[Name] and the', rest) per spec §4; no split when the pattern is not recognised."""
+    for prefix in (f"{name} and the ", f"The Night {name}'s ", f"{name}'s ", f"{name}\u2019s "):
+        if title.startswith(prefix):
+            return prefix.strip(), title[len(prefix) :].strip()
+    return None, title
+
+
+def _title_layout(ctx: _Ctx, title: str, width_mm: float):
+    """Noto Serif title lines: (line1, rest_lines, rest_size) with rest 44-52 pt, max 3 lines."""
+    font = reportlab_name("title")
+    line1, rest = split_title(title, ctx.name)
+    lo, hi = SIZE_SCALE["front_title_rest"]
+    width_pt = mm_to_pt(width_mm)
+    for size in range(hi, lo - 1, -2):
+        lines = _wrap(rest, font, size, width_pt)
+        if len(lines) <= 3:
+            return line1, lines, size
+    size = lo
+    lines = _wrap(rest, font, size, width_pt)
+    while len(lines) > 3 and size > 30:
+        size -= 2
+        lines = _wrap(rest, font, size, width_pt)
+    append_event(
+        ctx.job_dir,
+        "title_size_warning",
+        f"Title needs {size} pt (< {lo}) to fit 3 lines.",
+        size=size,
+    )
+    return line1, lines, size
+
+
+def _draw_title_block(ctx, c, art, title, centre_x_mm, top_mm, width_mm, allow_light_ink, label):
+    font = reportlab_name("title")
+    line1, lines, size = _title_layout(ctx, title, width_mm)
+    l1_size = SIZE_SCALE["front_title_and_the"][0]
+    l1_pt = l1_size * 1.25
+    lead = size * 1.12
+    height_pt = (l1_pt if line1 else 0) + lead * len(lines)
+    height_mm = height_pt * 25.4 / 72
+    box = (centre_x_mm - width_mm / 2, top_mm - 2, centre_x_mm + width_mm / 2, top_mm + height_mm + 2)
+    ink, plate = _decide_ink(ctx, art, box, allow_light_ink=allow_light_ink, label=label)
+    if plate:
+        _soft_plate(c, box[0] - 4, box[1] - 3, width_mm + 8, height_mm + 8)
+    cursor = top_mm
+    if line1:
+        _draw_lines(c, [line1], font, l1_size, centre_x_mm - width_mm / 2, cursor, l1_pt, ink, "center", width_mm)
+        cursor += l1_pt * 25.4 / 72
+    _draw_lines(c, lines, font, size, centre_x_mm - width_mm / 2, cursor, lead, ink, "center", width_mm)
+    return height_mm, ink, plate
+
+
+def _draw_band(ctx, c, fill_x_mm, fill_w_mm, top_mm, trim_top_mm, text_cx_mm) -> None:
+    """Family band: 13 mm deep below the trim line; DM Mono 10 pt caps, +12 % tracking."""
+    colour = COLOURS[FAMILY_COLOUR[ctx.family]]["rgb"]
+    ink = COLOURS[BAND_TEXT_COLOUR[ctx.family]]["rgb"]
+    bottom = trim_top_mm + BAND_DEPTH_MM
+    _fill_rect(c, fill_x_mm, top_mm, fill_w_mm, bottom - top_mm, colour)
+    _tracked_centered(
+        c,
+        ctx.story["locked"]["front_band"].upper(),
+        reportlab_name("label"),
+        SIZE_SCALE["front_band"],
+        text_cx_mm,
+        trim_top_mm + BAND_DEPTH_MM / 2 + 1.3,
+        ink,
+        SIZE_SCALE["band_tracking_pct"],
     )
 
-    box_w = min(max_box_w, max(block_w + 2 * inner_pad_x, int(image.width * 0.55)))
-    box_h = min(max_box_h, block_h + 2 * inner_pad_y)
-    box_h = max(box_h, int(image.height * 0.12))
 
-    left = margin_x + (max_box_w - box_w) // 2
-    top = _placement_top(placement, image.height, box_h)
-    bottom_limit = image.height - BLEED_PX - int(image.height * 0.03)
-    if top + box_h > bottom_limit:
-        top = bottom_limit - box_h
-    right = left + box_w
-    bottom = top + box_h
+# --- interior pages ---------------------------------------------------------------------------------
 
-    draw.rounded_rectangle(
-        (left, top, right, bottom),
-        radius=42,
-        fill=(255, 250, 240, 225),
+
+def _blank_page(ctx: _Ctx, rgb=(255, 255, 255)) -> None:
+    c = ctx.canvas
+    c.setPageSize((mm_to_pt(PAGE_WITH_BLEED_MM),) * 2)
+    _fill_rect(c, 0, 0, PAGE_WITH_BLEED_MM, PAGE_WITH_BLEED_MM, rgb)
+    c.showPage()
+
+
+def _paper_page(ctx: _Ctx) -> None:
+    _fill_rect(ctx.canvas, 0, 0, PAGE_WITH_BLEED_MM, PAGE_WITH_BLEED_MM, PAPER)
+
+
+def _page_text_box(side: str) -> tuple[float, float]:
+    """(left_mm, width_mm) of the text column: >=10 mm from trim, >=15 mm from the gutter."""
+    outer = BLEED_MM + SAFE_MM["trim"]
+    gutter = BLEED_MM + SAFE_MM["gutter"]
+    if side == "left":  # gutter is the right edge
+        return outer, PAGE_WITH_BLEED_MM - outer - gutter
+    return gutter, PAGE_WITH_BLEED_MM - outer - gutter
+
+
+def _fit_story_text(ctx: _Ctx, text: str, width_mm: float, max_height_mm: float):
+    route = ctx.route
+    font = reportlab_name("body")
+    start = float(route["story_pt"])
+    leading = float(route["leading"])
+    floor = 14.0
+    size = start
+    sentence_per_line = ctx.inputs.get("route") != "field_guide"
+    while True:
+        if sentence_per_line:
+            lines = []
+            for sentence in _sentences(text):
+                lines.extend(_wrap(sentence, font, size, mm_to_pt(width_mm)))
+        else:
+            lines = _wrap(text, font, size, mm_to_pt(width_mm))
+        height_mm = len(lines) * size * leading * 25.4 / 72
+        if height_mm <= max_height_mm or size <= floor:
+            return lines, size, leading, height_mm
+        size -= 1
+
+
+def _draw_spread_page(ctx: _Ctx, page: dict, art_path: Path, side: str, index: int) -> None:
+    c = ctx.canvas
+    c.setPageSize((mm_to_pt(PAGE_WITH_BLEED_MM),) * 2)
+    art = _Art(art_path, ctx.work_dir, ctx.grade, tag=f"page-{page['number']:02d}")
+    _place(c, art, 0, 0, PAGE_WITH_BLEED_MM, PAGE_WITH_BLEED_MM)
+    record = {"page": page["number"], "kind": "spread_half", "side": side, "text": False, "plate": False}
+    if page.get("calm_zone") == side and (page.get("text") or "").strip():
+        left, width = _page_text_box(side)
+        bottom = PAGE_WITH_BLEED_MM - BLEED_MM - SAFE_MM["trim"]
+        max_h = PAGE_WITH_BLEED_MM * 0.48
+        lines, size, leading, height_mm = _fit_story_text(ctx, page["text"], width, max_h)
+        if size < ctx.route["story_pt"] - 1:
+            append_event(
+                ctx.job_dir,
+                "text_fit_warning",
+                f"Page {page['number']}: story text set at {size:g} pt (brand {ctx.route['story_pt']} pt).",
+                page=page["number"],
+            )
+        top = bottom - height_mm
+        box = (left, top, left + width, bottom)
+        ink, plate = _decide_ink(ctx, art, box, label=f"Page {page['number']}")
+        if plate:
+            _soft_plate(c, left - 6, top - 6, width + 12, height_mm + 12)
+        _draw_lines(c, lines, reportlab_name("body"), size, left, top, size * leading, ink)
+        record.update({"text": True, "plate": plate, "size_pt": size, "lines": len(lines)})
+    ctx.layout_log.append(record)
+    c.showPage()
+
+
+def _draw_title_page(ctx: _Ctx, page: dict) -> None:
+    c = ctx.canvas
+    c.setPageSize((mm_to_pt(PAGE_WITH_BLEED_MM),) * 2)
+    _paper_page(ctx)
+    page_w = PAGE_WITH_BLEED_MM
+    _draw_band(ctx, c, 0, page_w, 0, BLEED_MM, page_w / 2)
+    title = ctx.story["locked"]["title"]
+    # Paper ground: ink navy always, no plate needed.
+    _draw_title_block(ctx, c, None, title, page_w / 2, BLEED_MM + BAND_DEPTH_MM + 22, 170, False, "Title page")
+    c.saveState()
+    c.setFillColorRGB(*_c01(INK))
+    c.setFont(reportlab_name("body"), SIZE_SCALE["illustrated_from"])
+    c.drawCentredString(
+        _x(page_w / 2),
+        _y(c, page_w - BLEED_MM - SAFE_MM["trim"] - 38),
+        f"Illustrated from {ctx.name}'s photo",
     )
-
-    text_color = (28, 38, 52, 255)
-    cursor_y = top + (box_h - block_h) // 2
-    for line in lines:
-        w, h = _text_size(draw, line or " ", font)
-        x = left + (box_w - w) // 2
-        draw.text((x, cursor_y), line, font=font, fill=text_color)
-        cursor_y += h + line_gap
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    image.convert("RGB").save(output_path, format="JPEG", quality=95, optimize=True)
-    return output_path
-
-
-def _cover_side_strip(art: Image.Image, *, side: str) -> Image.Image:
-    """Full-bleed strip for one cover side: panel + outer wrap, top/bottom wraps.
-
-    back:  [left wrap | panel]
-    front: [panel | right wrap]
-    """
-    target_w = COVER_PANEL_PX + WRAP_PX
-    target_h = COVER_PIXEL_HEIGHT
-    src = art.convert("RGB")
-    scale = max(target_w / src.width, target_h / src.height)
-    nw = max(target_w, int(src.width * scale + 0.5))
-    nh = max(target_h, int(src.height * scale + 0.5))
-    scaled = src.resize((nw, nh), Image.Resampling.LANCZOS)
-    # Bias crop so the outer wrap gets edge pixels and the spine edge stays inward.
-    if side == "back":
-        left = 0  # keep left (outer) edge
-        top = (nh - target_h) // 2
-    elif side == "front":
-        left = nw - target_w  # keep right (outer) edge
-        top = (nh - target_h) // 2
+    c.restoreState()
+    spot = ctx.job_dir / "title_page" / "spot.png"
+    if spot.is_file():
+        art = _Art(spot, ctx.work_dir, None, tag="title-spot")
+        side = 70.0
+        _place(c, art, (page_w - side) / 2, BLEED_MM + BAND_DEPTH_MM + 62, side, side)
     else:
-        raise ValueError(side)
-    return scaled.crop((left, top, left + target_w, top + target_h))
+        append_event(ctx.job_dir, "title_spot_missing", "No title-page spot illustration; page 1 has none.")
+    logo_w = 34.0
+    _draw_logo(c, "one_ink", (page_w - logo_w) / 2, page_w - BLEED_MM - SAFE_MM["trim"] - 14, logo_w)
+    ctx.layout_log.append({"page": 1, "kind": "title", "text": True, "plate": False})
+    c.showPage()
 
 
-def build_wraparound_cover(
-    back_art: Path,
-    front_art: Path,
-    title: str,
-    subtitle: str,
-    child_name: str,
-    output_path: Path,
-    font_id: str | None = None,
-):
-    font_id = normalize_font_id(font_id)
-    cover = Image.new("RGB", (COVER_PIXEL_WIDTH, COVER_PIXEL_HEIGHT), (245, 234, 213))
+def _parent_blocks(ctx: _Ctx) -> list[tuple[str, str]]:
+    parent = ctx.story["locked"]["parent_spread"]
+    blocks = [
+        ("YOU COULD SAY", parent.get("you_could_say")),
+        ("TRY TOGETHER", parent.get("try_together")),
+        ("IN REAL LIFE", parent.get("in_real_life")),
+        ("READ IT AGAIN", parent.get("read_it_again")),
+    ]
+    return [(label, body) for label, body in blocks if (body or "").strip()]
 
-    back_src = Image.open(back_art).convert("RGB")
-    front_src = Image.open(front_art).convert("RGB")
 
-    back_strip = _cover_side_strip(back_src, side="back")
-    front_strip = _cover_side_strip(front_src, side="front")
+def _draw_parent_page(ctx: _Ctx, page: dict, side: str) -> None:
+    c = ctx.canvas
+    c.setPageSize((mm_to_pt(PAGE_WITH_BLEED_MM),) * 2)
+    _paper_page(ctx)
+    left, width = _page_text_box(side)
+    blocks = _parent_blocks(ctx)
+    half = (len(blocks) + 1) // 2
+    mine = blocks[:half] if side == "left" else blocks[half:]
+    cursor = BLEED_MM + SAFE_MM["trim"] + 4
+    if side == "left":
+        heading = "WORDS FOR THE REAL MOMENT"
+        size = 24
+        lines = _wrap(heading, reportlab_name("title"), size, mm_to_pt(width))
+        _draw_lines(c, lines, reportlab_name("title"), size, left, cursor, size * 1.2, INK)
+        cursor += len(lines) * size * 1.2 * 25.4 / 72 + 14
+    else:
+        cursor += 14
+    body_size = SIZE_SCALE["parent_body"]
+    for label, body in mine:
+        _draw_lines(c, [label], reportlab_name("label"), 9, left, cursor, 12, INK)
+        cursor += 6.5
+        lines = _wrap(body, reportlab_name("body"), body_size, mm_to_pt(width))
+        _draw_lines(c, lines, reportlab_name("body"), body_size, left, cursor, body_size * 1.45, INK)
+        cursor += len(lines) * body_size * 1.45 * 25.4 / 72 + 12
+    if side == "right":
+        anchor = ctx.job_dir / "title_page" / "spot.png"
+        if anchor.is_file():
+            art = _Art(anchor, ctx.work_dir, None, tag="parent-spot")
+            spot = 44.0
+            _place(c, art, PAGE_WITH_BLEED_MM - BLEED_MM - SAFE_MM["trim"] - spot, PAGE_WITH_BLEED_MM - BLEED_MM - SAFE_MM["trim"] - spot, spot, spot)
+    ctx.layout_log.append({"page": page["number"], "kind": page["kind"], "text": True, "plate": False})
+    c.showPage()
 
-    # Title overlay on the front *panel* only (not into wraps).
-    front_panel = front_strip.crop(
-        (0, WRAP_PX, COVER_PANEL_PX, WRAP_PX + COVER_PANEL_PX)
-    ).convert("RGBA")
-    draw = ImageDraw.Draw(front_panel, "RGBA")
-    margin_x = int(front_panel.width * 0.08)
-    max_box_w = front_panel.width - 2 * margin_x
-    text_max_w = max_box_w - 80
-    max_box_h = int(front_panel.height * 0.30)
 
-    cover_text = title
-    if subtitle:
-        cover_text = f"{title}\n{subtitle}"
-    cover_text = f"{cover_text}\nstarring {child_name}"
-
-    font, lines, block_w, block_h, line_gap, _ = _fit_text_block(
-        draw,
-        cover_text,
-        font_id,
-        text_max_w,
-        max_box_h - 72,
-        min_size=52,
-        max_size=120,
+def _draw_dedication_page(ctx: _Ctx, page: dict) -> None:
+    c = ctx.canvas
+    c.setPageSize((mm_to_pt(PAGE_WITH_BLEED_MM),) * 2)
+    _paper_page(ctx)
+    left, width = _page_text_box("left")  # last page is a verso: gutter on the right
+    carer = (ctx.inputs.get("carer") or {}).get("name") or ""
+    dedication = (page.get("text") or "").strip() or (
+        f"For {ctx.name}, from {carer}" if carer else f"For {ctx.name}"
     )
-    box_w = min(max_box_w, max(block_w + 80, int(front_panel.width * 0.7)))
-    box_h = min(max_box_h, block_h + 72)
-    left = margin_x + (max_box_w - box_w) // 2
-    top = int(front_panel.height * 0.06)
-    right = left + box_w
-    bottom = top + box_h
-    draw.rounded_rectangle(
-        (left, top, right, bottom), radius=44, fill=(255, 250, 240, 230)
+    size = SIZE_SCALE["dedication"]
+    cursor = PAGE_WITH_BLEED_MM * 0.30
+    lines = _wrap(dedication, reportlab_name("body"), size + 2, mm_to_pt(width))
+    _draw_lines(c, lines, reportlab_name("body"), size + 2, left, cursor, (size + 2) * 1.45, INK)
+    cursor += len(lines) * (size + 2) * 1.45 * 25.4 / 72 + 12
+    note = _wrap(READ_IT_AGAIN_LINE, reportlab_name("body"), size, mm_to_pt(width))
+    _draw_lines(c, note, reportlab_name("body"), size, left, cursor, size * 1.45, INK)
+    bottom = PAGE_WITH_BLEED_MM - BLEED_MM - SAFE_MM["trim"]
+    logo_w = 34.0
+    _draw_logo(c, "one_ink", left, bottom - 22, logo_w)
+    _draw_lines(
+        c,
+        [SITE_URL],
+        reportlab_name("body"),
+        10,
+        left + logo_w + 6,
+        bottom - 17,
+        13,
+        INK,
+    )
+    code = safe_order_id(ctx.inputs, ctx.job_dir)
+    _draw_lines(c, [code], reportlab_name("label"), SIZE_SCALE["order_code"], left, bottom - 4, 12, INK)
+    ctx.layout_log.append({"page": 32, "kind": "dedication", "text": True, "plate": False, "order_code": code})
+    c.showPage()
+
+
+# --- cover ---------------------------------------------------------------------------------------
+
+
+def _cover_blurb(ctx: _Ctx) -> str:
+    return (ctx.title.get("blurb") or "").replace("{name}", ctx.name).strip()
+
+
+def _strip_art(ctx, c, art: _Art, strip: tuple[float, float, float, float], align: str) -> None:
+    sx, sy, sw, sh = strip
+    side = max(sw, sh)
+    ax = sx if align == "left" else sx + sw - side
+    ay = sy + (sh - side) / 2
+    _place(c, art, ax, ay, side, side, clip=strip)
+
+
+def _draw_front(ctx: _Ctx, c, art: _Art, panel: tuple[float, float], strip, align: str) -> None:
+    px, py = panel
+    _strip_art(ctx, c, art, strip, align)
+    trim_x, trim_y = px + BLEED_MM, py + BLEED_MM
+    trim_w = PAGE_WITH_BLEED_MM - 2 * BLEED_MM
+    sx, sy, sw, sh = strip
+    _draw_band(ctx, c, sx, sw, sy, trim_y, trim_x + trim_w / 2)
+    centre = trim_x + trim_w / 2
+    height, _ink, _plate = _draw_title_block(
+        ctx,
+        c,
+        art,
+        ctx.story["locked"]["title"],
+        centre,
+        trim_y + BAND_DEPTH_MM + 11,
+        trim_w - 30,
+        True,
+        "Front cover title",
+    )
+    # Logo bottom centre; full colour only when >= 60 mm wide (else one-ink navy).
+    logo_w = 62.0
+    with Image.open(LOGO_FILES["full_colour"]) as im:
+        logo_h = logo_w * im.size[1] / im.size[0]
+    logo_y = trim_y + trim_w - 10 - logo_h
+    box = (centre - logo_w / 2, logo_y, centre + logo_w / 2, logo_y + logo_h)
+    s = art.stats(box)
+    busy = s["std"] > 0.10 or s["p10"] < 0.25
+    if busy and TEXT_PLATE != "none":
+        _soft_plate(c, box[0] - 6, box[1] - 4, logo_w + 12, logo_h + 8)
+    _draw_logo(c, "full_colour", centre - logo_w / 2, logo_y, logo_w)
+
+
+def _draw_back(ctx: _Ctx, c, art: _Art, panel: tuple[float, float], strip, align: str) -> None:
+    px, py = panel
+    _strip_art(ctx, c, art, strip, align)
+    trim_x, trim_y = px + BLEED_MM, py + BLEED_MM
+    trim_w = PAGE_WITH_BLEED_MM - 2 * BLEED_MM
+    left = trim_x + 18
+    width = trim_w - 36
+    q_font, q_size = reportlab_name("title"), SIZE_SCALE["back_question"][0]
+    question_lines = _wrap(ctx.story["locked"]["back_question"], q_font, q_size, mm_to_pt(width))
+    blurb_size, blurb_lead = SIZE_SCALE["back_blurb"][0], 16
+    blurb_lines = _wrap(_cover_blurb(ctx), reportlab_name("body"), blurb_size, mm_to_pt(width))
+    honesty = HONESTY_LINE.format(name=ctx.name)
+    honesty_lines = _wrap(honesty, reportlab_name("body"), 10, mm_to_pt(width))
+    q_h = len(question_lines) * q_size * 1.2 * 25.4 / 72
+    b_h = len(blurb_lines) * blurb_lead * 25.4 / 72
+    h_h = len(honesty_lines) * 13 * 25.4 / 72
+    logo_w = 62.0
+    with Image.open(LOGO_FILES["full_colour"]) as im:
+        logo_h = logo_w * im.size[1] / im.size[0]
+
+    top = trim_y + 20
+    gap = 8
+    stack_h = q_h + gap + b_h + gap + h_h + gap + 6 + gap + logo_h
+    box = (left, top, left + width, top + stack_h)
+    ink, plate = _decide_ink(ctx, art, box, label="Back cover")
+    if plate:
+        _soft_plate(c, left - 8, top - 6, width + 16, stack_h + 12)
+    cursor = top
+    _draw_lines(c, question_lines, q_font, q_size, left, cursor, q_size * 1.2, ink)
+    cursor += q_h + gap
+    _draw_lines(c, blurb_lines, reportlab_name("body"), blurb_size, left, cursor, blurb_lead, ink)
+    cursor += b_h + gap
+    _draw_lines(c, honesty_lines, reportlab_name("body"), 10, left, cursor, 13, ink)
+    cursor += h_h + gap
+    _draw_lines(c, [SITE_URL], reportlab_name("body_bold"), 11, left, cursor, 14, ink)
+    cursor += 6 + gap
+    if PRINTED_IN_UK_LINE:  # OPEN flag, default off (needs a signed UK printer contract)
+        _draw_lines(c, ["Printed in the UK"], reportlab_name("body"), 8, left, cursor - 4, 10, ink)
+    _draw_logo(c, "full_colour", left, cursor, logo_w)
+
+    # Keep-clear for the printer's QR / batch code (profile: corner + size).
+    q = BACK_QR_SAFE_MM
+    qx = trim_x + trim_w - q if "right" in BACK_QR_SAFE_CORNER else trim_x
+    qy = trim_y + trim_w - q if "bottom" in BACK_QR_SAFE_CORNER else trim_y
+    _fill_rect(c, qx, qy, q, q, PAPER)
+
+
+def _draw_spine(ctx: _Ctx, c, x_mm: float, y_mm: float, w_mm: float, h_mm: float) -> None:
+    colour = COLOURS[FAMILY_COLOUR[ctx.family]]["rgb"]
+    ink = COLOURS[BAND_TEXT_COLOUR[ctx.family]]["rgb"]
+    _fill_rect(c, x_mm, y_mm, w_mm, h_mm, colour)
+    cx = x_mm + w_mm / 2
+    size = SIZE_SCALE["spine_title"]
+    min_mm, max_mm = SIZE_SCALE["mini_r_mm"]
+    mark = min_mm + (max_mm - min_mm) / 2
+    # Title reads top to bottom (rotate -90): letter tops point toward the front cover.
+    if SPINE_MM >= 8:  # spines under 8 mm: mini R only
+        c.saveState()
+        c.translate(_x(cx), _y(c, y_mm + WRAP_MM + BLEED_MM + 6))
+        c.rotate(-90)
+        c.setFillColorRGB(*_c01(ink))
+        c.setFont(reportlab_name("title"), size)
+        c.drawString(0, -size * 0.35, ctx.story["locked"]["title"])
+        c.restoreState()
+    mark_path = LOGO_FILES["mini_r"]
+    with Image.open(mark_path) as im:
+        aspect = im.size[1] / im.size[0]
+    mw, mh = (mark / aspect, mark) if aspect >= 1 else (mark, mark * aspect)
+    c.saveState()
+    c.translate(_x(cx), _y(c, y_mm + h_mm - WRAP_MM - BLEED_MM - 6))
+    c.rotate(-90)
+    # after rotation: local +x runs down the spine; draw the mark ending at the foot
+    c.drawImage(
+        ImageReader(str(mark_path)),
+        -mm_to_pt(mw),
+        -mm_to_pt(mh) / 2,
+        width=mm_to_pt(mw),
+        height=mm_to_pt(mh),
+        mask="auto",
+    )
+    c.restoreState()
+
+
+def build_cover(ctx: _Ctx, front_art: Path, back_art: Path, mode: str):
+    """mode='flat': one wraparound page; mode='panels': (front_page_fn, back_page_fn) drawn per page."""
+    c = ctx.canvas
+    front = _Art(front_art, ctx.work_dir, None, tag="cover-front")
+    back = _Art(back_art, ctx.work_dir, None, tag="cover-back")
+    if mode == "flat":
+        c.setPageSize((mm_to_pt(COVER_WIDTH_MM), mm_to_pt(COVER_HEIGHT_MM)))
+        _fill_rect(c, 0, 0, COVER_WIDTH_MM, COVER_HEIGHT_MM, OAT)
+        panel = PAGE_WITH_BLEED_MM
+        back_panel = (WRAP_MM, WRAP_MM)
+        spine_x = WRAP_MM + panel
+        front_panel = (spine_x + SPINE_MM, WRAP_MM)
+        back_strip = (0.0, 0.0, WRAP_MM + panel, COVER_HEIGHT_MM)
+        front_strip = (front_panel[0], 0.0, panel + WRAP_MM, COVER_HEIGHT_MM)
+        _draw_back(ctx, c, back, back_panel, back_strip, "left")
+        _draw_front(ctx, c, front, front_panel, front_strip, "right")
+        _draw_spine(ctx, c, spine_x, 0.0, SPINE_MM, COVER_HEIGHT_MM)
+        ctx.layout_log.append({"page": "cover", "kind": "cover_flat", "title": ctx.story["locked"]["title"]})
+        c.showPage()
+        return
+    # Panels (Prodigi): front first, back last — caller sequences the pages.
+    strip = (0.0, 0.0, PAGE_WITH_BLEED_MM, PAGE_WITH_BLEED_MM)
+    return (
+        lambda: _single_cover_page(ctx, c, front, strip, front=True),
+        lambda: _single_cover_page(ctx, c, back, strip, front=False),
     )
 
-    cursor_y = top + (box_h - block_h) // 2
-    for line in lines:
-        color = (
-            (200, 100, 70, 255)
-            if line.lower().startswith("starring")
-            else (28, 38, 52, 255)
-        )
-        w, h = _text_size(draw, line or " ", font)
-        x = left + (box_w - w) // 2
-        draw.text((x, cursor_y), line, font=font, fill=color)
-        cursor_y += h + line_gap
-    front_strip.paste(front_panel.convert("RGB"), (0, WRAP_PX))
 
-    # Soft clear zone for TJ QR/batch — bottom-right of back cover (near spine).
-    # back strip: [wrap | panel], so panel right edge is at WRAP+PANEL.
-    qr_left = WRAP_PX + COVER_PANEL_PX - BACK_QR_SAFE_PX
-    qr_top = WRAP_PX + COVER_PANEL_PX - BACK_QR_SAFE_PX
-    qr_right = WRAP_PX + COVER_PANEL_PX
-    qr_bottom = WRAP_PX + COVER_PANEL_PX
-    back_draw = ImageDraw.Draw(back_strip)
-    sample = back_strip.getpixel(
-        (max(0, qr_left - 4), max(0, min(back_strip.height - 1, qr_top - 4)))
-    )
-    back_draw.rectangle((qr_left, qr_top, qr_right, qr_bottom), fill=sample)
-
-    spine = Image.new("RGB", (max(1, SPINE_PX), COVER_PIXEL_HEIGHT), (70, 110, 100))
-
-    # Flat: left wrap+back | spine | front+right wrap
-    cover.paste(back_strip, (0, 0))
-    cover.paste(spine, (WRAP_PX + COVER_PANEL_PX, 0))
-    cover.paste(front_strip, (WRAP_PX + COVER_PANEL_PX + SPINE_PX, 0))
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    cover.save(output_path, format="JPEG", quality=95, optimize=True)
-    return output_path
+def _single_cover_page(ctx, c, art: _Art, strip, front: bool) -> None:
+    c.setPageSize((mm_to_pt(PAGE_WITH_BLEED_MM),) * 2)
+    _fill_rect(c, 0, 0, PAGE_WITH_BLEED_MM, PAGE_WITH_BLEED_MM, OAT)
+    (_draw_front if front else _draw_back)(ctx, c, art, (0.0, 0.0), strip, "left")
+    ctx.layout_log.append({"page": "front_cover" if front else "back_cover", "kind": "cover_panel"})
+    c.showPage()
 
 
-def _blank_page_jpg(output_path: Path) -> Path:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    Image.new("RGB", (PAGE_PIXEL_WIDTH, PAGE_PIXEL_HEIGHT), (255, 255, 255)).save(
-        output_path, format="JPEG", quality=95
-    )
-    return output_path
+# --- page map + font assertions ----------------------------------------------------------------------
+
+
+def assert_page_map(pages: list) -> None:
+    if len(pages) != CONTENT_PAGE_COUNT:
+        raise ValueError(f"Page map has {len(pages)} pages, expected {CONTENT_PAGE_COUNT}.")
+    by_number = {p["number"]: p for p in pages}
+    if sorted(by_number) != list(range(1, CONTENT_PAGE_COUNT + 1)):
+        raise ValueError("Pages must be numbered 1..32.")
+    expected = {1: "title", 30: "parent_left", 31: "parent_right", 32: "dedication"}
+    for number, kind in expected.items():
+        if by_number[number].get("kind") != kind:
+            raise ValueError(f"Page {number} must be '{kind}'.")
+    for number in range(2, 2 * SPREAD_COUNT + 2):
+        page = by_number[number]
+        if page.get("kind") != "spread_half" or page.get("spread") != number // 2:
+            raise ValueError(f"Page {number} must be a half of spread {number // 2}.")
+
+
+def brand_font_names() -> set[str]:
+    names = set()
+    for role in ("title", "body", "body_bold", "label"):
+        face = pdfmetrics.getFont(reportlab_name(role)).face.name
+        names.add(face.decode() if isinstance(face, bytes) else str(face))
+    return names
+
+
+def pdf_font_names(pdf_path: Path) -> set[str]:
+    """BaseFont names (subset prefix stripped) of every font used by any page."""
+    from pypdf import PdfReader
+
+    found: set[str] = set()
+    reader = PdfReader(str(pdf_path))
+    for page in reader.pages:
+        resources = page.get("/Resources") or {}
+        fonts = (resources.get("/Font") or {}) if hasattr(resources, "get") else {}
+        for ref in (fonts.values() if hasattr(fonts, "values") else []):
+            font = ref.get_object()
+            base = str(font.get("/BaseFont", ""))
+            found.add(re.sub(r"^/?[A-Z]{6}\+", "", base).lstrip("/"))
+    return found
+
+
+def assert_brand_fonts_only(pdf_path: Path) -> set[str]:
+    used = pdf_font_names(pdf_path)
+    allowed = brand_font_names()
+    stray = {name for name in used if name and name not in allowed}
+    if stray:
+        raise RuntimeError(f"Non-brand fonts in PDF (system fallback?): {sorted(stray)}")
+    return used
+
+
+# --- previews (QA / operator UI only; never the print file) ---------------------------------------------
+
+
+def render_previews(pdf_path: Path, job_dir: Path, packaging: str, endpapers: bool) -> int:
+    """JPEG page previews rendered from the finished PDF (so they show the real vector text)."""
+    try:
+        import pypdfium2 as pdfium
+    except ImportError:  # pragma: no cover
+        append_event(job_dir, "preview_render_skipped", "pypdfium2 not installed; no composed previews.")
+        return 0
+    pages_dir = job_dir / "print" / "pages"
+    pages_dir.mkdir(parents=True, exist_ok=True)
+    pdf = pdfium.PdfDocument(str(pdf_path))
+    try:
+        if packaging == "single_pdf_cover_first_back_last":
+            first_interior = 1
+        else:
+            first_interior = 1 + (1 if endpapers else 0)
+        pdf[0].render(scale=0.9).to_pil().convert("RGB").save(job_dir / "print" / "cover.jpg", quality=88)
+        if packaging == "single_pdf_cover_first_back_last":
+            pdf[len(pdf) - 1].render(scale=0.9).to_pil().convert("RGB").save(job_dir / "print" / "cover-back.jpg", quality=88)
+        count = 0
+        for i in range(CONTENT_PAGE_COUNT):
+            image = pdf[first_interior + i].render(scale=1.1).to_pil().convert("RGB")
+            image.save(pages_dir / f"page-{i + 1:02d}.jpg", quality=86)
+            count += 1
+        return count
+    finally:
+        pdf.close()
+
+
+# --- entry point ----------------------------------------------------------------------------------------
 
 
 def build_pdf(job_dir: Path, story: dict, pages: list, inputs: dict) -> Path:
-    print_dir = job_dir / "print"
-    print_dir.mkdir(parents=True, exist_ok=True)
-    pages_print = print_dir / "pages"
-    pages_print.mkdir(parents=True, exist_ok=True)
+    register_brand_fonts()  # RuntimeError (naming the TTF) if a brand font is missing
+    normalize_font_id(inputs.get("font_id"))
+    assert_page_map(pages)
+    title = get_title(inputs["title_id"])
+    route_key = inputs.get("route") or "morning_light"
+    packaging = PRINTER["packaging"]
+    endpapers = bool(PRINTER.get("endpapers_in_pdf"))
 
-    font_id = normalize_font_id(inputs.get("font_id"))
+    missing = [
+        str(spread_art_path(job_dir, n, side))
+        for n in range(1, SPREAD_COUNT + 1)
+        for side in ("left", "right")
+        if not spread_art_path(job_dir, n, side).is_file()
+    ]
+    if missing:
+        raise FileNotFoundError(f"Missing page art ({len(missing)}): {missing[0]} …")
+    front_art = job_dir / "cover" / "front_art.png"
+    back_art = job_dir / "cover" / "back_art.png"
+    if not (front_art.is_file() and back_art.is_file()):
+        raise FileNotFoundError("Cover art missing (front_art.png / back_art.png).")
+    lowest_ppi = assert_print_resolution(job_dir)  # fail < 150 ppi; warn events already logged
+
+    pdf_path = pdf_path_for(job_dir, inputs)
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    work_dir = job_dir / "print" / "art"
     append_event(
         job_dir,
         "pdf_start",
-        f"Overlaying text ({font_id}) and building TJ print PDF "
-        f"(210×210+3mm bleed, {SPINE_MM:g}mm spine, 16mm wrap).",
-        font_id=font_id,
+        f"Building {PRINTER_PROFILE_NAME} PDF: live vector text, native art in "
+        f"{PAGE_WITH_BLEED_MM:g} mm pages, packaging={packaging}.",
+        packaging=packaging,
+        printer_profile=PRINTER_PROFILE_NAME,
     )
 
-    front_art = job_dir / "cover" / "front_art.png"
-    back_art = job_dir / "cover" / "back_art.png"
-    cover_jpg = build_wraparound_cover(
-        back_art,
-        front_art,
-        story["title"],
-        story.get("subtitle") or "",
-        inputs["name"],
-        print_dir / "cover.jpg",
-        font_id=font_id,
+    c = canvas.Canvas(
+        str(pdf_path),
+        pagesize=(mm_to_pt(PAGE_WITH_BLEED_MM),) * 2,
+        initialFontName=reportlab_name("body"),
+        pageCompression=1,
+    )
+    c.setTitle(story["locked"]["title"])
+    c.setAuthor("Raised Ready")
+    ctx = _Ctx(
+        canvas=c,
+        job_dir=job_dir,
+        work_dir=work_dir,
+        inputs=inputs,
+        story=story,
+        title=title,
+        name=inputs["name"],
+        family=title["family"],
+        route=ROUTE_PRESETS[route_key],
+        grade=title.get("post_grade") or None,
+        layout_log=[],
     )
 
-    composed_pages = []
-    for page in pages:
-        page_dir = job_dir / "pages" / f"page-{page['number']:02d}"
-        out = pages_print / f"page-{page['number']:02d}.jpg"
-        if page.get("blank"):
-            _blank_page_jpg(out)
-        else:
-            art = page_dir / "art.png"
-            if not art.is_file():
-                raise FileNotFoundError(f"Missing art for page {page['number']}")
-            overlay_text_on_image(
-                art,
-                page.get("text") or "",
-                page.get("text_placement") or "bottom",
-                out,
-                font_id=font_id,
-            )
-        composed_pages.append(out)
+    front_fn = back_fn = None
+    if packaging == "single_pdf_cover_flat_first":
+        build_cover(ctx, front_art, back_art, "flat")
+        if endpapers:
+            _blank_page(ctx)
+    elif packaging == "single_pdf_cover_first_back_last":
+        front_fn, back_fn = build_cover(ctx, front_art, back_art, "panels")
+        front_fn()
+    else:
+        raise ValueError(f"Unknown packaging mode: {packaging}")
 
-    front_endpaper = _blank_page_jpg(pages_print / "endpaper-front.jpg")
-    back_endpaper = _blank_page_jpg(pages_print / "endpaper-back.jpg")
+    for page in sorted(pages, key=lambda p: p["number"]):
+        kind = page["kind"]
+        if kind == "title":
+            _draw_title_page(ctx, page)
+        elif kind == "spread_half":
+            n, side = page["spread"], page["side"]
+            _draw_spread_page(ctx, page, spread_art_path(job_dir, n, side), side, page["number"])
+        elif kind == "parent_left":
+            _draw_parent_page(ctx, page, "left")
+        elif kind == "parent_right":
+            _draw_parent_page(ctx, page, "right")
+        elif kind == "dedication":
+            _draw_dedication_page(ctx, page)
 
-    # Single-page PDF, no colour profile. Cover flat first, then plain endpapers
-    # (not counted in the 32), then 32 content pages, then back endpaper.
-    pdf_path = job_dir / "final_book.pdf"
-    pdf = canvas.Canvas(str(pdf_path), pagesize=(COVER_WIDTH_PT, COVER_HEIGHT_PT))
-    pdf.drawImage(
-        str(cover_jpg),
-        0,
-        0,
-        width=COVER_WIDTH_PT,
-        height=COVER_HEIGHT_PT,
-        preserveAspectRatio=False,
-    )
-    pdf.showPage()
-    pdf.setPageSize((PAGE_WIDTH_PT, PAGE_HEIGHT_PT))
+    if packaging == "single_pdf_cover_flat_first":
+        if endpapers:
+            _blank_page(ctx)
+    else:
+        back_fn()
+    c.save()
 
-    for page_path in [front_endpaper, *composed_pages, back_endpaper]:
-        pdf.drawImage(
-            str(page_path),
-            0,
-            0,
-            width=PAGE_WIDTH_PT,
-            height=PAGE_HEIGHT_PT,
-            preserveAspectRatio=True,
-            anchor="c",
-        )
-        pdf.showPage()
-
-    pdf.save()
+    fonts_used = assert_brand_fonts_only(pdf_path)
+    write_json(job_dir / "print" / "layout.json", {"pages": ctx.layout_log, "fonts": sorted(fonts_used)})
+    previews = render_previews(pdf_path, job_dir, packaging, endpapers)
     append_event(
         job_dir,
         "pdf_done",
-        f"PDF saved (wraparound cover + endpapers + {len(composed_pages)} content pages).",
-        pdf="final_book.pdf",
-        spine_width_pt=SPINE_WIDTH_PT,
-        content_pages=len(composed_pages),
-        endpapers=2,
-        font_id=font_id,
+        f"PDF saved: {pdf_path.name} ({CONTENT_PAGE_COUNT} content pages, min {lowest_ppi} ppi).",
+        pdf=pdf_path.relative_to(job_dir).as_posix(),
+        content_pages=CONTENT_PAGE_COUNT,
+        endpapers=2 if endpapers and packaging == "single_pdf_cover_flat_first" else 0,
+        min_effective_ppi=lowest_ppi,
+        fonts=sorted(fonts_used),
+        previews=previews,
     )
     return pdf_path

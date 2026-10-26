@@ -7,3 +7,5 @@ python-dotenv>=1.0
 gunicorn>=22,<24
 pytest>=8.0
 textstat>=0.7
+pypdf>=4.0
+pypdfium2>=4.30

@@ -106,3 +106,34 @@ def emma_bundle(job_dir: Path):
 
 def clone(obj):
     return copy.deepcopy(obj)
+
+
+def _art(path: Path, size: int, tone: tuple, dark: bool = False) -> None:
+    """Flat-ish test art: light calm tone with a darker lower-left blob so text areas are testable."""
+    from PIL import Image, ImageDraw
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image = Image.new("RGB", (size, size), tone)
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((size * 0.55, size * 0.1, size * 0.95, size * 0.45), fill=(150, 120, 90))
+    if dark:
+        draw.rectangle((0, size // 2, size, size), fill=(30, 40, 60))
+    image.save(path, format="PNG", compress_level=1)
+
+
+def write_emma_art(job_dir: Path, size: int = 1400, dark_spreads: tuple = ()) -> None:
+    """Spread art (28 pages), cover art and title spot, as the fixed mocked-OpenAI PNGs would be."""
+    for n in range(1, 15):
+        for side in ("left", "right"):
+            tone = (236 + (n % 3) * 4, 228 + (n % 4) * 3, 205 + (n % 5) * 4)
+            _art(job_dir / "spreads" / f"spread-{n:02d}" / f"art-{side}.png", size, tone, dark=n in dark_spreads)
+    _art(job_dir / "cover" / "front_art.png", size, (240, 224, 196))
+    _art(job_dir / "cover" / "back_art.png", size, (244, 234, 214))
+    _art(job_dir / "title_page" / "spot.png", 512, (250, 246, 239))
+
+
+def build_emma_job(job_dir: Path, size: int = 1400, dark_spreads: tuple = ()):
+    """(inputs, story, pages) with all art written; ready for build_pdf."""
+    inputs, story, pages = emma_bundle(job_dir)
+    write_emma_art(job_dir, size, dark_spreads)
+    return inputs, story, pages
