@@ -1,11 +1,12 @@
 # Raised Ready — Book Factory migration plan
 
 **Branch:** `raised-ready-migration`  
-**Spec:** `docs/RAISED-READY-BOOK-FACTORY-SPEC.md` (against code at `7f67f96` + later main)  
+**Spec:** `docs/RAISED-READY-BOOK-FACTORY-SPEC.md`  
+**Prompt revision:** 26 Oct 2026 evening (Step 12 parked; humanize kept; no upscaler; TJ 3 mm bleed LOCKED)  
 **Rule:** one commit per step; pytest under `tests/`; do **not** push until review says so.  
 **Status words:** LOCKED / WORKING / OPEN / RECOMMENDED — OPEN and WORKING values live in config with the spec default and an owner comment; never hard-code a guess.
 
-This file is **Step 0**. Stop here for review before Step 1.
+This file is **Step 0 (revised)**. Stop here for review before Step 1.
 
 ---
 
@@ -15,281 +16,305 @@ This file is **Step 0**. Stop here for review before Step 1.
 |---|---|
 | Job model `book_assets/jobs/<id>/` (`inputs.json`, `job.json`, `logs/events.jsonl`) | Operator audit trail |
 | Event names where possible (`job_created`, `story_*`, `pages_compile_*`, `humanize_*`, `pdf_*`, …) | Logs / UI / ops continuity |
-| Flow prepare → review → preview → validate & build | Spec §0 / operator UX |
+| Flow prepare → review → preview → validate & build | Operator UX |
 | `changes.py`, `content_edit.py`, `cast_rebuild.py` (adapted) | NL + form edits |
-| `self_revise.py` (extended in Step 11) | Vision QA + approval |
-| `book_templates.py` (extended in Step 12) | Title reuse |
+| `self_revise.py` (extended in Step 10) | Vision QA + approval |
+| `book_templates.py` (extended in Step 11) | Title reuse |
+| `humanize.py` **as is** (blader/humanizer via Skills API, on by default) | Spec revision: do not replace with `humanize_v1`; adapt call site to spreads + re-guard |
 
 Operator flow after migration: **prepare → approve hero → review text → preview → validate & build → human check → send**.
 
 ---
 
-## Prerequisites (outside code commits; flag if missing)
+## Explicitly out of scope (parked)
 
-| Asset | Expected path | Notes |
+**Do not implement** data protection from spec §14. Leave `# PARKED: data protection (spec §14)` comments at:
+
+- photo upload / `create_job`
+- `job_log.append_event`
+- `openai_util` client creation
+- `archive_job` / `delete_job`
+
+Parked items: consent ticks, retention/deletion jobs, log redaction, `store=False` / ZDR flags, `docs/DATA-MAP.md`.
+
+**Do** add `order_id` to the form (printer file naming).
+
+**Do not** implement an upscaler. Config only: `UPSCALER=none  # OPEN after the printed proof`. Resolution = native model pixels placed in the 216 mm box; warn &lt; 300 ppi, fail &lt; 150 ppi.
+
+---
+
+## Prerequisites (outside code; fail closed if missing when a step needs them)
+
+| Asset | Path | Needed by |
 |---|---|---|
-| Spec | `docs/RAISED-READY-BOOK-FACTORY-SPEC.md` | Present |
-| Logo masters | `assets/brand/` (full colour, one-ink, black, reverse, mini R; SVG/PNG) | Step 1 / 10 fail loudly if absent |
-| Brand fonts | `assets/fonts/NotoSerif-SemiBold.ttf`, `Nunito-Regular.ttf`, `Nunito-SemiBold.ttf`, `DMMono-Medium.ttf` | Step 2 registers at import |
-| Story concepts | Source for `brand/stories/<title_id>.md` | Copy from project story-concept docs; `approved: false` until signed off |
-| Humanize prompt | `brand/prompts/humanize_v1.md` | From humanize-pass spec (Step 7) |
+| Spec | `docs/RAISED-READY-BOOK-FACTORY-SPEC.md` | All |
+| Logo masters | `assets/brand/` | Steps 1, 9 |
+| Brand fonts | `assets/fonts/NotoSerif-SemiBold.ttf`, `Nunito-Regular.ttf`, `Nunito-SemiBold.ttf`, `DMMono-Medium.ttf` | Step 2 |
+| Story concepts → beats | `brand/stories/<title_id>.md` | Step 1 |
+| Existing humanizer skill | `skills/humanizer/` | Keep (Step 5 adapts callers only) |
 
 ---
 
 ## Step 0 — Plan file *(this document)*
 
-**Files**
-- Create: `docs/MIGRATION-PLAN.md`
-- Branch: `raised-ready-migration`
+**Files:** `docs/MIGRATION-PLAN.md` (this revision).
 
 **Tests:** none.
 
-**Commit message (suggested):** `docs: Raised Ready migration plan (Step 0).`
+**Commit:** `docs: revise Raised Ready migration plan (Step 0).`
 
 ---
 
 ## Step 1 — Brand as data
 
 **Files**
-- Create: `pipeline/brand.py` — `COLOURS` (§6), `BAND_TEXT_COLOUR`, `FONT_FILES`, `SIZE_SCALE` (§5), `LOGO_FILES`, `READ_IT_AGAIN_LINE`, `HONESTY_LINE`, `UK_SPELLING` (§5), `BANNED_PHRASES` (§11.5), `TELLS` (§11.4), `WORDS_PER_SPREAD` + `HUMANIZE_CAPS` + `WORD_CAP_SOURCE` (OPEN, Taoufik), `ROUTE_PRESETS` (§8.1–8.2), `SAFE_MM`
+- Create: `pipeline/brand.py` — `COLOURS` (§6), `BAND_TEXT_COLOUR`, `FONT_FILES`, `SIZE_SCALE` (§5), `LOGO_FILES`, `READ_IT_AGAIN_LINE`, `HONESTY_LINE`, `UK_SPELLING`, `BANNED_PHRASES` (§11.5), `TELLS` (§11.4), `WORDS_PER_SPREAD` (§11.2; cap = upper bound) + `WORD_CAP_SOURCE` (OPEN, Taoufik), `ROUTE_PRESETS` (§8.1–8.2), `SAFE_MM`
 - Create: `pipeline/catalogue.py` — load `brand/catalogue.json`
-- Create: `brand/catalogue.json` — 10 titles (`big_kid_list` … `too_good_picture`) with required keys from prompt § Step 1
-- Create: `brand/stories/<title_id>.md` × 10 (beats; `approved: false` until ready)
-- Create: `brand/prompts/.gitkeep` (humanize prompt lands in Step 7)
-- Edit: `pipeline/constants.py` — remove `THEMES` / `PURPOSES` / free-text `design_rules` from character prompt; add `PRINTER_PROFILES` (`tj_books`, `prodigi`) via `PRINTER_PROFILE`; derive mm/px/cover geometry; rename gender map → `pronouns` + `they`; feature flags `HUMANIZE_PASS`, `PRINTED_IN_UK_LINE`, `TEXT_PLATE`, `OUTFIT_CONSTANT`, `IMAGE_QUALITY`, `MEMORY_SCOPE`
+- Create: `brand/catalogue.json` — 10 titles (`big_kid_list` … `too_good_picture`) with all required keys + `approved: false`
+- Create: `brand/stories/<title_id>.md` × 10 (14 beats from concept docs)
+- Edit: `pipeline/constants.py` — delete `THEMES` / `PURPOSES`; `PRINTER_PROFILES` (`tj_books` bleed **3.0 LOCKED by TJ template 26 Oct**, spine 8, wrap 16, gsm 170, `endpapers_in_pdf: True`, `colour_profile: None`, `packaging: "single_pdf_cover_flat_first"`, qr WORKING; `prodigi` WORKING); `PRINTER_PROFILE` env; derive **216 mm / 2551 px / cover 472×248 mm** (today’s TJ numbers, now from profile); `PRONOUNS`; flags `PRINTED_IN_UK_LINE`, `TEXT_PLATE`, `OUTFIT_CONSTANT`, `IMAGE_QUALITY`, `IMAGE_SIZE`, `MEMORY_SCOPE=off`, `UPSCALER=none` (parked)
 - Edit: `requirements.txt` — add `pytest`
-- Create: `tests/conftest.py` (shared fixtures stub)
+- Create: `tests/conftest.py`
 
 **Tests**
-- `tests/test_catalogue.py` — catalogue loads; every `title_id` has every required key
-- `tests/test_brand.py` — colours match §6 hex list; `BAND_TEXT_COLOUR` mapping; band grammar ("Ready for" / "Ready to" / adventures = `READY FOR ADVENTURE`); `big_kid_list` `state_schedule` length == 14
-- `tests/test_printer_profile.py` — default `tj_books` → bleed 4 mm → `PAGE_PX == 2575`, `SPREAD_PX_W == 5055`
+- `tests/test_catalogue.py` — loads; every title has every required key
+- `tests/test_brand.py` — colour hex list; band grammar; `state_schedule` length 14 for `big_kid_list`
+- `tests/test_printer_profile.py` — under `tj_books`: `PAGE_PX == 2551`, cover 472 × 248 mm
 
-**OPEN/WORKING surfaced in config comments:** bleed 3 vs 4 (Meda/TJ); `endpapers_in_pdf`; packaging mode; `WORD_CAP_SOURCE`.
+**Commit:** `feat: brand catalogue, printer profiles, and feature flags`
 
 ---
 
 ## Step 2 — Fonts
 
 **Files**
-- Edit: `pipeline/fonts.py` — brand-only catalogue; `normalize_font_id` → `"brand"`; ReportLab `pdfmetrics.registerFont` for four TTFs; `RuntimeError` if missing; delete system fallbacks
-- Edit: `templates/create.html` — remove font picker (full form rewrite is Step 3; Step 2 can strip the picker early or wait — prefer strip here if form still Magical)
-- Edit: `app.py` — `rebuild_overlays` keeps route but drops font re-apply options
-- Edit: `pipeline/pdf_build.py` — stop using Magical font IDs (minimal; full rewrite Step 10)
-- Delete: unused Magical TTFs under `assets/fonts/` (keep brand four + `.gitkeep`)
-- Ensure brand TTFs present under `assets/fonts/`
+- Edit: `pipeline/fonts.py` — brand only; ReportLab register four TTFs; `RuntimeError` if missing; no system fallbacks; `normalize_font_id` → `"brand"`
+- Edit: `templates/create.html` — remove font picker (full form is Step 3)
+- Edit: `app.py` — `rebuild_overlays` = re-render text only (no font choice)
+- Delete unused Magical TTFs under `assets/fonts/`
+- Ensure the four brand TTFs are present
 
 **Tests**
-- `tests/test_fonts.py` — registered names include Noto Serif / Nunito / DM Mono variants; removing one TTF raises `RuntimeError` naming the file
+- `tests/test_fonts.py` — registered names; missing file raises naming the TTF
+
+**Commit:** `feat: register Raised Ready fonts only`
 
 ---
 
 ## Step 3 — Input contract
 
 **Files**
-- Rewrite: `templates/create.html` — `title_id`, name, age, pronouns, carer, home_type, comfort_object, slots (JS from catalogue schema), dedication, `order_id`, photo, two §14 consent ticks (JS disable submit), `start_mode`, Advanced `story_override` / `art_notes`
-- Edit: `app.py` `create_job` / `create_form` — new `inputs.json` shape; consent record + text hash/version; age-band warning; ignore legacy `theme`/`purpose`/`page_count`/`design_rules`/`font_id`; `job_created` must not log photo
-- Edit: `templates/job.html` — show title/band/order_id; age warning if stored
-- Edit: `pipeline/job_log.py` — early redaction if needed (full redaction Step 12)
-- Create: `brand/consent_copy.json` (or constants) — exact §14 checkbox wording + `text_version`
+- Rewrite: `templates/create.html` — `title_id`, name, age, pronouns, carer, home_type, comfort_object, slots from schema, dedication, `order_id` (required `[A-Za-z0-9-]+`), photo, `start_mode`; Advanced `story_override` / `art_notes`. **No consent ticks** (parked). Remove Magical fields.
+- Edit: `app.py` `create_job` / `create_form` — new `inputs.json`; resolve `route` / `age_band`; ignore legacy `theme` etc.; age-band non-blocking warning; `# PARKED: data protection` at photo upload
+- Edit: `templates/job.html` — show title / band / order_id / age warning
+- Create: shared slot-renderer helper if needed (JS or server partial)
 
 **Tests**
-- `tests/test_create_job.py` (Flask test client) — missing ticks → error, no job dir; valid post → consent on `inputs.json`; posting `theme` is ignored; `order_id` required
+- `tests/test_create_job.py` — valid post writes new shape; `theme` ignored; missing / invalid `order_id` rejected
+
+**Commit:** `feat: Raised Ready create-job input contract`
 
 ---
 
 ## Step 4 — Character, set, anchor sheets
 
 **Files**
-- Edit: `pipeline/character.py` — route preset + outfit + multi-view sheet; `IMAGE_QUALITY`; `status: awaiting_approval`; add `generate_set_sheets`, `generate_anchor_sheet`
-- Edit: `pipeline/runner.py` — `prepare_content` stops at `character_ready`; new mode/route to continue after approval
-- Edit: `app.py` — `POST .../approve-character`; gate story/pages until approved
-- Edit: `templates/job.html` — "Approve hero sheet" UI; show character / sets / anchor thumbs
-- Edit: `pipeline/constants.py` — drop obsolete `CHARACTER_PROMPT` free `design_rules` path (if still present)
+- Edit: `pipeline/character.py` — route preset + identity paragraph + outfit + multi-view + anchor beside child; `IMAGE_QUALITY`; size via Step 8 helper (or temporary square max); `awaiting_approval`; `generate_set_sheets`, `generate_anchor_sheet`
+- Edit: `pipeline/runner.py` — stop at `character_ready`; continue after approval
+- Edit: `app.py` — `POST /jobs/<id>/approve-character`
+- Edit: `templates/job.html` — sheets + Approve hero sheet
 
 **Tests**
-- `tests/test_character_gate.py` — prepare leaves `character_ready`; continue without approval fails; approve writes `character_approved_by/at`
-- Mock OpenAI: character.json status + paths written
+- `tests/test_character_gate.py` — gate holds; approval continues
+
+**Commit:** `feat: character/set/anchor sheets with hero approval gate`
 
 ---
 
-## Step 5 — Story
+## Step 5 — Story + text_guards (+ humanize call-site adapt)
 
 **Files**
-- Rewrite: `pipeline/story.py` — new SYSTEM; 14 spreads JSON; locked title/band/question/parent/dedication from catalogue; outfit from catalogue when `OUTFIT_CONSTANT=1`; call text guards (Step 7 — stub/import; if Step 5 lands first, wire guards after Step 7 or land Steps 5–7 in dependency order: prefer **implement Step 7 modules before finishing Step 5 commit**, or Step 5 commit with a thin guard stub replaced in Step 7)
-- Edit: `pipeline/cast_rebuild.py` — align with spreads schema / no invented cast
-- Edit: `pipeline/content_edit.py` — edit spreads not `rebuilt_story`
-- Edit: `templates/job.html` — story editor for 14 spreads + locked fields read-only
+- Rewrite: `pipeline/story.py` — new SYSTEM; 14 spreads JSON; locked title/band/question/parent/dedication; cast lock; outfit from catalogue; run guards → retry once → raise
+- Create: `pipeline/text_guards.py` — full `check_spreads` (tests fleshed in Step 7)
+- Edit: `pipeline/humanize.py` — **keep** Skills/blader path; change to operate on spreads JSON (`humanize_story_fields` adapted); **remove** `humanize_page_texts`; after humanize, re-run guards → on failure fall back to pre-humanize spreads + `humanize_skipped=true` + reasons in event log
+- Edit: `pipeline/cast_rebuild.py`, `content_edit.py`, `templates/job.html` — spreads schema
+- Edit: `requirements.txt` — add `textstat`
 
 **Tests**
-- `tests/test_story.py` — title never from LLM (forced from template); locked keys present; mock LLM + guard retry path
+- `tests/test_story.py` — title never from LLM; locked keys; guard retry; humanize fallback on guard failure
 
-**Note:** Commit order in the prompt is Step 5 then 6 then 7; Step 5’s “run guards” needs `text_guards.py`. Plan: land Step 7’s `text_guards.py` as part of Step 5 if needed, or accept Step 5 without guard calls until Step 7. **Preferred:** implement `text_guards.py` early inside Step 5 commit, expand tests in Step 7.
+**Commit:** `feat: story from catalogue beats with guards and humanize re-check`
 
 ---
 
 ## Step 6 — Page map
 
 **Files**
-- Rewrite: `pipeline/pages.py` `compile_pages` — deterministic 32-page map (no LLM); `calm_zone`; `anchor_state`; write `story/pages.json` + `pages_compile_*` events; art paths → `spreads/spread-NN/`
-- Edit: `pipeline/content_edit.py`, `pipeline/changes.py`, `pipeline/self_revise.py` — spread-addressed edits; `text_placement` → `calm_zone` adapter
-- Edit: `templates/job.html` — page cards / spread grouping
-- Edit: `pipeline/runner.py` — preview/build iterate spreads
+- Rewrite: `pipeline/pages.py` — deterministic 32-page map; `calm_zone`; `anchor_state`; `pages_compile_*` events; art paths `spreads/spread-NN/art-left.png` + `art-right.png`
+- Edit: `content_edit.py`, `changes.py`, `self_revise.py` — spread addressing; `text_placement` → `calm_zone` adapter in `normalize_action`
+- Edit: `templates/job.html`, `runner.py` — spread-oriented UI / preview
 
 **Tests**
-- `tests/test_page_map.py` — p1 title, spread n → pages `2n`/`2n+1`, p30–31 parent, p32 dedication; 32 entries; no LLM call
+- `tests/test_page_map.py` — shape; no LLM call
+
+**Commit:** `feat: deterministic 32-page map from 14 spreads`
 
 ---
 
-## Step 7 — Text guards + humanize
+## Step 7 — Guard fixtures + validation
 
 **Files**
-- Create: `pipeline/text_guards.py` — `check_spreads(...)` codes per prompt
-- Rewrite: `pipeline/humanize.py` — remove Skills API + `skills/humanizer/`; `humanize_spreads` behind `HUMANIZE_PASS`; prompt from `brand/prompts/humanize_v1.md`; draft/humanized JSON files; keep `humanize_*` events; drop `humanize_page_texts`
-- Delete: `skills/humanizer/` (SKILL.md, LICENSE, SOURCE.txt)
-- Create: `brand/prompts/humanize_v1.md`
-- Edit: `requirements.txt` — add `textstat`; drop unused skill-upload deps if any
-- Edit: `.env.example` — `HUMANIZE_PASS=0`, remove blader skill vars
-- Edit: `pipeline/story.py` / `pages.py` callers as needed
+- Create: `tests/test_text_guards.py` — banned phrase, US spelling, locked change, renamed child, +30% words, missing last_line
+- Edit: `pipeline/validate.py` — beats + `must_not_show`; structural = guards + band/question match + scene-vs-text; `_apply_repair` never touches `locked`
+
+**Tests:** as above + `tests/test_validate.py`
+
+**Commit:** `feat: text-guard fixtures and catalogue-aware validation`
+
+---
+
+## Step 8 — Illustration at native quality (no upscaler)
+
+**Files**
+- Edit: `pipeline/openai_util.py` — `largest_image_size(...)`; `IMAGE_QUALITY` / `IMAGE_SIZE=auto`
+- Rewrite: `pipeline/illustrate.py` — **per-page** pair generation (`art-left` then `art-right` with left as ref); `_spread_prompt` / side-aware composition; multi-ref or board; cover + `generate_title_spot`; no Theme/Purpose; memory only if `MEMORY_SCOPE != off`; record `effective_ppi` in `spread.json`; `print_resolution_warning` (&lt;300) / `print_resolution_fail` (&lt;150); never resize up
+- Edit: `pipeline/runner.py` — 14×2 page images
+- Edit: `pipeline/memory.py` — return `""` when `MEMORY_SCOPE=off`
+- **No** `pipeline/upscale.py` implementation; config `UPSCALER=none` only
+- Catalogue `post_grade` applied later in `pdf_build` (Step 9), not at generation
 
 **Tests**
-- `tests/test_text_guards.py` — fixtures: banned phrase, US spelling, changed locked block, renamed child, +30% words → correct `code`s
-- `tests/test_humanize.py` — flag off skips; mock pass; guard fail → retry → `humanize_skipped`
+- `tests/test_illustrate_prompt.py` — calm zone, must-not-show, no Theme/Purpose
+- `tests/test_image_size.py` — fallback order; ppi recorded
+
+**Commit:** `feat: native-resolution page-pair illustration`
 
 ---
 
-## Step 8 — Validation
+## Step 9 — Text layer + PDF
 
 **Files**
-- Edit: `pipeline/validate.py` — title beats + `must_not_show` in judge; structural = Step 7 guards + band/question match; scene-vs-text object consistency; `_apply_repair` never touches `locked`
+- Rewrite: `pipeline/pdf_build.py` — ReportLab vector text; soft paper plate; p1 / 30–31 / 32; `build_cover` (no starring / cream / front question); packaging from profile; place images at **native** px in 216 mm box; assert fonts / page map; log min `effective_ppi`; file `print/{order_id}-final.pdf`; apply `post_grade` if set
+- Edit: `app.py` download routes
+- Edit: `templates/job.html` — download link
+- `# PARKED` comments where §14 would touch downloads if needed
 
 **Tests**
-- `tests/test_validate.py` — locked field survives repair; band mismatch fails; scene missing a named object fails
+- `tests/test_pdf_layout.py` — page order; no cream `(255,250,240)`; brand fonts; `pdftotext`; both packaging modes
+
+**Commit:** `feat: ReportLab text layer and printer-profile PDF`
 
 ---
 
-## Step 9 — Illustration + upscale
+## Step 10 — QA + human check
 
 **Files**
-- Rewrite: `pipeline/illustrate.py` — `_spread_prompt`; multi-ref edit or composite board; landscape size; save `spreads/spread-NN/art.png`; cover + `generate_title_spot`; drop Magical theme/purpose/memory unless `MEMORY_SCOPE`
-- Create: `pipeline/upscale.py` — Real-ESRGAN / `UPSCALER` HTTP / LANCZOS last resort + `upscale_fallback` event; face-aware crop to 5055×2575; `effective_ppi`; `recompose_needed`; post_grade night/underwater
-- Edit: `pipeline/openai_util.py` — landscape size try/fallback; `quality` from `IMAGE_QUALITY`
-- Edit: `pipeline/runner.py` — generate 14 spreads not 32 pages; upscale before PDF
-- Edit: `pipeline/memory.py` — respect `MEMORY_SCOPE`
-- Edit: `requirements.txt` — upscaler / opencv or mediapipe as chosen (document OPEN if deferred to HTTP-only)
+- Create: `pipeline/qa.py` — structure, text_guard, anchor_state, face_position
+- Edit: `pipeline/self_revise.py` — reference photo in batches; face/anchor/artefacts; `review_record`
+- Edit: `templates/job.html` + `app.py` — Human-check panel; Send preview gated; show min ppi
+- Create: `scripts/likeness_test.py`
 
 **Tests**
-- `tests/test_illustrate_prompt.py` — prompt contains calm_zone, must_not_show, no Theme/Purpose when memory off
-- `tests/test_upscale.py` — output exactly 5055×2575; ppi recorded; LANCZOS path emits `upscale_fallback` (mock)
+- `tests/test_qa.py` — structure fail; send blocked until pass
+
+**Commit:** `feat: QA reports and human-check gate`
 
 ---
 
-## Step 10 — Text layer + PDF
+## Step 11 — Templates
 
 **Files**
-- Rewrite: `pipeline/pdf_build.py` — ReportLab vector text; soft paper plate; spread split; p1 / p30–31 / p32; `build_cover`; packaging from printer profile; assertions; file names with `order_id`
-- Edit: `app.py` download routes — cover + interior or single PDF
-- Edit: `templates/job.html` — cover/interior download links
-- Remove cream Pillow overlay path entirely
+- Edit: `pipeline/book_templates.py` — store spreads with `{slot}` placeholders + slots schema; reuse re-asks every slot; regenerate sheets/art/PDF; never store photo/character sheet
+- Edit: `templates/reuse_template.html`, `templates/templates.html` as needed
 
 **Tests**
-- `tests/test_pdf_layout.py` — with fixture art: 32 pages; dedication p32; spread halves; no pixel `(255,250,240)` in text region samples; fonts ⊆ brand (ReportLab font names)
-- Packaging mode unit test for `tj_books` vs `prodigi` page order
+- `tests/test_templates_privacy.py` — no `reference.*` / `character.png` in template dir
+- Slot fill unit test
+
+**Commit:** `feat: catalogue templates with slot personalisation`
 
 ---
 
-## Step 11 — QA + human check
+## Step 12 — PARKED (data protection)
+
+**Do not implement.** Insert `# PARKED: data protection (spec §14)` at the four sites listed above.
+
+**Optional micro-commit (comments only):** `chore: mark data-protection hook sites as PARKED`
+
+---
+
+## Step 13 — Emma-build regressions
 
 **Files**
-- Create: `pipeline/qa.py` — `structure_check`, `text_guard_report`, `anchor_state_report`, `face_position_report`
-- Edit: `pipeline/self_revise.py` — reference photo in vision batches; face/anchor/artefact questions; `review_record` on `job.json`
-- Edit: `templates/job.html` — Human check panel; Send preview gated; template button preconditions
-- Edit: `app.py` — routes for human-check toggles / send preview
-- Create: `scripts/likeness_test.py` — 3×4 per route → CSV
+- Create: `tests/test_emma_regressions.py` + `tests/fixtures/`
+- Mocked OpenAI fixed PNGs; fictional order
 
-**Tests**
-- `tests/test_qa.py` — structure_check fails on wrong page map; send preview blocked until flags pass (Flask)
-- Anchor schedule fixture for `big_kid_list`
+**Assert**
+1. Anchor tick count per spread = schedule  
+2. Dedication p32; spread n on pages 2n / 2n+1  
+3. **28 page images** as 14 pairs; right generated with left as reference  
+4. Front: band caps + Noto Serif title; no starring; no question form; spine text; back: question, blurb, honesty, URL  
+5. Page **216 mm**, cover **472 × 248 mm** under `tj_books`  
+6. Brand fonts only; text extractable  
+7. `WORDS FOR THE REAL MOMENT` + byte-identical body  
+8. No cream boxes  
+9. `effective_ppi` recorded; `print_resolution_warning` when &lt; 300  
 
----
-
-## Step 12 — Data protection
-
-**Files**
-- Create: `pipeline/retention.py` — purge rules; `flask purge`; daily thread; `data/deletion_log.jsonl`
-- Edit: `app.py` — register CLI; start thread; consent already Step 3
-- Edit: `pipeline/job_log.py` — redact `reference_image` / base64
-- Edit: `pipeline/openai_util.py` — `store=False` where supported; `OPENAI_ZDR_APPROVED` → `job.json`; no name-bearing prompt bodies at INFO
-- Edit: `pipeline/book_templates.py` — slots schema; assert no photo/character sheet in template snapshot
-- Create: `docs/DATA-MAP.md` — host path, country, backup behaviour (fill with WORKING unknowns)
-
-**Tests**
-- `tests/test_retention.py` — photo deleted after retention window (tmp job dirs)
-- `tests/test_templates_privacy.py` — template dir has no `reference.*` / `character.png`
-- `tests/test_job_log_redaction.py` — append_event strips photo payloads
+**Commit:** `test: Emma-build regressions with mocked OpenAI`
 
 ---
 
-## Step 13 — Emma regressions
+## Suggested commit subjects (quick list)
 
-**Files**
-- Create: `tests/test_emma_regressions.py` — mocked OpenAI fixed PNGs; full pipeline assertions (1)–(9) from the Cursor prompt
-- Create: `tests/fixtures/` — tiny PNGs, catalogue subset, fake order
-
-**Tests:** that file only (integration).
-
----
-
-## Suggested commit sequence
-
-| Step | Suggested commit subject |
+| Step | Subject |
 |---|---|
-| 0 | `docs: Raised Ready migration plan (Step 0)` |
+| 0 | `docs: revise Raised Ready migration plan (Step 0)` |
 | 1 | `feat: brand catalogue, printer profiles, and feature flags` |
 | 2 | `feat: register Raised Ready fonts only` |
-| 3 | `feat: Raised Ready create-job input contract and consent` |
+| 3 | `feat: Raised Ready create-job input contract` |
 | 4 | `feat: character/set/anchor sheets with hero approval gate` |
-| 5 | `feat: story from catalogue beats (14 spreads, locked fields)` |
+| 5 | `feat: story from catalogue beats with guards and humanize re-check` |
 | 6 | `feat: deterministic 32-page map from 14 spreads` |
-| 7 | `feat: text guards and in-pipeline humanize_v1` |
-| 8 | `feat: validate against catalogue, guards, scene-vs-text` |
-| 9 | `feat: spread illustration, multi-ref, and upscale` |
-| 10 | `feat: ReportLab text layer and printer-profile PDFs` |
-| 11 | `feat: QA reports and human-check gate before preview send` |
-| 12 | `feat: retention, redaction, ZDR, DATA-MAP` |
+| 7 | `feat: text-guard fixtures and catalogue-aware validation` |
+| 8 | `feat: native-resolution page-pair illustration` |
+| 9 | `feat: ReportLab text layer and printer-profile PDF` |
+| 10 | `feat: QA reports and human-check gate` |
+| 11 | `feat: catalogue templates with slot personalisation` |
+| 12 | `chore: mark data-protection hook sites as PARKED` (optional) |
 | 13 | `test: Emma-build regressions with mocked OpenAI` |
-
-After Step 13 (or when stopping): update **this** file’s “Changelog / still OPEN” section.
 
 ---
 
-## Cross-cutting risks (call out in review)
+## Diff vs prior plan (26 Oct afternoon)
 
-1. **Step 5 ↔ 7 dependency** — guards must exist before story commit is “done”; prefer early `text_guards.py`.
-2. **Magical → RR schema break** — old jobs in `book_assets/` will not open cleanly; acceptable (internal tool); document “RR jobs only” or a read-only archive note.
-3. **Assets not in repo yet** — fonts/logos/story beats; Steps 1–2/10 fail closed until files land.
-4. **Upscaler weight** — Real-ESRGAN may be heavy; default `UPSCALER=lanczos` with event, or HTTP service (OPEN).
-5. **`MEMORY_SCOPE=off` default** — `memory.py` must no-op inject into prompts.
-6. **Printer packaging** — keep both TJ and Prodigi paths; Meda owns final TJ template numbers.
+| Topic | Was | Now |
+|---|---|---|
+| Bleed / page px | 4 mm → 218 mm / 2575 px | **3 mm LOCKED** → 216 mm / **2551 px**; cover **472×248** (today’s TJ) |
+| Upscaler | Real-ESRGAN / LANCZOS step | **None**; per-page square gen; left→right pair refs |
+| Art files | one `art.png` per spread | `art-left.png` + `art-right.png` (28 images) |
+| Humanize | Replace with `humanize_v1`, flag off | **Keep** blader Skills path; re-guard; drop page-text humanize |
+| Data protection | Full Step 12 | **PARKED**; comments only; still collect `order_id` |
+| Consent | Two ticks required | Not in this pass |
+| `text_guards.py` | Step 7 | Created in **Step 5**; fixtures in Step 7 |
+| Packaging | cover_plus_interior etc. | `single_pdf_cover_flat_first` (default) / Prodigi `single_pdf_cover_first_back_last` |
 
 ---
 
 ## Still OPEN (owners) — do not resolve in code
 
-| Item | Owner | Config key / note |
+| Item | Owner | Config / note |
 |---|---|---|
-| TJ vs Prodigi | Meda; Taoufik approves | `PRINTER_PROFILE` |
-| Bleed 3 vs 4 mm | Printer template | `PRINTER_PROFILES[*].bleed_mm` (default 4.0) |
-| Endpapers in PDF | Printer | `endpapers_in_pdf` |
-| Route titles 4, 7, 9 | Story author | catalogue `route: "open"` |
-| Word caps brand vs humanize | Taoufik | `WORD_CAP_SOURCE` |
-| Text plate style | Taoufik | `TEXT_PLATE` |
-| Humanize on/off | Taoufik after blind test | `HUMANIZE_PASS` default `0` |
-| Deletion periods | Taoufik + counsel | `PHOTO_RETENTION_DAYS`, etc. |
-| Printed in the UK | After UK contract | `PRINTED_IN_UK_LINE` |
-| Title 7 Shopify vs brand name | Taoufik | order/catalogue string |
-| Host country / backup | Ops + DPIA | `docs/DATA-MAP.md` |
-| Likeness test pass | Book Factory | gate before production |
+| Upscaler after printed proof | Taoufik / Factory | `UPSCALER=none` |
+| TJ template confirmation (QR corner, endpapers) | Meda | `qr_*`, `endpapers_in_pdf` |
+| Prodigi bleed / packaging | Meda | `prodigi` profile WORKING |
+| Word caps brand vs humanize table | Taoufik | `WORD_CAP_SOURCE` |
+| Text plate style | Taoufik | `TEXT_PLATE=auto` |
+| `MEMORY_SCOPE` off | Taoufik confirms | default `off` |
+| Route titles 4, 7, 9 | Story author | `route: "open"` |
+| Data protection (§14) | Taoufik + counsel | **PARKED** |
+| Printed in the UK | After UK contract | `PRINTED_IN_UK_LINE=0` |
+| Title 7 Shopify vs brand name | Taoufik | catalogue / order string |
+| Likeness gate | Book Factory | `scripts/likeness_test.py` |
 
 ---
 
@@ -297,4 +322,5 @@ After Step 13 (or when stopping): update **this** file’s “Changelog / still 
 
 | Date | What |
 |---|---|
-| 26 Oct 2026 | Step 0 plan written; branch `raised-ready-migration`; **awaiting review before Step 1**. |
+| 26 Oct 2026 (afternoon) | Initial Step 0 plan (4 mm bleed, upscaler, replace humanize, full data-protection step). |
+| 26 Oct 2026 (evening) | **Revised** Step 0: TJ 3 mm LOCKED; no upscaler (page-pair native res); keep humanize.py; Step 12 PARKED; `order_id` kept; update file/test map. **Awaiting review before Step 1.** |
