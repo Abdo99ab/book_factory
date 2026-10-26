@@ -38,6 +38,8 @@ from pipeline.constants import (
     ARCHIVE_ROOT,
     CONTENT_PAGE_COUNT,
     JOB_ROOT,
+    PPI_FAIL,
+    PPI_WARN,
     TEMPLATE_ROOT,
     pronouns_for,
 )
@@ -49,6 +51,7 @@ from pipeline.memory import format_memory_for_prompt, load_memory
 from pipeline.openai_util import create_client
 from pipeline.pages import page_art_path
 from pipeline.pdf_build import build_pdf
+from pipeline import qa as qa_checks
 from pipeline.runner import PREVIEW_PAGE_COUNT, run_job
 from pipeline.self_revise import apply_self_revise_plan, parse_actions_from_form, run_self_revise
 
@@ -581,7 +584,55 @@ def create_app():
             and (job_dir / "story" / "pages.json").is_file(),
             existing_template_id=job.get("template_id"),
             anchor_sheet_exists=anchor_sheet_exists,
+            qa_report=qa_checks.load_qa_report(job_dir),
+            human_check=qa_checks.load_human_check(job_dir),
+            human_check_items=qa_checks.HUMAN_CHECK_ITEMS,
+            send_blockers=qa_checks.send_blockers(job_dir) if job.get("pdf") else [],
+            min_effective_ppi=job.get("min_effective_ppi"),
+            ppi_warn=PPI_WARN,
+            ppi_fail=PPI_FAIL,
         )
+
+    @app.post("/jobs/<job_id>/qa")
+    def run_job_qa(job_id):
+        job_dir = _job_dir(job_id)
+        if not read_json(job_dir / "job.json"):
+            abort(404)
+        report = qa_checks.run_qa(job_dir)
+        flash(
+            "QA passed." if report["passed"] else f"QA found {report['errors']} error(s).",
+            "success" if report["passed"] else "error",
+        )
+        return redirect(url_for("job_page", job_id=job_id) + "#human-check")
+
+    @app.post("/jobs/<job_id>/human-check")
+    def save_human_check(job_id):
+        job_dir = _job_dir(job_id)
+        if not read_json(job_dir / "job.json"):
+            abort(404)
+        record = qa_checks.record_human_check(
+            job_dir,
+            request.form.get("reviewer", ""),
+            request.form.getlist("checked"),
+        )
+        flash(
+            "Human check complete." if record["complete"] else "Saved - every item and a reviewer name are still required.",
+            "success" if record["complete"] else "error",
+        )
+        return redirect(url_for("job_page", job_id=job_id) + "#human-check")
+
+    @app.post("/jobs/<job_id>/send-preview")
+    def send_preview_job(job_id):
+        job_dir = _job_dir(job_id)
+        if not read_json(job_dir / "job.json"):
+            abort(404)
+        try:
+            qa_checks.send_preview(job_dir)
+        except PermissionError as error:
+            flash(f"Send blocked: {error}", "error")
+            return redirect(url_for("job_page", job_id=job_id) + "#human-check"), 303
+        flash("Preview released.", "success")
+        return redirect(url_for("job_page", job_id=job_id) + "#human-check")
 
     @app.post("/jobs/<job_id>/make-template")
     def make_template(job_id):

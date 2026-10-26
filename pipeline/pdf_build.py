@@ -455,7 +455,15 @@ def _draw_spread_page(ctx: _Ctx, page: dict, art_path: Path, side: str, index: i
         if plate:
             _soft_plate(c, left - 6, top - 6, width + 12, height_mm + 12)
         _draw_lines(c, lines, reportlab_name("body"), size, left, top, size * leading, ink)
-        record.update({"text": True, "plate": plate, "size_pt": size, "lines": len(lines)})
+        record.update(
+            {
+                "text": True,
+                "plate": plate,
+                "size_pt": size,
+                "lines": len(lines),
+                "box_mm": [left, top, width, height_mm],
+            }
+        )
     ctx.layout_log.append(record)
     c.showPage()
 

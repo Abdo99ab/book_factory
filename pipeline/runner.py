@@ -22,6 +22,7 @@ from .job_log import append_event, read_json, write_json
 from .openai_util import create_client
 from .pages import compile_pages, spread_art_path, spread_pages
 from .pdf_build import build_pdf
+from .qa import run_qa
 from .story import rebuild_story
 from .validate import ValidationError, validate_content
 
@@ -161,6 +162,10 @@ def _illustrate_and_build(
         min_effective_ppi=lowest,
         error=None,
     )
+    try:
+        run_qa(job_dir)  # deterministic reports; Send stays blocked until a human also signs off
+    except Exception as qa_error:  # never lose a finished build to a QA crash
+        append_event(job_dir, "qa_failed_to_run", str(qa_error))
     return pdf_path
 
 

@@ -514,6 +514,66 @@
     {% endfor %}
   </div>
 
+  {% if job.pdf %}
+  <section class="panel {% if qa_report and qa_report.passed %}is-pass{% else %}is-fail{% endif %}" id="human-check">
+    <p class="eyebrow">QA &amp; human check</p>
+    <h2>
+      {% if not qa_report %}QA has not run
+      {% elif qa_report.passed %}QA passed{% else %}QA failed - {{ qa_report.errors }} error(s){% endif %}
+      {% if qa_report and qa_report.warnings %} ? {{ qa_report.warnings }} warning(s){% endif %}
+    </h2>
+    <p>
+      <strong>Lowest page resolution:</strong>
+      {% if min_effective_ppi is not none and min_effective_ppi is defined %}
+        {{ min_effective_ppi }} ppi
+        {% if min_effective_ppi < ppi_fail %}<span class="issue-error">(below {{ ppi_fail }} - cannot print)</span>
+        {% elif min_effective_ppi < ppi_warn %}<span class="issue-warning">(below the {{ ppi_warn }} ppi target)</span>
+        {% else %}(meets {{ ppi_warn }} ppi){% endif %}
+      {% else %}not recorded{% endif %}
+      - native pixels in the 216 mm box, no upscaler.
+    </p>
+    {% if qa_report %}
+      <ul class="issue-list">
+        {% for name, report in qa_report.reports.items() %}
+          {% for issue in report.issues %}
+            <li class="issue-{{ issue.severity }}"><strong>{{ name }}{% if issue.page %} ? page {{ issue.page }}{% elif issue.spread %} ? spread {{ issue.spread }}{% endif %}</strong> {{ issue.message }}</li>
+          {% endfor %}
+        {% endfor %}
+      </ul>
+    {% endif %}
+    <form method="post" action="{{ url_for('run_job_qa', job_id=job.job_id) }}">
+      <button class="button secondary" type="submit">{% if qa_report %}Run QA again{% else %}Run QA{% endif %}</button>
+    </form>
+
+    <form method="post" action="{{ url_for('save_human_check', job_id=job.job_id) }}" class="human-check-form">
+      <h3>Human check</h3>
+      <p class="hint">A person looks at the finished pages before anything is sent. Rebuilding the PDF clears this.</p>
+      {% for key, label in human_check_items %}
+        <label class="wide">
+          <input type="checkbox" name="checked" value="{{ key }}"
+                 {% if human_check and human_check['items'] and human_check['items'].get(key) and human_check.pdf_sha256 == qa_report.pdf_sha256 %}checked{% endif %}>
+          {{ label }}
+        </label>
+      {% endfor %}
+      <label class="wide">Reviewer name
+        <input name="reviewer" value="{{ human_check.reviewer if human_check else '' }}" required>
+      </label>
+      <button class="button" type="submit">Save human check</button>
+    </form>
+
+    <form method="post" action="{{ url_for('send_preview_job', job_id=job.job_id) }}">
+      <button class="button" type="submit" {% if send_blockers %}disabled{% endif %}>Send preview</button>
+      {% if send_blockers %}
+        <ul class="issue-list">
+          {% for reason in send_blockers %}<li class="issue-error">{{ reason }}</li>{% endfor %}
+        </ul>
+      {% elif job.sent_at %}
+        <span class="hint">Preview released.</span>
+      {% endif %}
+    </form>
+  </section>
+  {% endif %}
+
   <section class="panel change-panel">
     <p class="eyebrow">Natural language edits</p>
     <h2>Request a change</h2>

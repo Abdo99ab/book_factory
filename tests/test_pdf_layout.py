@@ -14,7 +14,7 @@ from pipeline.constants import (
     PRINTER,
     mm_to_pt,
 )
-from tests.emma_data import build_emma_job
+from emma_data import build_emma_job
 
 CREAM = (255, 250, 240)
 

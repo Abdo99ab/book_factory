@@ -137,3 +137,15 @@ def build_emma_job(job_dir: Path, size: int = 1400, dark_spreads: tuple = ()):
     inputs, story, pages = emma_bundle(job_dir)
     write_emma_art(job_dir, size, dark_spreads)
     return inputs, story, pages
+
+def persist_emma_job(job_dir: Path, inputs: dict, story: dict, pages: list, pdf_path: Path) -> None:
+    """Write the job files the QA / app layers read (inputs, job.json, story, pages)."""
+    from pipeline.job_log import write_json
+
+    write_json(job_dir / "inputs.json", inputs)
+    write_json(
+        job_dir / "job.json",
+        {"job_id": job_dir.name, "name": inputs["name"], "status": "complete", "pdf": pdf_path.relative_to(job_dir).as_posix()},
+    )
+    write_json(job_dir / "story" / "rebuilt_story.json", story)
+    write_json(job_dir / "story" / "pages.json", {"pages": pages})

@@ -37,7 +37,9 @@ PLACEMENTS = {
 }
 
 REVIEW_SYSTEM = """You are a strict QA art director for personalized children's picture books.
-You review COMPOSITED pages (illustration + cream text panel already overlaid).
+You review COMPOSITED pages (illustration + the live text layer, rendered from the print PDF).
+You are also given the child's reference photo and the approved character sheet: compare each
+page's child against them.
 
 Find real issues that hurt print quality, especially:
 - Text panel covering faces, heads, eyes, or important body parts
@@ -45,6 +47,8 @@ Find real issues that hurt print quality, especially:
 - Hero looks like a different child / face badly wrong
 - Composition so crowded the text band has no safe empty space
 - Missing accessories the page brief clearly requires (if brief is provided)
+- Artefacts: extra or missing fingers, melted hands, garbled glyphs inside the art, duplicated limbs
+- The anchor object (if the brief names one) shows the wrong state (e.g. wrong number of ticks)
 
 Return JSON:
 {
@@ -55,6 +59,15 @@ Return JSON:
       "severity": "error" | "warning",
       "problem": "what is wrong",
       "fix": "what to do"
+    }
+  ],
+  "records": [
+    {
+      "page": 1,
+      "faces": [{"x": 0.0, "y": 0.0, "w": 0.1, "h": 0.1}],
+      "anchor_state_seen": null,
+      "likeness": "good" | "drift" | "wrong",
+      "artefacts": ["short description"]
     }
   ],
   "actions": [
@@ -70,6 +83,10 @@ Return JSON:
     }
   ]
 }
+
+Records: one entry for EVERY page shown. faces are normalised 0-1 boxes (x,y = top-left corner,
+fraction of the page width/height). anchor_state_seen is the integer state of the anchor object
+(e.g. number of ticks) or null when it is not visible. artefacts is [] when clean.
 
 Action rules:
 - Prefer the smallest fix. For text-over-face/body: FIRST try rewrite_page_text with a
@@ -97,6 +114,18 @@ def _image_data_url(path: Path, max_width: int = VISION_MAX_WIDTH) -> str:
         rgb.save(buffer, format="JPEG", quality=72, optimize=True)
     encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
     return f"data:image/jpeg;base64,{encoded}"
+
+
+def _reference_content(job_dir: Path) -> list[dict]:
+    """Reference photo + approved character sheet, once per batch, so likeness can be judged."""
+    parts: list[dict] = []
+    candidates = sorted((job_dir / "character").glob("reference.*"))[:1] + [job_dir / "character" / "character.png"]
+    labels = ["Child's reference photo:", "Approved character sheet:"]
+    for label, path in zip(labels, candidates):
+        if path.is_file():
+            parts.append({"type": "text", "text": label})
+            parts.append({"type": "image_url", "image_url": {"url": _image_data_url(path)}})
+    return parts
 
 
 def _page_image_path(job_dir: Path, page: dict) -> Path | None:
@@ -139,6 +168,7 @@ def _review_batch(client, job_dir: Path, inputs: dict, story: dict, batch: list[
             ),
         }
     ]
+    content.extend(_reference_content(job_dir))
     for page in batch:
         image_path = _page_image_path(job_dir, page)
         if image_path is None:
@@ -167,12 +197,18 @@ def _review_batch(client, job_dir: Path, inputs: dict, story: dict, batch: list[
 
 def _merge_plans(parts: list[dict]) -> dict:
     issues = []
+    records: dict[str, dict] = {}
     actions_by_page: dict[int, dict] = {}
     summaries = []
     for part in parts:
         if part.get("summary"):
             summaries.append(part["summary"])
         issues.extend(part.get("issues") or [])
+        for record in part.get("records") or []:
+            try:
+                records[str(int(record["page"]))] = record
+            except (KeyError, TypeError, ValueError):
+                continue
         for action in part.get("actions") or []:
             if action.get("type") in {None, "noop"}:
                 continue
@@ -204,7 +240,7 @@ def _merge_plans(parts: list[dict]) -> dict:
             else "Self-revise found no material issues."
         )
     )
-    return {"summary": summary, "issues": issues, "actions": actions}
+    return {"summary": summary, "issues": issues, "actions": actions, "records": records}
 
 
 def review_book_pages(client, job_dir: Path, inputs: dict, story: dict, pages: list) -> dict:
@@ -233,6 +269,23 @@ def review_book_pages(client, job_dir: Path, inputs: dict, story: dict, pages: l
             raise
 
     plan = _merge_plans(parts)
+    # review_record feeds qa.anchor_state / qa.face_position (and the human-check panel).
+    (job_dir / "qa").mkdir(parents=True, exist_ok=True)
+    write_json(job_dir / "qa" / "review_record.json", {"pages": plan.get("records") or {}})
+    for page, record in (plan.get("records") or {}).items():
+        for artefact in record.get("artefacts") or []:
+            plan["issues"].append(
+                {"page": int(page), "severity": "error", "problem": f"Artefact: {artefact}", "fix": "Regenerate the page art."}
+            )
+        if record.get("likeness") in {"drift", "wrong"}:
+            plan["issues"].append(
+                {
+                    "page": int(page),
+                    "severity": "error" if record["likeness"] == "wrong" else "warning",
+                    "problem": f"Likeness {record['likeness']} against the reference photo.",
+                    "fix": "Regenerate with the character lock.",
+                }
+            )
     write_json(job_dir / "logs" / "self_revise_plan.json", plan)
     append_event(
         job_dir,

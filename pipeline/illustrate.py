@@ -218,11 +218,19 @@ def spread_art_exists(job_dir: Path, n: int) -> bool:
 
 
 def min_effective_ppi(job_dir: Path, spread_numbers=range(1, 15)) -> float | None:
+    """Lowest effective ppi over the page art: measured from the files, and the recorded value."""
+    from PIL import Image
+
     values = []
     for n in spread_numbers:
         meta = read_spread_meta(job_dir, n)
         if meta and meta.get("effective_ppi") is not None:
             values.append(float(meta["effective_ppi"]))
+        for side in SIDES:
+            path = spread_art_path(job_dir, n, side)
+            if path.is_file():
+                with Image.open(path) as image:
+                    values.append(float(effective_ppi(image.size[0], PAGE_WITH_BLEED_MM)))
     return min(values) if values else None
 
 
