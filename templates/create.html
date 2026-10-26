@@ -4,96 +4,168 @@
   <a class="back-link" href="{{ url_for('index') }}">← Back</a>
   <section class="form-header">
     <p class="eyebrow">New job</p>
-    <h1>Build a full book</h1>
-    <p>Paste the drafted story and pick a theme. We first rebuild the manuscript and stop so you can review and edit supporting characters, outfit, and pages — then you choose a 3-page preview or validate &amp; build.</p>
+    <h1>Build a Raised Ready book</h1>
+    <p>Pick a catalogue title, enter the child’s details and order ID, then upload one photo. Content is prepared for review before preview or full build.</p>
   </section>
 
-  <form class="panel form-panel" method="post" action="{{ url_for('create_job') }}" enctype="multipart/form-data">
+  <form class="panel form-panel" method="post" action="{{ url_for('create_job') }}" enctype="multipart/form-data" id="create-form">
     <div class="form-grid">
-      <label>Child name
-        <input name="name" required placeholder="e.g. Mia">
-      </label>
-      <label>Age
-        <input name="age" required type="number" min="1" max="14" placeholder="5">
-      </label>
-      <label>Gender
-        <select name="gender" required>
-          <option value="">Choose</option>
-          <option value="female">Girl</option>
-          <option value="male">Boy</option>
-        </select>
-      </label>
-      <label>Theme
-        <select name="theme" required>
-          <option value="">Choose</option>
-          {% for theme in themes %}
-            <option value="{{ theme }}">{{ theme }}</option>
+      <label class="wide">Title
+        <select name="title_id" id="title_id" required>
+          <option value="">Choose a title</option>
+          {% for t in titles %}
+            <option value="{{ t.title_id }}"
+                    data-family="{{ t.family }}"
+                    data-band="{{ t.band }}"
+                    data-age="{{ t.age_band }}"
+                    data-approved="{{ t.approved }}"
+                    data-slots='{{ t.personalisation_slots | tojson }}'>
+              {{ t.title_template.replace('{name}', '…') }} — {{ t.band }} · ages {{ t.age_band }}
+            </option>
           {% endfor %}
         </select>
-      </label>
-      <label>Purpose
-        <select name="purpose" required>
-          {% for purpose in purposes %}
-            <option value="{{ purpose }}">{{ purpose }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>Pages
-        <input name="page_count" type="number" min="32" max="32" value="32" required readonly>
-        <small>Fixed at 32 content pages (TJ 170 gsm / 8 mm spine). Plain endpapers are added in the PDF and not counted.</small>
-      </label>
-      <label class="wide">Child photo
-        <input name="reference_image" type="file" accept="image/png,image/jpeg,image/webp" required>
-        <small>One hero photo. Everything else is generated.</small>
-      </label>
-      <label class="wide">Drafted story
-        <textarea name="draft_story" rows="12" required placeholder="Paste the full drafted story here. It will be rebuilt for the chosen theme and age."></textarea>
-      </label>
-      <label class="wide">Design rules
-        <textarea name="design_rules" rows="5" placeholder="Colors, art style, outfit notes, mood… e.g. soft watercolor, coral and navy palette, teal buttoned shirt locked for the hero."></textarea>
+        <small id="title-meta"></small>
       </label>
 
-      <fieldset class="wide font-picker">
-        <legend>Choose a font</legend>
-        <p class="hint">Used for story text overlays on every page and the cover title.</p>
-        <div class="font-grid">
-          {% for font in fonts %}
-            <label class="font-card" style="--swatch: {{ font.swatch }}">
-              <input type="radio" name="font_id" value="{{ font.id }}"
-                     {% if font.id == default_font_id %}checked{% endif %}>
-              <span class="font-card-inner">
-                <span class="font-sample" style="font-family: {{ font.web_family }}">{{ font.label }}</span>
-                <span class="font-card-meta">View example</span>
-              </span>
-            </label>
-          {% endfor %}
-        </div>
+      <label>Child name
+        <input name="name" required placeholder="e.g. Emma">
+      </label>
+      <label>Age (years)
+        <input name="age" required type="number" min="1" max="14" placeholder="3">
+        <small id="age-warning" class="hint"></small>
+      </label>
+      <label>Pronouns
+        <select name="pronouns" required>
+          <option value="">Choose</option>
+          <option value="she">She / her</option>
+          <option value="he">He / him</option>
+          <option value="they">They / them</option>
+        </select>
+      </label>
+      <label>Carer name
+        <input name="carer_name" required placeholder="e.g. Sam">
+      </label>
+      <label>Carer role
+        <input name="carer_role" required placeholder="Mum / Dad / Nana / Grandad…">
+      </label>
+      <label>Home type
+        <select name="home_type" required>
+          <option value="flat">Flat</option>
+          <option value="house">House</option>
+        </select>
+      </label>
+      <label>Comfort object
+        <input name="comfort_object" required placeholder="e.g. blue bunny">
+      </label>
+      <label>Order ID
+        <input name="order_id" required pattern="[A-Za-z0-9-]+" placeholder="RR-1001">
+        <small>Used in every print file name. Letters, numbers and hyphens only.</small>
+      </label>
+      <label class="wide">Dedication
+        <textarea name="dedication_text" rows="2" placeholder="For Emma, from Nana"></textarea>
+      </label>
+
+      <fieldset class="wide" id="slots-fieldset">
+        <legend>Title personalisation</legend>
+        <div id="slots-container" class="form-grid"></div>
       </fieldset>
+
+      <label class="wide">Child photo
+        {# PARKED: data protection (spec §14) — consent ticks / retention not in this pass #}
+        <input name="reference_image" type="file" accept="image/png,image/jpeg,image/webp" required>
+        <small>One hero photo. Used only to make this book.</small>
+      </label>
 
       <fieldset class="wide start-mode">
         <legend>Preferred step after content review</legend>
         <label class="radio-card">
           <input type="radio" name="start_mode" value="preview" checked>
           <span>
-            <strong>Then preview 3 content pages</strong>
-            <small>After you approve/edit the story brief, generate 3 interior pages (not the cover) before the full book.</small>
+            <strong>Then preview 3 spreads</strong>
+            <small>After you approve the hero sheet and text, generate a short preview before the full book.</small>
           </span>
         </label>
         <label class="radio-card">
           <input type="radio" name="start_mode" value="full">
           <span>
-            <strong>Then validate &amp; build full book</strong>
-            <small>After you approve/edit the story brief, skip image preview and go straight to validate + full generation.</small>
+            <strong>Then validate &amp; build</strong>
+            <small>Skip the image preview and go to validate + full generation after review.</small>
           </span>
         </label>
       </fieldset>
     </div>
 
     <details class="memory-box">
-      <summary>Preferences that will be injected</summary>
-      <pre>{{ memory_preview }}</pre>
+      <summary>Advanced overrides</summary>
+      <label class="wide">Story override
+        <textarea name="story_override" rows="4" placeholder="Optional — logged as an override, not the Magical draft path."></textarea>
+      </label>
+      <label class="wide">Art notes
+        <textarea name="art_notes" rows="3" placeholder="Optional notes for illustration."></textarea>
+      </label>
     </details>
 
     <button class="button" type="submit">Start</button>
   </form>
+
+  <script>
+    const titleSelect = document.getElementById('title_id');
+    const slotsBox = document.getElementById('slots-container');
+    const titleMeta = document.getElementById('title-meta');
+    const ageInput = document.querySelector('input[name="age"]');
+    const ageWarning = document.getElementById('age-warning');
+
+    function parseAgeBand(band) {
+      // e.g. "2-3.5" or "7-10"
+      const m = String(band || '').match(/(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)/);
+      if (!m) return null;
+      return { lo: parseFloat(m[1]), hi: parseFloat(m[2]) };
+    }
+
+    function renderSlots() {
+      const opt = titleSelect.selectedOptions[0];
+      slotsBox.innerHTML = '';
+      if (!opt || !opt.value) { titleMeta.textContent = ''; return; }
+      const approved = opt.dataset.approved === 'True' || opt.dataset.approved === 'true';
+      titleMeta.textContent = opt.dataset.family + ' · ' + opt.dataset.band + ' · ages ' + opt.dataset.age
+        + (approved ? '' : ' · story not yet approved');
+      let slots = [];
+      try { slots = JSON.parse(opt.dataset.slots || '[]'); } catch (e) { slots = []; }
+      slots.forEach(slot => {
+        const label = document.createElement('label');
+        label.textContent = slot.label || slot.id;
+        let input;
+        if (slot.type === 'select') {
+          input = document.createElement('select');
+          input.name = 'slot_' + slot.id;
+          (slot.options || []).forEach(o => {
+            const op = document.createElement('option');
+            op.value = o; op.textContent = o; input.appendChild(op);
+          });
+        } else {
+          input = document.createElement('input');
+          input.name = 'slot_' + slot.id;
+          input.type = 'text';
+        }
+        if (slot.required) input.required = true;
+        label.appendChild(input);
+        slotsBox.appendChild(label);
+      });
+      checkAge();
+    }
+
+    function checkAge() {
+      const opt = titleSelect.selectedOptions[0];
+      ageWarning.textContent = '';
+      if (!opt || !opt.value || !ageInput.value) return;
+      const range = parseAgeBand(opt.dataset.age);
+      const age = parseFloat(ageInput.value);
+      if (range && (age < range.lo - 0.5 || age > range.hi + 1)) {
+        ageWarning.textContent = 'This title is written for ages ' + opt.dataset.age + '.';
+      }
+    }
+
+    titleSelect.addEventListener('change', renderSlots);
+    ageInput.addEventListener('input', checkAge);
+  </script>
 {% endblock %}

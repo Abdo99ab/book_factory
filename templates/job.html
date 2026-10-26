@@ -6,7 +6,15 @@
     <div>
       <p class="eyebrow">{{ job.job_id }}</p>
       <h1>{{ job.book_title or inputs.name }}</h1>
-      <p>{{ inputs.theme }} · {{ inputs.purpose }} · {{ inputs.name }}, age {{ inputs.age }}</p>
+      <p>
+        {% if inputs.title_id %}{{ inputs.title_id|replace('_', ' ')|title }}{% endif %}
+        {% if inputs.band or job.band %} · {{ inputs.band or job.band }}{% endif %}
+        {% if job.order_id or inputs.order_id %} · order {{ job.order_id or inputs.order_id }}{% endif %}
+        · {{ inputs.name }}, age {{ inputs.age }}{% if inputs.age_band %} (band {{ inputs.age_band }}){% endif %}
+      </p>
+      {% if job.age_warning %}
+        <p class="hint">{{ job.age_warning }}</p>
+      {% endif %}
     </div>
     <div class="job-actions">
       {% if preview_available %}
@@ -61,6 +69,32 @@
       </form>
     </div>
   </div>
+
+  {% if job.status == 'character_ready' %}
+  <section class="panel preview-banner">
+    <p class="eyebrow">Hero sheet</p>
+    <h2>Approve character reference</h2>
+    <p class="hint">Check the hero, set and anchor sheets match the child before story generation runs.</p>
+    <div class="page-grid">
+      <figure>
+        <img src="{{ url_for('character_sheet_image', job_id=job.job_id) }}" alt="Hero character sheet">
+        <figcaption>Hero sheet</figcaption>
+      </figure>
+      {% if anchor_sheet_exists %}
+      <figure>
+        <img src="{{ url_for('anchor_sheet_image', job_id=job.job_id) }}" alt="Anchor object sheet">
+        <figcaption>Anchor object</figcaption>
+      </figure>
+      {% endif %}
+    </div>
+    <form method="post" action="{{ url_for('approve_character', job_id=job.job_id) }}">
+      <label>Approved by
+        <input name="approved_by" placeholder="Your name">
+      </label>
+      <button class="button" type="submit">Approve hero sheet</button>
+    </form>
+  </section>
+  {% endif %}
 
   {% if self_revise or job.status == 'self_revising' or self_revise_plan_ready %}
   <section class="panel preview-banner review-banner" id="self-revise-panel">
@@ -281,25 +315,11 @@
 
   {% if overlay_rebuild_available %}
   <section class="panel font-panel">
-    <p class="eyebrow">Story text font</p>
-    <h2>Choose a font</h2>
-    <p class="hint">Re-applies overlays on existing art (no new AI images). Current: <strong>{{ selected_font_id|replace('_', ' ')|title }}</strong></p>
+    <p class="eyebrow">Text layer</p>
+    <h2>Re-render overlays</h2>
+    <p class="hint">Re-applies Raised Ready brand fonts on existing art (no new AI images).</p>
     <form method="post" action="{{ url_for('rebuild_overlays', job_id=job.job_id) }}">
-      <div class="font-grid">
-        {% for font in fonts %}
-          <label class="font-card" style="--swatch: {{ font.swatch }}">
-            <input type="radio" name="font_id" value="{{ font.id }}"
-                   {% if font.id == selected_font_id %}checked{% endif %}>
-            <span class="font-card-inner">
-              <span class="font-sample" style="font-family: {{ font.web_family }}">{{ font.label }}</span>
-              <span class="font-card-meta">View example</span>
-            </span>
-          </label>
-        {% endfor %}
-      </div>
-      <div class="editor-actions">
-        <button class="button" type="submit">Apply font &amp; rebuild PDF</button>
-      </div>
+      <button class="button" type="submit">Re-render text &amp; PDF</button>
     </form>
   </section>
   {% endif %}

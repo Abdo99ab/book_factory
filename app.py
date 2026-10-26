@@ -33,16 +33,17 @@ from pipeline.book_templates import (
 )
 from pipeline.cast_rebuild import rebuild_content_for_cast
 from pipeline.changes import enqueue_change, process_change_queue
+from pipeline.catalogue import get_title, list_titles, resolve_route
 from pipeline.constants import (
     ARCHIVE_ROOT,
     CONTENT_PAGE_COUNT,
     JOB_ROOT,
-    PURPOSES,
     TEMPLATE_ROOT,
-    THEMES,
+    pronouns_for,
 )
+from pipeline.inputs_util import age_band_warning, collect_slots, validate_order_id
 from pipeline.content_edit import apply_content_edits
-from pipeline.fonts import DEFAULT_FONT_ID, FONT_OPTIONS, normalize_font_id
+from pipeline.fonts import normalize_font_id
 from pipeline.job_log import append_event, read_events, read_json, write_json
 from pipeline.memory import format_memory_for_prompt, load_memory
 from pipeline.openai_util import create_client
@@ -79,7 +80,7 @@ def create_app():
         return render_template(
             "index.html",
             jobs=jobs,
-            themes=THEMES,
+            titles=list_titles(),
             preference_count=len(memory.get("preferences") or []),
             archived_count=_count_jobs(ARCHIVE_ROOT),
             template_count=len(list_templates(limit=500)),
@@ -94,53 +95,60 @@ def create_app():
     def create_form():
         return render_template(
             "create.html",
-            themes=THEMES,
-            purposes=PURPOSES,
-            fonts=FONT_OPTIONS,
-            default_font_id=DEFAULT_FONT_ID,
-            memory_preview=format_memory_for_prompt(limit=8),
+            titles=list_titles(),
         )
 
     @app.post("/jobs")
     def create_job():
+        # Legacy Magical fields — ignored if posted
+        _ = request.form.get("theme", "")
+        _ = request.form.get("purpose", "")
+        _ = request.form.get("page_count", "")
+        _ = request.form.get("design_rules", "")
+        _ = request.form.get("draft_story", "")
+        _ = request.form.get("font_id", "")
+
+        title_id = request.form.get("title_id", "").strip()
         name = request.form.get("name", "").strip()
         age = request.form.get("age", "").strip()
-        gender = request.form.get("gender", "").strip().lower()
-        theme = request.form.get("theme", "").strip()
-        purpose = request.form.get("purpose", "").strip().lower()
-        draft_story = request.form.get("draft_story", "").strip()
-        design_rules = request.form.get("design_rules", "").strip()
-        page_count_raw = request.form.get("page_count", str(CONTENT_PAGE_COUNT)).strip()
-        start_mode = request.form.get("start_mode", "full").strip().lower()
-        font_id = normalize_font_id(request.form.get("font_id", "").strip())
+        pronouns = request.form.get("pronouns", "").strip().lower()
+        carer_name = request.form.get("carer_name", "").strip()
+        carer_role = request.form.get("carer_role", "").strip()
+        home_type = request.form.get("home_type", "house").strip().lower()
+        comfort_object = request.form.get("comfort_object", "").strip()
+        dedication_text = request.form.get("dedication_text", "").strip()
+        order_id = request.form.get("order_id", "").strip()
+        start_mode = request.form.get("start_mode", "preview").strip().lower()
+        story_override = request.form.get("story_override", "").strip()
+        art_notes = request.form.get("art_notes", "").strip()
         reference = request.files.get("reference_image")
         if start_mode not in {"preview", "full"}:
-            start_mode = "full"
+            start_mode = "preview"
 
+        if not title_id:
+            flash("Choose a catalogue title.", "error")
+            return redirect(url_for("create_form"))
         try:
-            page_count = int(page_count_raw)
-        except ValueError:
-            flash(f"Page count must be {CONTENT_PAGE_COUNT} (TJ 170 gsm spine).", "error")
+            title = get_title(title_id)
+        except Exception:
+            flash("Choose a valid catalogue title.", "error")
             return redirect(url_for("create_form"))
-
-        if not name or not age or gender not in {"male", "female"}:
-            flash("Name, age, and gender are required.", "error")
+        if not name or not age:
+            flash("Name and age are required.", "error")
             return redirect(url_for("create_form"))
-        if theme not in THEMES:
-            flash("Choose a valid theme.", "error")
+        if pronouns not in {"she", "he", "they"}:
+            flash("Choose pronouns.", "error")
             return redirect(url_for("create_form"))
-        if purpose not in PURPOSES:
-            flash("Choose a valid purpose.", "error")
+        if not carer_name or not carer_role:
+            flash("Carer name and role are required.", "error")
             return redirect(url_for("create_form"))
-        if page_count != CONTENT_PAGE_COUNT:
-            flash(
-                f"Page count must be {CONTENT_PAGE_COUNT} "
-                "(TJ spine is 8 mm for 32 pages on 170 gsm; endpapers are extra).",
-                "error",
-            )
+        if home_type not in {"flat", "house"}:
+            home_type = "house"
+        if not comfort_object:
+            flash("Comfort object is required.", "error")
             return redirect(url_for("create_form"))
-        if len(draft_story) < 40:
-            flash("Paste a drafted story (at least a short paragraph).", "error")
+        if not validate_order_id(order_id):
+            flash("Order ID is required (letters, numbers and hyphens only).", "error")
             return redirect(url_for("create_form"))
         if not reference or not reference.filename:
             flash("Upload a child reference photo.", "error")
@@ -149,34 +157,56 @@ def create_app():
             flash("_OPENAI_API_KEY is not configured.", "error")
             return redirect(url_for("create_form"))
 
+        try:
+            slots = collect_slots(request.form, title_id)
+        except ValueError as error:
+            flash(str(error), "error")
+            return redirect(url_for("create_form"))
+
         extension = Path(secure_filename(reference.filename)).suffix.lower()
         if extension not in ALLOWED_IMAGE_EXTENSIONS:
             flash("Reference image must be PNG, JPG, JPEG, or WEBP.", "error")
             return redirect(url_for("create_form"))
+
+        route = resolve_route(title)
+        age_band = title["age_band"]
+        age_warning = age_band_warning(age, age_band)
+        pronouns_for(pronouns)
+        gender = {"she": "female", "he": "male", "they": "they"}.get(pronouns, pronouns)
 
         job_id = uuid.uuid4().hex
         job_dir = JOB_ROOT / job_id
         character_dir = job_dir / "character"
         character_dir.mkdir(parents=True, exist_ok=True)
         reference_path = character_dir / f"reference{extension}"
+        # PARKED: data protection (spec §14) — consent, retention, redaction
         reference.save(reference_path)
 
         inputs = {
+            "title_id": title_id,
+            "route": route,
+            "age_band": age_band,
             "name": name,
             "age": age,
+            "pronouns": pronouns,
             "gender": gender,
-            "theme": theme,
-            "purpose": purpose,
-            "page_count": page_count,
-            "draft_story": draft_story,
-            "design_rules": design_rules
-            or "Warm, polished children's picture-book style with clear readable compositions.",
-            "font_id": font_id,
+            "carer": {"name": carer_name, "role": carer_role},
+            "home_type": home_type,
+            "comfort_object": comfort_object,
+            "slots": slots,
+            "dedication_text": dedication_text,
+            "order_id": order_id,
             "start_mode": start_mode,
+            "font_id": normalize_font_id(None),
+            "page_count": CONTENT_PAGE_COUNT,
         }
-        # Always prepare content first so the operator can review/edit
-        # (supporting characters, outfit, pages) before preview or full build.
+        if story_override:
+            inputs["story_override"] = story_override
+        if art_notes:
+            inputs["art_notes"] = art_notes
+
         write_json(job_dir / "inputs.json", inputs)
+        book_title = title["title_template"].replace("{name}", name)
         write_json(
             job_dir / "job.json",
             {
@@ -184,13 +214,16 @@ def create_app():
                 "status": "queued",
                 "run_mode": "prepare",
                 "preferred_next": "preview" if start_mode == "preview" else "full",
-                "book_title": None,
+                "book_title": book_title,
                 "name": name,
-                "theme": theme,
-                "purpose": purpose,
-                "page_count": page_count,
+                "title_id": title_id,
+                "band": title.get("band"),
+                "order_id": order_id,
+                "age_band": age_band,
+                "age_warning": age_warning,
+                "page_count": CONTENT_PAGE_COUNT,
                 "current_page": 0,
-                "total_pages": page_count,
+                "total_pages": CONTENT_PAGE_COUNT,
                 "preview_requested": False,
                 "preview_ready": False,
                 "pdf": None,
@@ -202,13 +235,58 @@ def create_app():
         append_event(
             job_dir,
             "job_created",
-            "Job created. Preparing story content for review before preview/build.",
+            "Job created. Preparing character sheets for hero approval.",
             inputs=inputs,
             preferred_next="preview" if start_mode == "preview" else "full",
+            age_warning=age_warning,
         )
 
         job_executor.submit(_safe_run_job, job_id, job_dir, "prepare")
         return redirect(url_for("job_page", job_id=job_id))
+
+    @app.post("/jobs/<job_id>/approve-character")
+    def approve_character(job_id):
+        job_dir = _job_dir(job_id)
+        job = read_json(job_dir / "job.json")
+        if not job:
+            abort(404)
+        if job.get("status") != "character_ready":
+            flash("Hero sheet approval is only available when sheets are ready.", "error")
+            return redirect(url_for("job_page", job_id=job_id))
+        approver = (request.form.get("approved_by") or "operator").strip() or "operator"
+        write_json(
+            job_dir / "job.json",
+            {
+                **job,
+                "character_approved_at": time.time(),
+                "character_approved_by": approver,
+                "status": "queued",
+                "error": None,
+            },
+        )
+        append_event(
+            job_dir,
+            "character_approved",
+            f"Hero sheet approved by {approver}. Continuing to story.",
+            approved_by=approver,
+        )
+        job_executor.submit(_safe_run_job, job_id, job_dir, "prepare")
+        flash("Hero sheet approved — generating story and page map.", "success")
+        return redirect(url_for("job_page", job_id=job_id))
+
+    @app.get("/jobs/<job_id>/character/sheet")
+    def character_sheet_image(job_id):
+        path = _job_dir(job_id) / "character" / "character.png"
+        if not path.is_file():
+            abort(404)
+        return send_file(path, mimetype="image/png")
+
+    @app.get("/jobs/<job_id>/anchor/sheet")
+    def anchor_sheet_image(job_id):
+        path = _job_dir(job_id) / "anchor" / "anchor.png"
+        if not path.is_file():
+            abort(404)
+        return send_file(path, mimetype="image/png")
 
     @app.post("/jobs/<job_id>/retry")
     def retry_job(job_id):
@@ -443,6 +521,7 @@ def create_app():
             "validation_failed",
             "failed",
         } and pages_ready and story is not None
+        anchor_sheet_exists = (_job_dir(job_id) / "anchor" / "anchor.png").is_file()
         return render_template(
             "job.html",
             job=job,
@@ -453,8 +532,6 @@ def create_app():
             validation=validation,
             change_progress=job.get("change_progress"),
             queued_changes=queued_changes,
-            fonts=FONT_OPTIONS,
-            selected_font_id=normalize_font_id(inputs.get("font_id")),
             cover_front_exists=cover_front.is_file(),
             cover_print_exists=cover_print.is_file(),
             cover_front_url=url_for("cover_front", job_id=job_id),
@@ -502,6 +579,7 @@ def create_app():
             )
             and (job_dir / "story" / "pages.json").is_file(),
             existing_template_id=job.get("template_id"),
+            anchor_sheet_exists=anchor_sheet_exists,
         )
 
     @app.post("/jobs/<job_id>/make-template")
@@ -546,8 +624,6 @@ def create_app():
         return render_template(
             "reuse_template.html",
             template=meta,
-            fonts=FONT_OPTIONS,
-            default_font_id=normalize_font_id(meta.get("font_id") or DEFAULT_FONT_ID),
         )
 
     @app.post("/templates/<template_id>/reuse")
@@ -559,9 +635,7 @@ def create_app():
         name = request.form.get("name", "").strip()
         age = request.form.get("age", "").strip()
         gender = request.form.get("gender", "").strip().lower()
-        font_id = normalize_font_id(
-            request.form.get("font_id", "").strip() or meta.get("font_id") or DEFAULT_FONT_ID
-        )
+        font_id = normalize_font_id(None)
         reference = request.files.get("reference_image")
 
         if not name or not age or gender not in {"male", "female"}:
@@ -779,7 +853,7 @@ def create_app():
 
     @app.post("/jobs/<job_id>/rebuild-overlays")
     def rebuild_overlays(job_id):
-        """Re-apply text overlays + PDF with a chosen font (no new AI images)."""
+        """Re-render text overlays on existing art (no new AI images)."""
         job_dir = _job_dir(job_id)
         job = read_json(job_dir / "job.json")
         inputs = read_json(job_dir / "inputs.json") or {}
@@ -791,7 +865,7 @@ def create_app():
             flash("Wait until pages exist, then rebuild overlays.", "error")
             return redirect(url_for("job_page", job_id=job_id))
 
-        font_id = normalize_font_id(request.form.get("font_id", "").strip())
+        font_id = normalize_font_id(None)
         inputs["font_id"] = font_id
         write_json(job_dir / "inputs.json", inputs)
 
@@ -835,7 +909,7 @@ def create_app():
                 f"Text overlays rebuilt with font {font_id}.",
                 font_id=font_id,
             )
-            flash(f"Overlays updated with {font_id.replace('_', ' ')}.", "success")
+            flash("Text overlays re-rendered with Raised Ready brand fonts.", "success")
         except Exception as error:
             logger.exception("Overlay rebuild failed")
             flash(f"Overlay rebuild failed: {error}", "error")
