@@ -121,8 +121,26 @@ SPINE_WIDTH_PT = mm_to_pt(SPINE_MM)
 COVER_WIDTH_PT = mm_to_pt(COVER_WIDTH_MM)
 COVER_HEIGHT_PT = mm_to_pt(COVER_HEIGHT_MM)
 
-# Default image size hint; openai_util.largest_image_size may override when IMAGE_SIZE=auto
+# Deprecated hint (Magical-era). Image size now comes from IMAGE_SIZE / openai_util.largest_image_size.
 PAGE_IMAGE_SIZE = os.getenv("PAGE_IMAGE_SIZE", "1024x1024")
+
+# --- Print resolution (no upscaler): native model pixels placed in the 216 mm box ---
+PPI_WARN = 300  # below this: print_resolution_warning
+PPI_FAIL = 150  # below this: print_resolution_fail (build is refused)
+
+
+def effective_ppi(pixel_width: int, box_mm: float | None = None) -> float:
+    """Pixels per inch when ``pixel_width`` px fills a box ``box_mm`` wide (default: page + bleed)."""
+    box = PAGE_WITH_BLEED_MM if box_mm is None else box_mm
+    return round(pixel_width / (box / 25.4), 1)
+
+
+def resolution_status(ppi: float) -> str:
+    if ppi < PPI_FAIL:
+        return "fail"
+    if ppi < PPI_WARN:
+        return "warning"
+    return "ok"
 
 # Spec §3 — pronouns (she / he / they)
 PRONOUNS = {

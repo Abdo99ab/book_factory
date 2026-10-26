@@ -1,17 +1,17 @@
 import base64
-import os
 from pathlib import Path
 
 from .brand import ROUTE_PRESETS, SHARED_NEGATIVES
 from .catalogue import get_title, load_story_beats
-from .constants import CHARACTER_IDENTITY, IMAGE_QUALITY, PAGE_IMAGE_SIZE, pronouns_for
+from .constants import CHARACTER_IDENTITY, IMAGE_QUALITY, IMAGE_SIZE, pronouns_for
 from .job_log import append_event, write_json
 from .memory import format_memory_for_prompt
 from .openai_util import image_edit
 
 
 def _image_size() -> str:
-    return os.getenv("PAGE_IMAGE_SIZE", PAGE_IMAGE_SIZE)
+    """IMAGE_SIZE (default auto: largest square the model accepts; see openai_util)."""
+    return IMAGE_SIZE
 
 
 def _character_prompt(inputs: dict, title: dict, route_key: str) -> str:

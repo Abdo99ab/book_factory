@@ -5,6 +5,41 @@ from .constants import CONTENT_PAGE_COUNT, SPREAD_COUNT
 from .job_log import append_event, write_json
 
 
+def spread_dir(job_dir: Path, n: int) -> Path:
+    return job_dir / "spreads" / f"spread-{int(n):02d}"
+
+
+def spread_art_path(job_dir: Path, n: int, side: str) -> Path:
+    """spreads/spread-NN/art-left.png | art-right.png (one square image per printed page)."""
+    if side not in {"left", "right"}:
+        raise ValueError(f"side must be left/right, got {side!r}")
+    return spread_dir(job_dir, n) / f"art-{side}.png"
+
+
+def page_spread_side(page_number: int) -> tuple[int, str] | None:
+    """Spread n occupies pages 2n (left) and 2n+1 (right); None outside pages 2-29."""
+    page_number = int(page_number)
+    if page_number < 2 or page_number > 2 * SPREAD_COUNT + 1:
+        return None
+    return page_number // 2, ("left" if page_number % 2 == 0 else "right")
+
+
+def page_art_path(job_dir: Path, page_number: int) -> Path | None:
+    located = page_spread_side(page_number)
+    if located is None:
+        return None
+    return spread_art_path(job_dir, located[0], located[1])
+
+
+def spread_pages(pages: list) -> dict[int, dict]:
+    """Spread-level briefs keyed by spread number (taken from each spread's left half)."""
+    return {
+        int(p["spread"]): p
+        for p in pages
+        if p.get("kind") == "spread_half" and p.get("side") == "left"
+    }
+
+
 def _calm_zone_for_spread(n: int) -> str:
     """Alternate calm zone by spread (left on odd, right on even)."""
     return "left" if n % 2 == 1 else "right"

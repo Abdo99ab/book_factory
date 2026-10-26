@@ -1,48 +1,47 @@
-"""Rebuild story prose and page briefs after the operator changes the cast."""
+"""Rewrite spread text/scenes after the operator changes the approved cast."""
 
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 
-from .constants import GENDER_DETAILS
+from .catalogue import get_title
+from .humanize import humanize_story_fields
 from .job_log import append_event, read_json, write_json
 from .memory import format_memory_for_prompt
 from .openai_util import chat_json
-from .humanize import humanize_story_fields
-from .pages import compile_pages
+from .pages import compile_pages, spread_art_path
+from .text_guards import check_spreads
 
-
-STORY_CAST_SYSTEM = """You rewrite a personalized children's picture-book manuscript to match an
-APPROVED supporting cast. The operator locked who may appear.
+STORY_CAST_SYSTEM = """You rewrite the 14 spreads of a Raised Ready personalised picture book (UK English)
+to match an APPROVED cast. The operator locked who may appear.
 
 Hard rules:
-- Keep the child hero as the main character.
-- supporting_characters in your output MUST be exactly the approved list (same names).
-- Do NOT mention, describe, or imply anyone/anything removed from the cast
-  (no siblings, pets, plush toys, mascots, rabbits, dinosaurs, etc. unless approved).
-- Rewrite synopsis, story_beats, and rebuilt_story so the plot still works without
-  removed characters. Replace their story roles with the hero and approved supports only.
-- Keep English, age-appropriate, warm picture-book prose.
-- Preserve the supplied title / subtitle / moral / recurring_outfit unless a tiny
-  wording fix is required for grammar after cast removal.
-- Return strict JSON with keys:
-  title, subtitle, moral, synopsis, recurring_outfit, supporting_characters,
-  story_beats, rebuilt_story
+- Keep the child as the hero; short sentences, present tense, no stated moral.
+- Do NOT mention, describe, or imply anyone/anything removed from the cast.
+- Keep the same 14 spreads (n = 1..14) and the same plot beats; do not touch the locked copy.
+- The final spread must still end with the supplied last_line.
+- No readable text in scenes.
+Return strict JSON: {"spreads": [{"n": 1, "text": "...", "scene": "..."}, ... 14 items]}
 """
 
+# Guard codes that cannot apply when the operator deliberately changes the cast.
+_CAST_TOLERATED = {"readability", "name_frequency", "word_increase", "new_proper_noun"}
 
-def _clear_all_page_art(job_dir: Path, pages: list) -> list[int]:
+
+def _clear_all_page_art(job_dir: Path, pages: list | None = None) -> list[int]:
     cleared = []
-    for page in pages:
-        number = int(page["number"])
-        art = job_dir / "pages" / f"page-{number:02d}" / "art.png"
-        composed = job_dir / "print" / "pages" / f"page-{number:02d}.jpg"
-        if art.is_file():
-            art.unlink()
-            cleared.append(number)
-        if composed.is_file():
-            composed.unlink(missing_ok=True)
+    for n in range(1, 15):
+        removed = False
+        for side in ("left", "right"):
+            art = spread_art_path(job_dir, n, side)
+            if art.is_file():
+                art.unlink()
+                removed = True
+        if removed:
+            cleared.extend([2 * n, 2 * n + 1])
+        (job_dir / "spreads" / f"spread-{n:02d}" / "spread.json").unlink(missing_ok=True)
     return cleared
 
 
@@ -52,40 +51,31 @@ def rebuild_story_for_cast(
     inputs: dict,
     approved_characters: list,
     removed_names: list[str],
-    preserve: dict,
+    preserve: dict | None = None,
 ) -> dict:
     current = read_json(job_dir / "story" / "rebuilt_story.json") or {}
-    preference_memory = format_memory_for_prompt()
+    title = get_title(inputs["title_id"])
+    name = inputs["name"]
+    last_line = (title.get("last_line") or "").replace("{name}", name)
+    locked = current.get("locked") or {}
     user = {
-        "child_name": inputs["name"],
+        "child_name": name,
         "age": inputs["age"],
-        "gender": inputs["gender"],
-        "pronouns": GENDER_DETAILS[inputs["gender"]],
-        "theme": inputs["theme"],
-        "purpose": inputs["purpose"],
-        "design_rules": inputs.get("design_rules") or "",
-        "draft_story": inputs.get("draft_story") or "",
+        "age_band": inputs.get("age_band") or title["age_band"],
         "approved_supporting_characters": approved_characters,
         "removed_characters": removed_names,
-        "preserve": {
-            "title": preserve.get("title") or current.get("title"),
-            "subtitle": preserve.get("subtitle") or current.get("subtitle") or "",
-            "moral": preserve.get("moral") or current.get("moral") or "",
-            "recurring_outfit": preserve.get("recurring_outfit")
-            or current.get("recurring_outfit")
-            or "",
-        },
-        "previous_story": {
-            "synopsis": current.get("synopsis"),
-            "story_beats": current.get("story_beats"),
-            "rebuilt_story": current.get("rebuilt_story"),
-        },
-        "preference_memory": preference_memory,
+        "last_line": last_line,
+        "must_not_show": title.get("must_not_show") or [],
+        "current_spreads": [
+            {"n": s["n"], "text": s.get("text"), "scene": s.get("scene")}
+            for s in current.get("spreads") or []
+        ],
+        "preference_memory": format_memory_for_prompt(),
     }
     append_event(
         job_dir,
         "cast_rebuild_story_start",
-        f"Rewriting story without: {', '.join(removed_names) or '(none)'}.",
+        f"Rewriting spreads without: {', '.join(removed_names) or '(none)'}.",
         approved=[c.get("name") for c in approved_characters],
         removed=removed_names,
     )
@@ -93,47 +83,39 @@ def rebuild_story_for_cast(
         client,
         STORY_CAST_SYSTEM,
         json.dumps(user, ensure_ascii=True),
-        description="Story rebuild for cast change",
+        description="Spread rebuild for cast change",
     )
-    payload = json.loads(raw)
-    # Lock cast exactly to operator list
-    payload["supporting_characters"] = approved_characters
-    for field in ("title", "rebuilt_story", "recurring_outfit", "story_beats"):
-        if not payload.get(field):
-            raise ValueError(f"Cast story rebuild missing field: {field}")
+    spreads = json.loads(raw).get("spreads") or []
+    story = copy.deepcopy(current)
+    story["spreads"] = spreads
+    story["supporting_characters"] = approved_characters
+    story["locked"] = locked  # never rewritten
 
-    write_json(job_dir / "story" / "rebuilt_story.json", payload)
-    (job_dir / "story" / "rebuilt_story.txt").write_text(
-        payload["rebuilt_story"], encoding="utf-8"
+    issues = check_spreads(
+        {"spreads": current.get("spreads") or [], "locked": locked},
+        story,
+        locked,
+        child_name=name,
+        age_band=inputs.get("age_band") or title["age_band"],
+        last_line=last_line,
     )
+    blocking = [i for i in issues if i["code"] not in _CAST_TOLERATED]
+    if blocking:
+        raise ValueError("Cast rebuild failed text guards: " + blocking[0]["message"])
+
+    write_json(job_dir / "story" / "rebuilt_story.json", story)
     append_event(
         job_dir,
         "cast_rebuild_story_done",
-        f"Story rewritten for approved cast: {[c.get('name') for c in approved_characters]}",
+        f"Spreads rewritten for approved cast: {[c.get('name') for c in approved_characters]}",
     )
-    return humanize_story_fields(client, job_dir, payload)
+    return humanize_story_fields(client, job_dir, story)
 
 
 def rebuild_pages_for_cast(client, job_dir: Path, inputs: dict, story: dict, removed_names: list[str]) -> list:
-    """Compile pages with an explicit forbidden-cast instruction injected into story."""
-    story_for_pages = {
-        **story,
-        "_cast_lock": {
-            "approved": [c.get("name") for c in (story.get("supporting_characters") or [])],
-            "forbidden": removed_names,
-            "instruction": (
-                "ONLY the hero and approved supporting characters may appear in scene or text. "
-                f"Forbidden — do not mention or depict: {', '.join(removed_names) or 'none'}. "
-                "No unnamed extra siblings, pets, plush toys, or mascots."
-            ),
-        },
-    }
-    append_event(
-        job_dir,
-        "cast_rebuild_pages_start",
-        "Recompiling page briefs for the approved cast.",
-    )
-    pages = compile_pages(client, job_dir, inputs, story_for_pages)
+    """Recompile the deterministic page map from the rewritten spreads."""
+    append_event(job_dir, "cast_rebuild_pages_start", "Recompiling page map for the approved cast.")
+    pages = compile_pages(client, job_dir, inputs, story)
     append_event(
         job_dir,
         "cast_rebuild_pages_done",
@@ -148,7 +130,7 @@ def rebuild_content_for_cast(
     inputs: dict,
     approved_characters: list,
     removed_names: list[str],
-    preserve: dict,
+    preserve: dict | None = None,
 ) -> dict:
     story = rebuild_story_for_cast(
         client,
@@ -158,8 +140,7 @@ def rebuild_content_for_cast(
         removed_names,
         preserve,
     )
-    old_pages = (read_json(job_dir / "story" / "pages.json") or {}).get("pages") or []
-    cleared = _clear_all_page_art(job_dir, old_pages)
+    cleared = _clear_all_page_art(job_dir)
     pages = rebuild_pages_for_cast(client, job_dir, inputs, story, removed_names)
 
     job = read_json(job_dir / "job.json") or {}
@@ -171,7 +152,6 @@ def rebuild_content_for_cast(
             "validation_passed": None,
             "error": None,
             "current_page": 0,
-            "total_pages": len(pages),
         }
     )
     write_json(job_dir / "job.json", job)
@@ -182,7 +162,7 @@ def rebuild_content_for_cast(
     append_event(
         job_dir,
         "cast_rebuild_done",
-        "Story and page briefs rebuilt after cast change. Review, then Preview again.",
+        "Spreads and page map rebuilt after cast change. Review, then Preview again.",
         cleared_art_pages=cleared,
     )
     return {"story": story, "pages": pages, "cleared_art_pages": cleared}

@@ -47,6 +47,7 @@ from pipeline.fonts import normalize_font_id
 from pipeline.job_log import append_event, read_events, read_json, write_json
 from pipeline.memory import format_memory_for_prompt, load_memory
 from pipeline.openai_util import create_client
+from pipeline.pages import page_art_path
 from pipeline.pdf_build import build_pdf
 from pipeline.runner import PREVIEW_PAGE_COUNT, run_job
 from pipeline.self_revise import apply_self_revise_plan, parse_actions_from_form, run_self_revise
@@ -494,12 +495,12 @@ def create_app():
         events = list(reversed(read_events(job_dir, limit=80)))
         page_cards = []
         for page in pages:
-            art = job_dir / "pages" / f"page-{page['number']:02d}" / "art.png"
+            art = page_art_path(job_dir, page["number"])
             composed = job_dir / "print" / "pages" / f"page-{page['number']:02d}.jpg"
             page_cards.append(
                 {
                     **page,
-                    "art_exists": art.is_file(),
+                    "art_exists": bool(art and art.is_file()),
                     "composed_exists": composed.is_file(),
                     "art_url": url_for("page_art", job_id=job_id, page_number=page["number"]),
                     "composed_url": url_for(
@@ -825,8 +826,8 @@ def create_app():
 
     @app.get("/jobs/<job_id>/pages/<int:page_number>/art")
     def page_art(job_id, page_number):
-        path = _job_dir(job_id) / "pages" / f"page-{page_number:02d}" / "art.png"
-        if not path.is_file():
+        path = page_art_path(_job_dir(job_id), page_number)
+        if path is None or not path.is_file():
             abort(404)
         return send_file(path, mimetype="image/png")
 

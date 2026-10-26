@@ -6,6 +6,7 @@ import json
 import re
 from pathlib import Path
 
+from . import constants as _constants
 from .constants import PREFERENCES_DIR
 from .job_log import append_event, write_json
 from .openai_util import chat_json
@@ -41,7 +42,14 @@ def save_memory(memory: dict, path: Path | None = None):
     write_json(path, memory)
 
 
+def memory_enabled() -> bool:
+    """MEMORY_SCOPE=off (default): learned preferences never reach prompts (brand wins)."""
+    return _constants.MEMORY_SCOPE not in {"", "off", "0", "false", "none"}
+
+
 def format_memory_for_prompt(memory: dict | None = None, limit: int = 20) -> str:
+    if not memory_enabled():
+        return ""
     memory = memory or load_memory()
     prefs = memory.get("preferences") or []
     if not prefs:

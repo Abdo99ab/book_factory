@@ -13,6 +13,7 @@ from PIL import Image
 from .changes import apply_changes
 from .job_log import append_event, read_json, write_json
 from .openai_util import chat_json_vision
+from .pages import page_art_path
 
 
 BATCH_SIZE = 4
@@ -103,8 +104,8 @@ def _page_image_path(job_dir: Path, page: dict) -> Path | None:
     composed = job_dir / "print" / "pages" / f"page-{number:02d}.jpg"
     if composed.is_file():
         return composed
-    art = job_dir / "pages" / f"page-{number:02d}" / "art.png"
-    if art.is_file():
+    art = page_art_path(job_dir, number)
+    if art is not None and art.is_file():
         return art
     return None
 

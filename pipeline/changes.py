@@ -7,10 +7,11 @@ import time
 import uuid
 from pathlib import Path
 
-from .illustrate import generate_cover_panels, generate_page_image
+from .illustrate import generate_cover_panels, generate_spread_art
 from .job_log import append_event, read_json, write_json
 from .memory import record_change_and_learn
 from .openai_util import chat_json
+from .pages import page_spread_side
 from .pdf_build import build_pdf
 
 
@@ -91,6 +92,55 @@ def _apply_calm_zone(page: dict, action: dict) -> None:
         page["text_placement"] = placement
 
 
+def _current_pdf(job_dir: Path) -> str | None:
+    job = read_json(job_dir / "job.json") or {}
+    if job.get("pdf"):
+        return job["pdf"]
+    found = sorted((job_dir / "print").glob("*-final.pdf"))
+    return found[0].relative_to(job_dir).as_posix() if found else None
+
+
+def _sync_spread(story: dict, pages: list, page: dict) -> None:
+    """Spread text/scene live on both halves and in story['spreads']; keep them identical."""
+    if page.get("kind") != "spread_half":
+        return
+    for other in pages:
+        if other.get("kind") == "spread_half" and other.get("spread") == page.get("spread"):
+            for key in ("text", "scene", "calm_zone", "personalized"):
+                if key in page:
+                    other[key] = page[key]
+    for spread in story.get("spreads") or []:
+        if int(spread.get("n") or 0) == int(page.get("spread") or -1):
+            spread["text"] = page.get("text")
+            spread["scene"] = page.get("scene")
+
+
+def _regen_spread(
+    client,
+    job_dir: Path,
+    page: dict,
+    pages: list,
+    inputs: dict,
+    story: dict,
+    character_path: Path,
+    edit_instruction: str | None = None,
+):
+    """Regenerate the whole page pair for the page's spread (never patched)."""
+    if page_spread_side(page["number"]) is None:
+        raise ValueError(f"Page {page['number']} has no illustration (locked page).")
+    _sync_spread(story, pages, page)
+    write_json(job_dir / "story" / "rebuilt_story.json", story)
+    return generate_spread_art(
+        client,
+        job_dir,
+        {**page, "spread": page["spread"]},
+        inputs,
+        story,
+        character_path,
+        edit_instruction=edit_instruction,
+    )
+
+
 def _merge_visual_into_scene(scene: str, instruction: str) -> str:
     """Append operator visual change so later regenerations keep it."""
     scene = (scene or "").rstrip()
@@ -132,9 +182,11 @@ def plan_changes(client, job_dir: Path, demand: str, inputs: dict, story: dict, 
     page_summaries = [
         {
             "number": p["number"],
-            "title": p["title"],
+            "kind": p.get("kind"),
+            "spread": p.get("spread"),
+            "side": p.get("side"),
             "text": p.get("text"),
-            "text_placement": p.get("text_placement"),
+            "calm_zone": p.get("calm_zone"),
             "personalized": p.get("personalized"),
             "scene_excerpt": (p.get("scene") or "")[:280],
         }
@@ -143,7 +195,9 @@ def plan_changes(client, job_dir: Path, demand: str, inputs: dict, story: dict, 
     user = {
         "demand": demand,
         "book_title": story.get("title"),
-        "theme": inputs.get("theme"),
+        "title_id": inputs.get("title_id"),
+        "locked_pages": "1 (title), 30-31 (parent spread), 32 (dedication) are locked; "
+        "pages 2-29 are 14 spreads (spread n = pages 2n and 2n+1, regenerated as a pair).",
         "child_name": inputs.get("name"),
         "pages": page_summaries,
     }
@@ -295,15 +349,12 @@ def apply_changes(
             if action_type == "noop":
                 applied.append({"type": "noop", "reason": reason})
                 tracked[index]["status"] = "done"
-            elif action_type == "rewrite_story_title" and action.get("title"):
-                story["title"] = action["title"]
-                write_json(job_dir / "story" / "rebuilt_story.json", story)
+            elif action_type == "rewrite_story_title":
+                # The title comes from the catalogue + the order's name; never from an edit.
                 applied.append(
-                    {"type": action_type, "title": action["title"], "reason": reason}
+                    {"type": action_type, "skipped": True, "reason": "title is locked"}
                 )
-                need_cover = True
-                need_pdf = True
-                tracked[index]["status"] = "done"
+                tracked[index]["status"] = "skipped"
             elif page_number is not None:
                 page = next((p for p in pages if p["number"] == int(page_number)), None)
                 if page is None:
@@ -315,9 +366,26 @@ def apply_changes(
                         }
                     )
                     tracked[index]["status"] = "failed"
+                elif page.get("kind") != "spread_half" and action_type in {
+                    "rewrite_page_text",
+                    "update_page_scene",
+                    "regen_page_art",
+                }:
+                    # Title page, parent spread and dedication are LOCKED copy.
+                    applied.append(
+                        {
+                            "type": action_type,
+                            "page": page["number"],
+                            "skipped": True,
+                            "reason": "locked page",
+                        }
+                    )
+                    tracked[index]["status"] = "skipped"
                 elif action_type == "rewrite_page_text" and action.get("text") is not None:
                     page["text"] = action["text"]
                     _apply_calm_zone(page, action)
+                    _sync_spread(story, pages, page)
+                    write_json(job_dir / "story" / "rebuilt_story.json", story)
                     applied.append(
                         {
                             "type": action_type,
@@ -339,10 +407,11 @@ def apply_changes(
                     if lock_face:
                         page["personalized"] = True
                     edit_instruction = _edit_instruction_for_action(action, demand)
-                    generate_page_image(
+                    _regen_spread(
                         client,
                         job_dir,
                         page,
+                        pages,
                         inputs,
                         story,
                         character_path,
@@ -385,10 +454,11 @@ def apply_changes(
                         page["scene"] = _merge_visual_into_scene(
                             page.get("scene") or "", edit_instruction
                         )
-                    generate_page_image(
+                    _regen_spread(
                         client,
                         job_dir,
                         page,
+                        pages,
                         inputs,
                         story,
                         character_path,
@@ -471,7 +541,8 @@ def apply_changes(
         progress["phase"] = "rebuilding_pdf"
         progress["current_action"] = "Rebuilding PDF…"
         _set_progress(job_dir, progress)
-        build_pdf(job_dir, story, pages, inputs)
+        pdf_path = build_pdf(job_dir, story, pages, inputs)
+        _update_job(job_dir, pdf=pdf_path.relative_to(job_dir).as_posix())
 
     progress["phase"] = "learning"
     progress["current_action"] = "Updating preference memory…"
@@ -544,7 +615,7 @@ def process_change_queue(client, job_dir: Path, inputs: dict):
                 if entry["id"] == item["id"]:
                     entry["status"] = "complete"
                     entry["finished_at"] = time.time()
-            _update_job(job_dir, change_queue=queue, pdf="final_book.pdf", error=None)
+            _update_job(job_dir, change_queue=queue, pdf=_current_pdf(job_dir), error=None)
         except Exception as error:
             job = read_json(job_dir / "job.json") or {}
             queue = list(job.get("change_queue") or [])
@@ -583,7 +654,7 @@ def process_change_queue(client, job_dir: Path, inputs: dict):
         _update_job(
             job_dir,
             status="complete",
-            pdf="final_book.pdf",
+            pdf=_current_pdf(job_dir),
             error=None,
             change_progress=progress,
         )
