@@ -7,7 +7,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from .character import generate_character
+from .character import generate_anchor_sheet, generate_character, generate_set_sheets
 from .constants import PAGE_CONCURRENCY
 from .illustrate import generate_cover_panels, generate_page_image
 from .job_log import append_event, read_json, write_json
@@ -105,10 +105,12 @@ def _generate_page_batch(client, job_dir: Path, pages_to_make: list, inputs: dic
 
 
 def prepare_content(client, job_dir: Path, inputs: dict):
-    """Character + story rebuild + page briefs. No cover, no illustration."""
+    """Character sheets (gate) + story rebuild + page briefs. No cover, no illustration."""
     reference_path = next((job_dir / "character").glob("reference.*"), None)
     if reference_path is None:
         raise FileNotFoundError("Reference image missing")
+
+    job = read_json(job_dir / "job.json") or {}
 
     _update_job(job_dir, status="generating_character", error=None)
     character_path = job_dir / "character" / "character.png"
@@ -116,6 +118,21 @@ def prepare_content(client, job_dir: Path, inputs: dict):
         character_path = generate_character(client, job_dir, reference_path, inputs)
     else:
         append_event(job_dir, "character_skip", "Using existing character sheet.")
+
+    if not (job_dir / "sets").is_dir() or not any((job_dir / "sets").glob("*.png")):
+        generate_set_sheets(client, job_dir, inputs)
+    if not (job_dir / "anchor" / "anchor.png").is_file():
+        generate_anchor_sheet(client, job_dir, inputs)
+
+    job = read_json(job_dir / "job.json") or {}
+    if not job.get("character_approved_at"):
+        _update_job(job_dir, status="character_ready", error=None)
+        append_event(
+            job_dir,
+            "character_awaiting_approval",
+            "Hero, set and anchor sheets ready — approve before story generation.",
+        )
+        return character_path, None, None
 
     _update_job(job_dir, status="rebuilding_story")
     story_path = job_dir / "story" / "rebuilt_story.json"
@@ -154,7 +171,15 @@ def run_prepare(job_id: str, job_dir: Path):
     _update_job(job_dir, status="starting", error=None)
     client = create_client()
     try:
-        prepare_content(client, job_dir, inputs)
+        _character_path, story, pages = prepare_content(client, job_dir, inputs)
+        if story is None:
+            _update_job(job_dir, status="character_ready", error=None)
+            append_event(
+                job_dir,
+                "character_ready",
+                "Approve the hero sheet to continue to story and pages.",
+            )
+            return
         _update_job(job_dir, status="content_ready", error=None)
         append_event(
             job_dir,
@@ -179,6 +204,8 @@ def run_preview(job_id: str, job_dir: Path):
     client = create_client()
     try:
         character_path, story, pages = prepare_content(client, job_dir, inputs)
+        if story is None or pages is None:
+            raise RuntimeError("Approve the hero character sheet before preview.")
         preview_pages = _preview_content_pages(pages, PREVIEW_PAGE_COUNT)
         if not preview_pages:
             raise RuntimeError("No content pages available to preview.")
