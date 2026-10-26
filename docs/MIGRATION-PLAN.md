@@ -324,3 +324,21 @@ Parked items: consent ticks, retention/deletion jobs, log redaction, `store=Fals
 |---|---|
 | 26 Oct 2026 (afternoon) | Initial Step 0 plan (4 mm bleed, upscaler, replace humanize, full data-protection step). |
 | 26 Oct 2026 (evening) | **Revised** Step 0: TJ 3 mm LOCKED; no upscaler (page-pair native res); keep humanize.py; Step 12 PARKED; `order_id` kept; update file/test map. **Awaiting review before Step 1.** |
+| 26 Oct 2026 (night) | **Steps 1-13 complete** on `raised-ready-migration` (not pushed). Step 7 guard fixtures + validation; Step 8 native-resolution page-pair art (no upscaler; warn <300 ppi, fail <150); Step 9 ReportLab vector text + printer-profile PDF (`print/{order_id}-final.pdf`); Step 10 `pipeline/qa.py` + Human-check panel + Send gate; Step 11 catalogue templates with `{slot}` placeholders; Step 12 PARKED comments only (no consent/retention built); Step 13 Emma-build regressions with mocked OpenAI. Full suite: 117 passed. |
+
+---
+
+## Status (end of Step 13)
+
+| Step | Commit | Status |
+|---|---|---|
+| 7 | `feat: text-guard fixtures and catalogue-aware validation` | done |
+| 8 | `feat: native-resolution page-pair illustration` | done |
+| 9 | `feat: ReportLab text layer and printer-profile PDF` | done |
+| 10 | `feat: QA reports and human-check gate` | done |
+| 11 | `feat: catalogue templates with slot personalisation` | done |
+| 12 | `chore: mark data-protection hook sites as PARKED` | done (comments only) |
+| 13 | `test: Emma-build regressions with mocked OpenAI` | done |
+
+Known limits (carry into review): brand TTFs and logo PNGs are still placeholders (swap the real masters in `assets/`); templates keep the source text's pronouns (reuse with other pronouns is refused); the likeness script is a stub; Send only records `sent_at` (no outbound email); real OpenAI output sizes must reach >=1300 px per page to clear the 150 ppi fail line.
+
