@@ -123,6 +123,7 @@ def prepare_content(client, job_dir: Path, inputs: dict):
         story = read_json(story_path)
         append_event(job_dir, "story_skip", "Using existing rebuilt story.")
     else:
+        _update_job(job_dir, status="humanizing_story")
         story = rebuild_story(client, job_dir, inputs)
     _update_job(job_dir, book_title=story.get("title"))
 
@@ -132,6 +133,7 @@ def prepare_content(client, job_dir: Path, inputs: dict):
         pages = read_json(pages_path)["pages"]
         append_event(job_dir, "pages_skip", "Using existing page compilation.")
     else:
+        _update_job(job_dir, status="humanizing_pages")
         pages = compile_pages(client, job_dir, inputs, story)
 
     _update_job(
@@ -330,12 +332,114 @@ def run_validate_and_build(job_id: str, job_dir: Path):
         raise
 
 
+def run_from_template(job_id: str, job_dir: Path):
+    """Reuse approved template content: new character sheet + all art + PDF.
+
+    Story/pages are already on disk (name swapped). Does not rebuild manuscript.
+    """
+    inputs = read_json(job_dir / "inputs.json")
+    if not inputs:
+        raise FileNotFoundError("inputs.json missing")
+
+    story = read_json(job_dir / "story" / "rebuilt_story.json")
+    pages_payload = read_json(job_dir / "story" / "pages.json")
+    if not story or not pages_payload:
+        raise FileNotFoundError("Template story/pages missing on job")
+    pages = pages_payload["pages"]
+
+    append_event(
+        job_dir,
+        "template_run_start",
+        f"Building from template {inputs.get('from_template_id')} "
+        f"(content locked; new hero {inputs.get('name')}).",
+    )
+    _update_job(
+        job_dir,
+        status="starting",
+        error=None,
+        book_title=story.get("title"),
+        total_pages=len(pages),
+        validation_passed=True,
+    )
+    client = create_client()
+    try:
+        reference_path = next((job_dir / "character").glob("reference.*"), None)
+        if reference_path is None:
+            raise FileNotFoundError("Reference image missing")
+
+        _update_job(job_dir, status="generating_character")
+        # Always regenerate the character sheet for the new child.
+        character_path = generate_character(client, job_dir, reference_path, inputs)
+
+        _update_job(job_dir, status="generating_cover")
+        # Force fresh cover/pages for the new face (ignore any leftover art).
+        for leftover in (
+            job_dir / "cover" / "front_art.png",
+            job_dir / "cover" / "back_art.png",
+        ):
+            if leftover.is_file():
+                leftover.unlink()
+        generate_cover_panels(client, job_dir, inputs, story, character_path)
+
+        _update_job(job_dir, status="generating_pages")
+        pages_root = job_dir / "pages"
+        if pages_root.is_dir():
+            for page_dir in pages_root.iterdir():
+                art = page_dir / "art.png"
+                if art.is_file():
+                    art.unlink()
+        _generate_page_batch(
+            client, job_dir, pages, inputs, story, character_path, pages
+        )
+
+        _update_job(job_dir, status="building_pdf")
+        pdf_path = build_pdf(job_dir, story, pages, inputs)
+        _update_job(
+            job_dir,
+            status="complete",
+            pdf="final_book.pdf",
+            current_page=len(pages),
+            error=None,
+        )
+        append_event(job_dir, "job_complete", f"Template book ready: {pdf_path.name}")
+
+        job_now = read_json(job_dir / "job.json") or {}
+        if not job_now.get("self_revise_reviewed") and job_now.get("status") != "self_revise_ready":
+            try:
+                from .self_revise import run_self_revise
+
+                append_event(
+                    job_dir,
+                    "self_revise_auto_start",
+                    "Starting automatic self-revise review (plan awaits your approval).",
+                )
+                run_self_revise(client, job_dir, inputs, force=False)
+            except Exception as revise_error:
+                logger.exception("Self-revise failed for %s", job_id)
+                append_event(job_dir, "self_revise_failed", str(revise_error))
+                _update_job(
+                    job_dir,
+                    status="complete",
+                    error=f"Self-revise failed: {revise_error}",
+                    self_revise={
+                        "phase": "failed",
+                        "summary": str(revise_error),
+                    },
+                )
+    except Exception as error:
+        logger.exception("Job %s template run failed", job_id)
+        _update_job(job_dir, status="failed", error=str(error))
+        append_event(job_dir, "job_failed", str(error))
+        raise
+
+
 def run_job(job_id: str, job_dir: Path, mode: str | None = None):
     """
     mode:
       - prepare: stop at content_ready
       - preview: 3 content pages, stop at preview_ready
       - validate_and_build / full: validate + cover + all pages + PDF
+      - from_template: reuse locked content, new face/name art + PDF
       - None: read start_mode from job/inputs (default full)
     """
     job = read_json(job_dir / "job.json") or {}
@@ -346,4 +450,6 @@ def run_job(job_id: str, job_dir: Path, mode: str | None = None):
         return run_prepare(job_id, job_dir)
     if resolved in {"preview", "preview_first"}:
         return run_preview(job_id, job_dir)
+    if resolved in {"from_template", "template"}:
+        return run_from_template(job_id, job_dir)
     return run_validate_and_build(job_id, job_dir)

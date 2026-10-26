@@ -69,7 +69,7 @@ Design rules:
 
 {preference_memory}
 
-Composition: portrait 3:4, full-bleed, warm polished picture-book style.
+Composition: square 1:1 (210×210 mm trim with bleed), full-bleed, warm polished picture-book style.
 {leave_space}
 
 {NO_TEXT_RULE}
@@ -194,7 +194,7 @@ def generate_cover_panels(client, job_dir: Path, inputs: dict, story: dict, char
     )
 
     front_prompt = f"""Create the FRONT COVER illustration only for a personalized children's
-picture book titled "{story['title']}". Portrait 3:4, full bleed.
+picture book titled "{story['title']}". Square 1:1, full bleed (print wraps beyond trim).
 
 {cast_block}
 Theme: {inputs['theme']}
@@ -207,13 +207,14 @@ Design rules:
 
 Leave soft clear space in the UPPER third of the image for a title overlay later.
 Show the hero prominently in the lower/middle area as the clear focal character.
+Keep important faces and props away from the outer edges (they wrap around the cover).
 One cohesive scene only — not a collage of many small vignettes.
 {NO_TEXT_RULE}
 {face_lock}
 """
 
     back_prompt = f"""Create the BACK COVER illustration only for the children's picture book
-"{story['title']}". Portrait 3:4, full bleed.
+"{story['title']}". Square 1:1, full bleed (print wraps beyond trim).
 
 {cast_block}
 Theme: {inputs['theme']}
@@ -224,12 +225,15 @@ Show the hero ({inputs['name']}) clearly — a quiet epilogue or gentle story mo
 with the SAME face and outfit as the character sheet. Supporting characters only if
 they are on the approved list above; never invent a different child or random adults.
 
+Keep the BOTTOM-RIGHT corner soft and empty (about the lower-right 15% of the image):
+the printer places a small QR / batch code there. No faces, props, or busy detail in
+that corner. Optional quiet negative space lower-left/center for a blurb is fine.
+
 Design rules:
 {design_rules}
 
 {preference_memory}
 
-Leave a soft clear lower area for an optional blurb overlay.
 One cohesive scene only — not a collage of many small vignettes.
 {NO_TEXT_RULE}
 {face_lock}

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Templates | Book Factory{% endblock %}
+{% block content %}
+  <section class="hero">
+    <p class="eyebrow">Reusable books</p>
+    <h1>Templates</h1>
+    <p>Approved books you can remake for a new child — same story and scenes, new photo and name only.</p>
+  </section>
+
+  <section class="panel">
+    <div class="panel-topline">
+      <h2>Saved templates</h2>
+      <a class="text-button" href="{{ url_for('index') }}">← Jobs</a>
+    </div>
+    {% if not templates %}
+      <p>No templates yet. Open a finished job and click <strong>Make template</strong>.</p>
+    {% else %}
+      <div class="job-list">
+        {% for t in templates %}
+          <div class="job-row template-row">
+            <div>
+              <strong>{{ t.label or t.title }}</strong>
+              <span>
+                {{ t.theme }} · {{ t.page_count }} pages
+                · source hero {{ t.source_name }}
+                {% if t.source_job_id %} · from {{ t.source_job_id[:8] }}…{% endif %}
+              </span>
+            </div>
+            <div class="template-actions">
+              <a class="button" href="{{ url_for('reuse_template_form', template_id=t.template_id) }}">Reuse</a>
+              <form method="post" action="{{ url_for('remove_template', template_id=t.template_id) }}"
+                    onsubmit="return confirm('Delete this template? Existing jobs are not affected.');">
+                <button class="button secondary danger-btn" type="submit">Delete</button>
+              </form>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

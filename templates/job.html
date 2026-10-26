@@ -43,6 +43,14 @@
           </button>
         </form>
       {% endif %}
+      {% if existing_template_id %}
+        <a class="button secondary" href="{{ url_for('template_list') }}">View template</a>
+      {% elif template_available %}
+        <form method="post" action="{{ url_for('make_template', job_id=job.job_id) }}"
+              onsubmit="return confirm('Save this finished book as a reusable template? Story stays locked; only a new photo + name will change on reuse.');">
+          <button class="button secondary" type="submit">Make template</button>
+        </form>
+      {% endif %}
       <form method="post" action="{{ url_for('archive_job', job_id=job.job_id) }}"
             onsubmit="return confirm('Archive this job? You can restore it later from Archive.');">
         <button class="button secondary" type="submit">Archive</button>

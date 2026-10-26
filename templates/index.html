@@ -8,6 +8,9 @@
     <p class="meta">{{ preference_count }} learned preferences · Themes: {{ themes|join(', ') }}</p>
     <div class="hero-actions">
       <a class="button" href="{{ url_for('create_form') }}">Create a book</a>
+      <a class="button secondary" href="{{ url_for('template_list') }}">
+        Templates{% if template_count %} ({{ template_count }}){% endif %}
+      </a>
       <a class="button secondary" href="{{ url_for('archived_jobs') }}">
         Archived{% if archived_count %} ({{ archived_count }}){% endif %}
       </a>

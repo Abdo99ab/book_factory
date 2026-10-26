@@ -5,4 +5,6 @@ __pycache__/
 book_assets/
 data/preferences/*.json
 !data/preferences/.gitkeep
+data/skills/*.json
+!data/skills/.gitkeep
 .DS_Store

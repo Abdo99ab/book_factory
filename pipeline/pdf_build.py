@@ -1,4 +1,9 @@
-"""Overlay story text onto page art and assemble a wraparound print PDF."""
+"""Overlay story text onto page art and assemble a TJ print PDF.
+
+Inner pages: 210×210 mm trim + 3 mm bleed (single pages, no colour profile).
+Cover flat: 16 mm wrap + 216 back + 8 mm spine + 216 front + 16 mm wrap.
+Endpapers are plain and not counted in the 32 content pages.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +13,10 @@ from PIL import Image, ImageDraw, ImageFont
 from reportlab.pdfgen import canvas
 
 from .constants import (
+    BACK_QR_SAFE_PX,
+    BLEED_PX,
     COVER_HEIGHT_PT,
+    COVER_PANEL_PX,
     COVER_PIXEL_HEIGHT,
     COVER_PIXEL_WIDTH,
     COVER_WIDTH_PT,
@@ -17,7 +25,10 @@ from .constants import (
     PAGE_PIXEL_HEIGHT,
     PAGE_PIXEL_WIDTH,
     PAGE_WIDTH_PT,
+    SPINE_MM,
+    SPINE_PX,
     SPINE_WIDTH_PT,
+    WRAP_PX,
 )
 from .fonts import font_file_path, normalize_font_id
 from .job_log import append_event
@@ -90,15 +101,17 @@ def _measure_block(
 
 
 def _placement_top(placement: str, height: int, box_height: int) -> int:
+    # Stay inside trim (outside the 3 mm bleed) with a little breathing room.
+    safe = BLEED_PX + int(height * 0.04)
     if placement == "top":
-        return int(height * 0.04)
+        return safe
     if placement == "upper_third":
-        return int(height * 0.10)
+        return int(height * 0.12)
     if placement == "middle":
-        return max(int(height * 0.5 - box_height / 2), int(height * 0.08))
+        return max(int(height * 0.5 - box_height / 2), safe)
     if placement == "lower_third":
-        return int(height * 0.62)
-    return int(height * 0.72)
+        return int(height * 0.58)
+    return int(height * 0.68)
 
 
 def _fit_text_block(
@@ -131,7 +144,6 @@ def _fit_text_block(
     font = _load_font(min_size, font_id)
     line_gap = max(8, min_size // 5)
     lines = _wrap_lines(draw, text, font, max_width)
-    # Truncate lines that still overflow vertically
     kept = []
     height = 0
     for line in lines:
@@ -161,12 +173,13 @@ def overlay_text_on_image(
         )
 
     draw = ImageDraw.Draw(image, "RGBA")
-    margin_x = int(image.width * 0.07)
+    # Keep text inside trim + margin (outside 3 mm bleed).
+    margin_x = BLEED_PX + int(image.width * 0.06)
     inner_pad_x = 40
     inner_pad_y = 36
     max_box_w = image.width - 2 * margin_x
     text_max_w = max_box_w - 2 * inner_pad_x
-    max_box_h = int(image.height * 0.30)
+    max_box_h = int(image.height * 0.28)
 
     body = (text or "").strip()
     full_text = body
@@ -179,13 +192,13 @@ def overlay_text_on_image(
 
     box_w = min(max_box_w, max(block_w + 2 * inner_pad_x, int(image.width * 0.55)))
     box_h = min(max_box_h, block_h + 2 * inner_pad_y)
-    # Keep a readable minimum so short lines still feel like a caption panel
     box_h = max(box_h, int(image.height * 0.12))
 
     left = margin_x + (max_box_w - box_w) // 2
     top = _placement_top(placement, image.height, box_h)
-    if top + box_h > image.height - int(image.height * 0.03):
-        top = image.height - int(image.height * 0.03) - box_h
+    bottom_limit = image.height - BLEED_PX - int(image.height * 0.03)
+    if top + box_h > bottom_limit:
+        top = bottom_limit - box_h
     right = left + box_w
     bottom = top + box_h
 
@@ -196,7 +209,6 @@ def overlay_text_on_image(
     )
 
     text_color = (28, 38, 52, 255)
-    # Vertically center the text block inside the panel
     cursor_y = top + (box_h - block_h) // 2
     for line in lines:
         w, h = _text_size(draw, line or " ", font)
@@ -207,6 +219,31 @@ def overlay_text_on_image(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     image.convert("RGB").save(output_path, format="JPEG", quality=95, optimize=True)
     return output_path
+
+
+def _cover_side_strip(art: Image.Image, *, side: str) -> Image.Image:
+    """Full-bleed strip for one cover side: panel + outer wrap, top/bottom wraps.
+
+    back:  [left wrap | panel]
+    front: [panel | right wrap]
+    """
+    target_w = COVER_PANEL_PX + WRAP_PX
+    target_h = COVER_PIXEL_HEIGHT
+    src = art.convert("RGB")
+    scale = max(target_w / src.width, target_h / src.height)
+    nw = max(target_w, int(src.width * scale + 0.5))
+    nh = max(target_h, int(src.height * scale + 0.5))
+    scaled = src.resize((nw, nh), Image.Resampling.LANCZOS)
+    # Bias crop so the outer wrap gets edge pixels and the spine edge stays inward.
+    if side == "back":
+        left = 0  # keep left (outer) edge
+        top = (nh - target_h) // 2
+    elif side == "front":
+        left = nw - target_w  # keep right (outer) edge
+        top = (nh - target_h) // 2
+    else:
+        raise ValueError(side)
+    return scaled.crop((left, top, left + target_w, top + target_h))
 
 
 def build_wraparound_cover(
@@ -220,19 +257,22 @@ def build_wraparound_cover(
 ):
     font_id = normalize_font_id(font_id)
     cover = Image.new("RGB", (COVER_PIXEL_WIDTH, COVER_PIXEL_HEIGHT), (245, 234, 213))
-    back = Image.open(back_art).convert("RGB").resize(
-        (PAGE_PIXEL_WIDTH, PAGE_PIXEL_HEIGHT), Image.Resampling.LANCZOS
-    )
-    front = Image.open(front_art).convert("RGB").resize(
-        (PAGE_PIXEL_WIDTH, PAGE_PIXEL_HEIGHT), Image.Resampling.LANCZOS
-    )
 
-    front_rgba = front.convert("RGBA")
-    draw = ImageDraw.Draw(front_rgba, "RGBA")
-    margin_x = int(front_rgba.width * 0.07)
-    max_box_w = front_rgba.width - 2 * margin_x
+    back_src = Image.open(back_art).convert("RGB")
+    front_src = Image.open(front_art).convert("RGB")
+
+    back_strip = _cover_side_strip(back_src, side="back")
+    front_strip = _cover_side_strip(front_src, side="front")
+
+    # Title overlay on the front *panel* only (not into wraps).
+    front_panel = front_strip.crop(
+        (0, WRAP_PX, COVER_PANEL_PX, WRAP_PX + COVER_PANEL_PX)
+    ).convert("RGBA")
+    draw = ImageDraw.Draw(front_panel, "RGBA")
+    margin_x = int(front_panel.width * 0.08)
+    max_box_w = front_panel.width - 2 * margin_x
     text_max_w = max_box_w - 80
-    max_box_h = int(front_rgba.height * 0.32)
+    max_box_h = int(front_panel.height * 0.30)
 
     cover_text = title
     if subtitle:
@@ -248,31 +288,58 @@ def build_wraparound_cover(
         min_size=52,
         max_size=120,
     )
-    box_w = min(max_box_w, max(block_w + 80, int(front_rgba.width * 0.7)))
+    box_w = min(max_box_w, max(block_w + 80, int(front_panel.width * 0.7)))
     box_h = min(max_box_h, block_h + 72)
     left = margin_x + (max_box_w - box_w) // 2
-    top = int(front_rgba.height * 0.05)
+    top = int(front_panel.height * 0.06)
     right = left + box_w
     bottom = top + box_h
-    draw.rounded_rectangle((left, top, right, bottom), radius=44, fill=(255, 250, 240, 230))
+    draw.rounded_rectangle(
+        (left, top, right, bottom), radius=44, fill=(255, 250, 240, 230)
+    )
 
     cursor_y = top + (box_h - block_h) // 2
-    for i, line in enumerate(lines):
-        color = (200, 100, 70, 255) if line.lower().startswith("starring") else (28, 38, 52, 255)
+    for line in lines:
+        color = (
+            (200, 100, 70, 255)
+            if line.lower().startswith("starring")
+            else (28, 38, 52, 255)
+        )
         w, h = _text_size(draw, line or " ", font)
         x = left + (box_w - w) // 2
         draw.text((x, cursor_y), line, font=font, fill=color)
         cursor_y += h + line_gap
-    front = front_rgba.convert("RGB")
+    front_strip.paste(front_panel.convert("RGB"), (0, WRAP_PX))
 
-    spine_w = COVER_PIXEL_WIDTH - 2 * PAGE_PIXEL_WIDTH
-    cover.paste(back, (0, 0))
-    spine = Image.new("RGB", (max(1, spine_w), COVER_PIXEL_HEIGHT), (70, 110, 100))
-    cover.paste(spine, (PAGE_PIXEL_WIDTH, 0))
-    cover.paste(front, (PAGE_PIXEL_WIDTH + spine_w, 0))
+    # Soft clear zone for TJ QR/batch — bottom-right of back cover (near spine).
+    # back strip: [wrap | panel], so panel right edge is at WRAP+PANEL.
+    qr_left = WRAP_PX + COVER_PANEL_PX - BACK_QR_SAFE_PX
+    qr_top = WRAP_PX + COVER_PANEL_PX - BACK_QR_SAFE_PX
+    qr_right = WRAP_PX + COVER_PANEL_PX
+    qr_bottom = WRAP_PX + COVER_PANEL_PX
+    back_draw = ImageDraw.Draw(back_strip)
+    sample = back_strip.getpixel(
+        (max(0, qr_left - 4), max(0, min(back_strip.height - 1, qr_top - 4)))
+    )
+    back_draw.rectangle((qr_left, qr_top, qr_right, qr_bottom), fill=sample)
+
+    spine = Image.new("RGB", (max(1, SPINE_PX), COVER_PIXEL_HEIGHT), (70, 110, 100))
+
+    # Flat: left wrap+back | spine | front+right wrap
+    cover.paste(back_strip, (0, 0))
+    cover.paste(spine, (WRAP_PX + COVER_PANEL_PX, 0))
+    cover.paste(front_strip, (WRAP_PX + COVER_PANEL_PX + SPINE_PX, 0))
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     cover.save(output_path, format="JPEG", quality=95, optimize=True)
+    return output_path
+
+
+def _blank_page_jpg(output_path: Path) -> Path:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (PAGE_PIXEL_WIDTH, PAGE_PIXEL_HEIGHT), (255, 255, 255)).save(
+        output_path, format="JPEG", quality=95
+    )
     return output_path
 
 
@@ -286,7 +353,8 @@ def build_pdf(job_dir: Path, story: dict, pages: list, inputs: dict) -> Path:
     append_event(
         job_dir,
         "pdf_start",
-        f"Overlaying text ({font_id}) and building print PDF.",
+        f"Overlaying text ({font_id}) and building TJ print PDF "
+        f"(210×210+3mm bleed, {SPINE_MM:g}mm spine, 16mm wrap).",
         font_id=font_id,
     )
 
@@ -307,9 +375,7 @@ def build_pdf(job_dir: Path, story: dict, pages: list, inputs: dict) -> Path:
         page_dir = job_dir / "pages" / f"page-{page['number']:02d}"
         out = pages_print / f"page-{page['number']:02d}.jpg"
         if page.get("blank"):
-            Image.new("RGB", (PAGE_PIXEL_WIDTH, PAGE_PIXEL_HEIGHT), (255, 255, 255)).save(
-                out, format="JPEG", quality=95
-            )
+            _blank_page_jpg(out)
         else:
             art = page_dir / "art.png"
             if not art.is_file():
@@ -323,6 +389,11 @@ def build_pdf(job_dir: Path, story: dict, pages: list, inputs: dict) -> Path:
             )
         composed_pages.append(out)
 
+    front_endpaper = _blank_page_jpg(pages_print / "endpaper-front.jpg")
+    back_endpaper = _blank_page_jpg(pages_print / "endpaper-back.jpg")
+
+    # Single-page PDF, no colour profile. Cover flat first, then plain endpapers
+    # (not counted in the 32), then 32 content pages, then back endpaper.
     pdf_path = job_dir / "final_book.pdf"
     pdf = canvas.Canvas(str(pdf_path), pagesize=(COVER_WIDTH_PT, COVER_HEIGHT_PT))
     pdf.drawImage(
@@ -336,7 +407,7 @@ def build_pdf(job_dir: Path, story: dict, pages: list, inputs: dict) -> Path:
     pdf.showPage()
     pdf.setPageSize((PAGE_WIDTH_PT, PAGE_HEIGHT_PT))
 
-    for page_path in composed_pages:
+    for page_path in [front_endpaper, *composed_pages, back_endpaper]:
         pdf.drawImage(
             str(page_path),
             0,
@@ -352,9 +423,11 @@ def build_pdf(job_dir: Path, story: dict, pages: list, inputs: dict) -> Path:
     append_event(
         job_dir,
         "pdf_done",
-        f"PDF saved ({len(composed_pages)} interior pages + wraparound cover).",
+        f"PDF saved (wraparound cover + endpapers + {len(composed_pages)} content pages).",
         pdf="final_book.pdf",
         spine_width_pt=SPINE_WIDTH_PT,
+        content_pages=len(composed_pages),
+        endpapers=2,
         font_id=font_id,
     )
     return pdf_path

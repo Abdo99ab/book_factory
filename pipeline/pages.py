@@ -1,7 +1,8 @@
 import json
 from pathlib import Path
 
-from .constants import GENDER_DETAILS
+from .constants import CONTENT_PAGE_COUNT, GENDER_DETAILS
+from .humanize import humanize_page_texts
 from .job_log import append_event, write_json
 from .memory import format_memory_for_prompt
 from .openai_util import chat_json
@@ -17,13 +18,15 @@ Each page must include:
 - text: story text for that page (spoken/read aloud). Concise for a picture book.
 - text_placement: one of top, upper_third, middle, lower_third, bottom
 - personalized: boolean — true if the hero child appears on the page
-- blank: boolean — true only for intentional blank/endpaper style pages (rare)
+- blank: boolean — false for content pages (plain endpapers are added in print, not here)
 
 Page 1 should be a title/opening page. Page 2 may be a dedication.
-Remaining pages tell the story. Exactly N pages.
-Illustrations are portrait 3:4. Leave clear negative space where text_placement is set
-so overlay text will fit (cream panel area can be soft empty ground, sky, or wall —
-but NO letters in the art).
+Remaining pages tell the story. Exactly N pages (TJ print: 32 content pages;
+endpapers are separate and must NOT be included in this list).
+Illustrations are square 1:1 (210×210 mm). Leave clear negative space where
+text_placement is set so overlay text will fit (cream panel area can be soft empty
+ground, sky, or wall — but NO letters in the art). Keep important faces away from
+the outer edges (3 mm bleed is trimmed).
 
 Cast lock (critical):
 - Only the hero and story.supporting_characters may appear in scene or text.
@@ -35,8 +38,10 @@ Return JSON: { "pages": [ ... ] }"""
 
 def compile_pages(client, job_dir: Path, inputs: dict, story: dict) -> list:
     page_count = int(inputs["page_count"])
-    if page_count < 24 or page_count > 30:
-        raise ValueError("page_count must be between 24 and 30")
+    if page_count != CONTENT_PAGE_COUNT:
+        raise ValueError(
+            f"page_count must be {CONTENT_PAGE_COUNT} (TJ 170 gsm spine lock)"
+        )
 
     preference_memory = format_memory_for_prompt()
     cast_lock = story.get("_cast_lock") or {}
@@ -116,4 +121,5 @@ def compile_pages(client, job_dir: Path, inputs: dict, story: dict) -> list:
         f"Compiled {len(normalized)} pages.",
         page_count=len(normalized),
     )
+    normalized = humanize_page_texts(client, job_dir, normalized)
     return normalized

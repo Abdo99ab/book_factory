@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from .constants import GENDER_DETAILS
+from .humanize import humanize_story_fields
 from .job_log import append_event, write_json
 from .memory import format_memory_for_prompt
 from .openai_util import chat_json
@@ -83,4 +84,5 @@ def rebuild_story(client, job_dir: Path, inputs: dict) -> dict:
         title=payload["title"],
         moral=payload.get("moral"),
     )
+    payload = humanize_story_fields(client, job_dir, payload)
     return payload

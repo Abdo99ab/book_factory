@@ -24,9 +24,23 @@ from werkzeug.utils import secure_filename
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
 
+from pipeline.book_templates import (
+    delete_template,
+    get_template,
+    list_templates,
+    materialize_template_into_job,
+    save_job_as_template,
+)
 from pipeline.cast_rebuild import rebuild_content_for_cast
 from pipeline.changes import enqueue_change, process_change_queue
-from pipeline.constants import ARCHIVE_ROOT, JOB_ROOT, PURPOSES, THEMES
+from pipeline.constants import (
+    ARCHIVE_ROOT,
+    CONTENT_PAGE_COUNT,
+    JOB_ROOT,
+    PURPOSES,
+    TEMPLATE_ROOT,
+    THEMES,
+)
 from pipeline.content_edit import apply_content_edits
 from pipeline.fonts import DEFAULT_FONT_ID, FONT_OPTIONS, normalize_font_id
 from pipeline.job_log import append_event, read_events, read_json, write_json
@@ -56,6 +70,7 @@ def create_app():
     app.config["MAX_CONTENT_LENGTH"] = MAX_REFERENCE_BYTES
     JOB_ROOT.mkdir(parents=True, exist_ok=True)
     ARCHIVE_ROOT.mkdir(parents=True, exist_ok=True)
+    TEMPLATE_ROOT.mkdir(parents=True, exist_ok=True)
 
     @app.get("/")
     def index():
@@ -67,6 +82,7 @@ def create_app():
             themes=THEMES,
             preference_count=len(memory.get("preferences") or []),
             archived_count=_count_jobs(ARCHIVE_ROOT),
+            template_count=len(list_templates(limit=500)),
         )
 
     @app.get("/archived")
@@ -94,7 +110,7 @@ def create_app():
         purpose = request.form.get("purpose", "").strip().lower()
         draft_story = request.form.get("draft_story", "").strip()
         design_rules = request.form.get("design_rules", "").strip()
-        page_count_raw = request.form.get("page_count", "26").strip()
+        page_count_raw = request.form.get("page_count", str(CONTENT_PAGE_COUNT)).strip()
         start_mode = request.form.get("start_mode", "full").strip().lower()
         font_id = normalize_font_id(request.form.get("font_id", "").strip())
         reference = request.files.get("reference_image")
@@ -104,7 +120,7 @@ def create_app():
         try:
             page_count = int(page_count_raw)
         except ValueError:
-            flash("Page count must be a number between 24 and 30.", "error")
+            flash(f"Page count must be {CONTENT_PAGE_COUNT} (TJ 170 gsm spine).", "error")
             return redirect(url_for("create_form"))
 
         if not name or not age or gender not in {"male", "female"}:
@@ -116,8 +132,12 @@ def create_app():
         if purpose not in PURPOSES:
             flash("Choose a valid purpose.", "error")
             return redirect(url_for("create_form"))
-        if page_count < 24 or page_count > 30:
-            flash("Page count must be between 24 and 30.", "error")
+        if page_count != CONTENT_PAGE_COUNT:
+            flash(
+                f"Page count must be {CONTENT_PAGE_COUNT} "
+                "(TJ spine is 8 mm for 32 pages on 170 gsm; endpapers are extra).",
+                "error",
+            )
             return redirect(url_for("create_form"))
         if len(draft_story) < 40:
             flash("Paste a drafted story (at least a short paragraph).", "error")
@@ -476,7 +496,155 @@ def create_app():
                 (job.get("self_revise") or {}).get("phase") == "awaiting_approval"
             ),
             self_revise=job.get("self_revise"),
+            template_available=(
+                bool(job.get("pdf"))
+                or job.get("status") in {"complete", "self_revise_ready"}
+            )
+            and (job_dir / "story" / "pages.json").is_file(),
+            existing_template_id=job.get("template_id"),
         )
+
+    @app.post("/jobs/<job_id>/make-template")
+    def make_template(job_id):
+        job_dir = _job_dir(job_id)
+        job = read_json(job_dir / "job.json")
+        if not job:
+            abort(404)
+        if _job_is_busy(job):
+            flash("Wait until the job finishes before saving a template.", "error")
+            return redirect(url_for("job_page", job_id=job_id))
+        if not (
+            job.get("pdf")
+            or job.get("status") in {"complete", "self_revise_ready"}
+        ):
+            flash("Only a finished book can be saved as a template.", "error")
+            return redirect(url_for("job_page", job_id=job_id))
+        if job.get("template_id") and get_template(job["template_id"]):
+            flash("This job is already saved as a template.", "error")
+            return redirect(url_for("template_list"))
+        label = (request.form.get("label") or "").strip() or None
+        try:
+            meta = save_job_as_template(job_dir, label=label)
+        except Exception as error:
+            flash(f"Could not save template: {error}", "error")
+            return redirect(url_for("job_page", job_id=job_id))
+        flash(f"Template saved: {meta['label']}. Reuse it with a new child photo + name.", "success")
+        return redirect(url_for("template_list"))
+
+    @app.get("/templates")
+    def template_list():
+        return render_template(
+            "templates.html",
+            templates=list_templates(),
+        )
+
+    @app.get("/templates/<template_id>/reuse")
+    def reuse_template_form(template_id):
+        meta = get_template(template_id)
+        if not meta:
+            abort(404)
+        return render_template(
+            "reuse_template.html",
+            template=meta,
+            fonts=FONT_OPTIONS,
+            default_font_id=normalize_font_id(meta.get("font_id") or DEFAULT_FONT_ID),
+        )
+
+    @app.post("/templates/<template_id>/reuse")
+    def reuse_template(template_id):
+        meta = get_template(template_id)
+        if not meta:
+            abort(404)
+
+        name = request.form.get("name", "").strip()
+        age = request.form.get("age", "").strip()
+        gender = request.form.get("gender", "").strip().lower()
+        font_id = normalize_font_id(
+            request.form.get("font_id", "").strip() or meta.get("font_id") or DEFAULT_FONT_ID
+        )
+        reference = request.files.get("reference_image")
+
+        if not name or not age or gender not in {"male", "female"}:
+            flash("Name, age, and gender are required.", "error")
+            return redirect(url_for("reuse_template_form", template_id=template_id))
+        if not reference or not reference.filename:
+            flash("Upload the new child reference photo.", "error")
+            return redirect(url_for("reuse_template_form", template_id=template_id))
+        if not os.getenv("_OPENAI_API_KEY"):
+            flash("_OPENAI_API_KEY is not configured.", "error")
+            return redirect(url_for("reuse_template_form", template_id=template_id))
+
+        extension = Path(secure_filename(reference.filename)).suffix.lower()
+        if extension not in ALLOWED_IMAGE_EXTENSIONS:
+            flash("Reference image must be PNG, JPG, JPEG, or WEBP.", "error")
+            return redirect(url_for("reuse_template_form", template_id=template_id))
+
+        job_id = uuid.uuid4().hex
+        job_dir = JOB_ROOT / job_id
+        character_dir = job_dir / "character"
+        character_dir.mkdir(parents=True, exist_ok=True)
+        reference_path = character_dir / f"reference{extension}"
+        reference.save(reference_path)
+
+        try:
+            packed = materialize_template_into_job(
+                template_id,
+                job_dir,
+                name=name,
+                age=age,
+                gender=gender,
+                font_id=font_id,
+            )
+        except Exception as error:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            flash(f"Could not start from template: {error}", "error")
+            return redirect(url_for("reuse_template_form", template_id=template_id))
+
+        inputs = packed["inputs"]
+        story = packed["story"]
+        pages = packed["pages"]
+        write_json(
+            job_dir / "job.json",
+            {
+                "job_id": job_id,
+                "status": "queued",
+                "run_mode": "from_template",
+                "from_template_id": template_id,
+                "book_title": story.get("title"),
+                "name": name,
+                "theme": inputs.get("theme"),
+                "purpose": inputs.get("purpose"),
+                "page_count": inputs.get("page_count"),
+                "current_page": 0,
+                "total_pages": len(pages),
+                "preview_requested": False,
+                "preview_ready": False,
+                "validation_passed": True,
+                "pdf": None,
+                "error": None,
+                "created_at": time.time(),
+                "updated_at": time.time(),
+            },
+        )
+        append_event(
+            job_dir,
+            "job_created_from_template",
+            f"Created from template {template_id}; story locked, regenerating art for {name}.",
+            template_id=template_id,
+            inputs=inputs,
+        )
+        job_executor.submit(_safe_run_job, job_id, job_dir, "from_template")
+        flash(f"Building “{story.get('title')}” for {name} from template…", "success")
+        return redirect(url_for("job_page", job_id=job_id))
+
+    @app.post("/templates/<template_id>/delete")
+    def remove_template(template_id):
+        try:
+            delete_template(template_id)
+        except FileNotFoundError:
+            abort(404)
+        flash("Template deleted.", "success")
+        return redirect(url_for("template_list"))
 
     @app.post("/jobs/<job_id>/self-revise")
     def self_revise_job(job_id):
@@ -781,7 +949,9 @@ BUSY_JOB_STATUSES = {
     "starting",
     "generating_character",
     "rebuilding_story",
+    "humanizing_story",
     "compiling_pages",
+    "humanizing_pages",
     "validating_content",
     "generating_preview",
     "generating_cover",

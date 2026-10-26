@@ -38,8 +38,9 @@
           {% endfor %}
         </select>
       </label>
-      <label>Pages (24–30)
-        <input name="page_count" type="number" min="24" max="30" value="26" required>
+      <label>Pages
+        <input name="page_count" type="number" min="32" max="32" value="32" required readonly>
+        <small>Fixed at 32 content pages (TJ 170 gsm / 8 mm spine). Plain endpapers are added in the PDF and not counted.</small>
       </label>
       <label class="wide">Child photo
         <input name="reference_image" type="file" accept="image/png,image/jpeg,image/webp" required>

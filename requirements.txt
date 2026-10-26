@@ -1,5 +1,6 @@
 Flask>=3.0,<4
-openai>=1.0
+openai>=2.0
+httpx>=0.27
 Pillow>=10.0
 reportlab>=4.0
 python-dotenv>=1.0

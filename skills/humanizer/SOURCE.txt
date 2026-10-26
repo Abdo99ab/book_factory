@@ -1,0 +1,3 @@
+Vendored from https://github.com/blader/humanizer (MIT).
+Skill used via OpenAI Skills API (POST /v1/skills) then Responses shell mount.
+Do not edit SKILL.md by hand unless syncing a new upstream version.

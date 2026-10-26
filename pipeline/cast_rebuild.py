@@ -9,6 +9,7 @@ from .constants import GENDER_DETAILS
 from .job_log import append_event, read_json, write_json
 from .memory import format_memory_for_prompt
 from .openai_util import chat_json
+from .humanize import humanize_story_fields
 from .pages import compile_pages
 
 
@@ -110,7 +111,7 @@ def rebuild_story_for_cast(
         "cast_rebuild_story_done",
         f"Story rewritten for approved cast: {[c.get('name') for c in approved_characters]}",
     )
-    return payload
+    return humanize_story_fields(client, job_dir, payload)
 
 
 def rebuild_pages_for_cast(client, job_dir: Path, inputs: dict, story: dict, removed_names: list[str]) -> list:
