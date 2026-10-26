@@ -16,6 +16,7 @@ def ensure_log_dir(job_dir: Path):
 
 def append_event(job_dir: Path, event_type: str, message: str, **payload):
     """Append a structured event to the job audit log."""
+    # PARKED: data protection (spec §14) - event payloads can hold child data (names, inputs); redaction/retention goes here
     ensure_log_dir(job_dir)
     event = {
         "ts": time.time(),

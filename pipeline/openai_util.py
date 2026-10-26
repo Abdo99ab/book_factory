@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 def create_client(api_key=None):
+    # PARKED: data protection (spec §14) - every OpenAI call sends child data (photo, name); DPA / region / zero-retention goes here
     return OpenAI(
         api_key=api_key or os.getenv("_OPENAI_API_KEY"),
         timeout=OPENAI_TIMEOUT_SECONDS,

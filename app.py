@@ -720,7 +720,7 @@ def create_app():
             return back
         character_dir = job_dir / "character"
         character_dir.mkdir(parents=True, exist_ok=True)
-        # PARKED: data protection (spec ?14) - consent, retention, redaction
+        # PARKED: data protection (spec §14) - consent, retention, redaction
         reference.save(character_dir / f"reference{extension}")
 
         inputs = packed["inputs"]
@@ -967,6 +967,7 @@ def create_app():
 
     @app.post("/jobs/<job_id>/archive")
     def archive_job(job_id):
+        # PARKED: data protection (spec §14) - retention/redaction on archive (not implemented in this pass)
         job_dir = _job_dir(job_id)
         job = read_json(job_dir / "job.json")
         if not job:
@@ -1015,6 +1016,7 @@ def create_app():
 
     @app.post("/jobs/<job_id>/delete")
     def delete_job(job_id):
+        # PARKED: data protection (spec §14) - deletion must also purge photo, sheets, art and PDF per retention policy
         # Prefer active job; fall back to archived.
         if (_job_dir(job_id) / "job.json").is_file():
             job_dir = _job_dir(job_id)
