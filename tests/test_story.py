@@ -31,12 +31,12 @@ def test_locked_keys_present():
 @patch("pipeline.story.humanize_story_fields", side_effect=lambda _c, _d, s: s)
 @patch("pipeline.story.chat_json")
 def test_guard_retry_path(mock_chat, _mock_humanize, tmp_path):
-    spreads_ok = [{"n": i, "text": "Emma picks a step today.", "scene": "kitchen"} for i in range(1, 15)]
+    spreads_ok = [{"n": i, "text": "Emma picks a shoe.", "scene": "kitchen"} for i in range(1, 15)]
     spreads_ok[-1]["text"] = (
-        "Emma smiles. The list waits on the fridge. Emma can choose again tomorrow."
+        "Emma has a cup. The list waits on the fridge. Emma can choose again tomorrow."
     )
     bad_spreads = [
-        {"n": i, "text": "Emma picks a step today.", "scene": "kitchen"}
+        {"n": i, "text": "Emma picks a shoe.", "scene": "kitchen"}
         for i in range(1, 15)
     ]
     bad_spreads[0]["text"] = "A magical day for Emma."

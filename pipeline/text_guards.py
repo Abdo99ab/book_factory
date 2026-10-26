@@ -179,7 +179,9 @@ def check_spreads(
                     "message": f"Spread {n} introduces new proper noun(s): {', '.join(sorted(new_proper))}.",
                 }
             )
-        grade = _flesch_grade(text)
+        # The catalogue's approved last line is LOCKED copy; do not grade it against the band.
+        graded_text = text.replace(last_line.strip(), "") if last_line and last_line.strip() else text
+        grade = _flesch_grade(graded_text) if graded_text.strip() else None
         if grade is not None and grade > fk_limit:
             issues.append(
                 {
