@@ -82,6 +82,15 @@ def _edit_instruction_for_action(action: dict, demand: str) -> str | None:
     return demand or None
 
 
+def _apply_calm_zone(page: dict, action: dict) -> None:
+    zone = (action.get("calm_zone") or "").strip().lower()
+    if zone in {"left", "right"}:
+        page["calm_zone"] = zone
+    placement = (action.get("text_placement") or "").strip().lower()
+    if placement:
+        page["text_placement"] = placement
+
+
 def _merge_visual_into_scene(scene: str, instruction: str) -> str:
     """Append operator visual change so later regenerations keep it."""
     scene = (scene or "").rstrip()
@@ -308,8 +317,7 @@ def apply_changes(
                     tracked[index]["status"] = "failed"
                 elif action_type == "rewrite_page_text" and action.get("text") is not None:
                     page["text"] = action["text"]
-                    if action.get("text_placement"):
-                        page["text_placement"] = action["text_placement"]
+                    _apply_calm_zone(page, action)
                     applied.append(
                         {
                             "type": action_type,
@@ -324,8 +332,7 @@ def apply_changes(
                     page["scene"] = action["scene"]
                     if action.get("text") is not None:
                         page["text"] = action["text"]
-                    if action.get("text_placement"):
-                        page["text_placement"] = action["text_placement"]
+                    _apply_calm_zone(page, action)
                     lock_face = bool(action.get("force_character_lock")) or _mentions_face_lock(
                         f"{demand} {reason}"
                     )
@@ -358,8 +365,7 @@ def apply_changes(
                         page["scene"] = action["scene"]
                     if action.get("text") is not None:
                         page["text"] = action["text"]
-                    if action.get("text_placement"):
-                        page["text_placement"] = action["text_placement"]
+                    _apply_calm_zone(page, action)
                     lock_face = bool(action.get("force_character_lock")) or _mentions_face_lock(
                         f"{demand} {reason}"
                     )

@@ -31,6 +31,8 @@ PLACEMENTS = {
     "middle",
     "lower_third",
     "bottom",
+    "left",
+    "right",
 }
 
 REVIEW_SYSTEM = """You are a strict QA art director for personalized children's picture books.
@@ -255,7 +257,16 @@ def normalize_action(action: dict) -> dict | None:
 
     text = (action.get("text") or "").strip() or None
     scene = (action.get("scene") or "").strip() or None
-    placement = (action.get("text_placement") or "").strip().lower() or None
+    placement = (
+        (action.get("calm_zone") or action.get("text_placement") or "")
+        .strip()
+        .lower()
+        or None
+    )
+    if placement in {"left", "right"}:
+        calm_zone = placement
+    else:
+        calm_zone = None
     if placement and placement not in PLACEMENTS:
         placement = None
     edit_instruction = (action.get("edit_instruction") or "").strip() or None
@@ -267,7 +278,7 @@ def normalize_action(action: dict) -> dict | None:
     if action_type == "update_page_scene" and not scene:
         return None
 
-    return {
+    result = {
         "type": action_type,
         "page": page,
         "text": text,
@@ -277,6 +288,9 @@ def normalize_action(action: dict) -> dict | None:
         "force_character_lock": force_lock,
         "reason": reason,
     }
+    if calm_zone:
+        result["calm_zone"] = calm_zone
+    return result
 
 
 def parse_actions_from_form(form) -> list[dict]:
