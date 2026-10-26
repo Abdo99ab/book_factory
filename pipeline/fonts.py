@@ -1,4 +1,4 @@
-"""Raised Ready brand fonts — Noto Serif, Nunito, DM Mono only (spec §5)."""
+"""Raised Ready brand fonts — ReportLab registration only (no Magical catalogue)."""
 
 from __future__ import annotations
 
@@ -10,66 +10,58 @@ from reportlab.pdfbase.ttfonts import TTFont
 from .brand import FONT_FILES
 from .constants import FONTS_DIR
 
-# ReportLab registration names (must match pdf_build usage)
+# ReportLab internal names (stable across PDF builds)
 REPORTLAB_NAMES = {
-    "title": "NotoSerif-SemiBold",
-    "body": "Nunito-Regular",
-    "body_bold": "Nunito-SemiBold",
-    "label": "DMMono-Medium",
+    "title": "RR-Title",
+    "body": "RR-Body",
+    "body_bold": "RR-Body-Bold",
+    "label": "RR-Label",
 }
 
 DEFAULT_FONT_ID = "brand"
-FONT_OPTIONS = [
-    {
-        "id": "brand",
-        "label": "Raised Ready (brand)",
-        "file": FONT_FILES["body"],
-        "web_family": '"Nunito", "Segoe UI", sans-serif',
-        "swatch": "#F3EBDD",
-    }
-]
-FONT_BY_ID = {item["id"]: item for item in FONT_OPTIONS}
-
-_REGISTERED = False
+BRAND_FONT_ID = "brand"
 
 
 def normalize_font_id(font_id: str | None) -> str:
-    """Backward compatible; always brand."""
-    return "brand"
-
-
-def font_file_path(font_id: str | None = None) -> Path | None:
-    path = FONTS_DIR / FONT_FILES["body"]
-    return path if path.is_file() else None
+    """All jobs use the locked Raised Ready font stack."""
+    return BRAND_FONT_ID
 
 
 def font_label(font_id: str | None = None) -> str:
-    return "Raised Ready"
+    return "Raised Ready brand fonts"
 
 
-def brand_font_path(role: str) -> Path:
-    filename = FONT_FILES[role]
+def font_file_path(font_id: str | None = None, role: str = "body") -> Path | None:
+    """Path to a brand TTF; default role is body (story overlays)."""
+    filename = FONT_FILES.get(role) or FONT_FILES["body"]
     path = FONTS_DIR / filename
-    if not path.is_file():
+    return path if path.is_file() else None
+
+
+def reportlab_name(role: str) -> str:
+    return REPORTLAB_NAMES[role]
+
+
+def register_brand_fonts(
+    fonts_dir: Path | None = None,
+    font_files: dict[str, str] | None = None,
+) -> None:
+    root = fonts_dir or FONTS_DIR
+    files = font_files or FONT_FILES
+    missing = []
+    for role, filename in files.items():
+        path = root / filename
+        if not path.is_file():
+            missing.append(filename)
+            continue
+        internal = REPORTLAB_NAMES[role]
+        if internal not in pdfmetrics.getRegisteredFontNames():
+            pdfmetrics.registerFont(TTFont(internal, str(path)))
+    if missing:
         raise RuntimeError(
-            f"Missing brand font file for role={role}: {path}. "
-            f"Install {filename} into assets/fonts/."
+            "Missing Raised Ready brand font file(s) under assets/fonts/: "
+            + ", ".join(sorted(missing))
         )
-    return path
 
 
-def register_brand_fonts() -> list[str]:
-    """Register all four brand TTFs with ReportLab. Raises if any file is missing."""
-    global _REGISTERED
-    names = []
-    for role, rl_name in REPORTLAB_NAMES.items():
-        path = brand_font_path(role)
-        if rl_name not in pdfmetrics.getRegisteredFontNames():
-            pdfmetrics.registerFont(TTFont(rl_name, str(path)))
-        names.append(rl_name)
-    _REGISTERED = True
-    return names
-
-
-# Register at import — fail loudly if fonts are absent.
 register_brand_fonts()

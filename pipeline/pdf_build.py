@@ -36,24 +36,22 @@ from .job_log import append_event
 
 def _load_font(size: int, font_id: str | None = None):
     candidates = []
-    primary = font_file_path(font_id)
+    primary = font_file_path(font_id, role="body")
     if primary is not None:
         candidates.append(primary)
+    title_path = font_file_path(font_id, role="title")
+    if title_path is not None:
+        candidates.append(title_path)
     candidates.extend(
         [
-            FONTS_DIR / "Nunito-Bold.ttf",
-            FONTS_DIR / "Montserrat-Bold.ttf",
-            Path("C:/Windows/Fonts/segoeui.ttf"),
-            Path("C:/Windows/Fonts/arialbd.ttf"),
-            Path("C:/Windows/Fonts/arial.ttf"),
-            Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
-            Path("/System/Library/Fonts/Supplemental/Arial Bold.ttf"),
+            FONTS_DIR / "Nunito-SemiBold.ttf",
+            FONTS_DIR / "Nunito-Regular.ttf",
         ]
     )
     for path in candidates:
         if path.is_file():
             return ImageFont.truetype(str(path), size=size)
-    return ImageFont.load_default()
+    raise RuntimeError("Missing Raised Ready brand font files under assets/fonts/")
 
 
 def _text_size(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont):
