@@ -153,7 +153,9 @@ def test_reuse_routes_ask_every_slot_and_start_job(source_job, tmp_path, monkeyp
     from app import create_app
 
     meta = bt.save_job_as_template(source_job)
-    monkeypatch.setattr("app.JOB_ROOT", tmp_path / "jobs")
+    # Keep app jobs separate from source_job's tmp_path/jobs/<id> so iterdir is unambiguous.
+    app_jobs = tmp_path / "app_jobs"
+    monkeypatch.setattr("app.JOB_ROOT", app_jobs)
     monkeypatch.setattr("app.ARCHIVE_ROOT", tmp_path / "archive")
     monkeypatch.setattr("app.TEMPLATE_ROOT", tmp_path / "templates")
     monkeypatch.setenv("_OPENAI_API_KEY", "test-key")
@@ -177,6 +179,8 @@ def test_reuse_routes_ask_every_slot_and_start_job(source_job, tmp_path, monkeyp
     data["reference_image"] = (BytesIO(b"\x89PNG fake"), "kid.png")
     done = client.post(f"/templates/{meta['template_id']}/reuse", data=data, content_type="multipart/form-data")
     assert done.status_code == 302 and executor.submit.called
-    new_job = next((tmp_path / "jobs").iterdir())
+    new_jobs = [p for p in app_jobs.iterdir() if p.is_dir()]
+    assert len(new_jobs) == 1
+    new_job = new_jobs[0]
     assert (new_job / "character" / "reference.png").is_file()
     assert read_json(new_job / "inputs.json")["name"] == "Amira"
