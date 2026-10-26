@@ -70,12 +70,26 @@ def with_retries(request, description):
             time.sleep(delay)
 
 
+def _model_allows_custom_temperature(model: str | None = None) -> bool:
+    """gpt-6* reasoning models only accept the default temperature (1)."""
+    name = (model or TEXT_MODEL or "").strip().lower()
+    return not name.startswith("gpt-6")
+
+
+def _chat_kwargs(temperature: float | None = None) -> dict:
+    kwargs = {
+        "model": TEXT_MODEL,
+        "response_format": {"type": "json_object"},
+    }
+    if temperature is not None and _model_allows_custom_temperature():
+        kwargs["temperature"] = temperature
+    return kwargs
+
+
 def chat_json(client, system, user, description="Text request"):
     def request():
         return client.chat.completions.create(
-            model=TEXT_MODEL,
-            temperature=0.7,
-            response_format={"type": "json_object"},
+            **_chat_kwargs(temperature=0.7),
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
@@ -90,9 +104,7 @@ def chat_json_vision(client, system, user_content, description="Vision request",
     """user_content: string or OpenAI multimodal content list (text + image_url parts)."""
     def request():
         return client.chat.completions.create(
-            model=TEXT_MODEL,
-            temperature=temperature,
-            response_format={"type": "json_object"},
+            **_chat_kwargs(temperature=temperature),
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user_content},
