@@ -155,10 +155,13 @@ def test_no_warning_at_300_ppi(tmp_path):
     assert "print_resolution_warning" not in types and "print_resolution_fail" not in types
 
 
-def test_fail_event_and_gate_below_150_ppi(tmp_path):
+def test_fail_event_and_gate_below_150_ppi(tmp_path, monkeypatch):
     job_dir, meta, _fake = _generate(tmp_path, 1024)
     types = [e["type"] for e in read_events(job_dir)]
     assert types.count("print_resolution_fail") == 2
     assert meta["resolution_status"] == "fail"
+    # Default: gate is off — still records fail status but does not raise.
+    assert assert_print_resolution(job_dir, [1]) == pytest.approx(120.4, abs=0.1)
+    monkeypatch.setattr("pipeline.constants.ENFORCE_PRINT_PPI", True)
     with pytest.raises(PrintResolutionError):
         assert_print_resolution(job_dir, [1])

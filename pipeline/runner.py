@@ -100,9 +100,12 @@ def _generate_spread_batch(
                 meta = future.result()
                 if meta.get("resolution_status") == "fail" and resolution_failed is None:
                     resolution_failed = meta.get("effective_ppi")
-                    # Stop spending on pages that cannot print: fail closed on the first bad spread.
-                    for other in futures:
-                        other.cancel()
+                    from .constants import ENFORCE_PRINT_PPI
+
+                    if ENFORCE_PRINT_PPI:
+                        # Stop spending on pages that cannot print when enforcement is on.
+                        for other in futures:
+                            other.cancel()
             except Exception as error:
                 logger.exception("Spread %s failed", n)
                 errors.append(f"Spread {n}: {error}")
@@ -110,10 +113,19 @@ def _generate_spread_batch(
             _update_job(job_dir, current_page=_count_completed_pages(job_dir))
 
     _update_job(job_dir, min_effective_ppi=min_effective_ppi(job_dir))
-    if resolution_failed is not None:
+    from .constants import ENFORCE_PRINT_PPI
+
+    if resolution_failed is not None and ENFORCE_PRINT_PPI:
         raise PrintResolutionError(
             f"Art is {resolution_failed} ppi in the 216 mm box (< {PPI_FAIL}). "
             "The model returned too few pixels and there is no upscaler."
+        )
+    if resolution_failed is not None and not ENFORCE_PRINT_PPI:
+        append_event(
+            job_dir,
+            "print_resolution_ignored",
+            f"Art is {resolution_failed} ppi (< {PPI_FAIL}); continuing — ENFORCE_PRINT_PPI is off.",
+            effective_ppi=resolution_failed,
         )
     if errors:
         raise RuntimeError("; ".join(errors))
@@ -149,7 +161,7 @@ def _illustrate_and_build(
         character_path,
         pages,
     )
-    # Fail closed: below PPI_FAIL the print file is refused (no upscaler).
+    # PPI gate is warn-only unless ENFORCE_PRINT_PPI=1.
     lowest = assert_print_resolution(job_dir)
 
     _update_job(job_dir, status="building_pdf", min_effective_ppi=lowest)

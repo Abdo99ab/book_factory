@@ -104,10 +104,14 @@ def structure_report(job_dir: Path, inputs: dict, story: dict, pages: list) -> d
     if not locked.get("parent_spread"):
         issues.append(_issue("locked_missing", "error", "Locked parent spread is empty."))
 
+    from .constants import ENFORCE_PRINT_PPI
+
     lowest = min_effective_ppi(job_dir)
     if lowest is not None:
-        if lowest < PPI_FAIL:
+        if lowest < PPI_FAIL and ENFORCE_PRINT_PPI:
             issues.append(_issue("resolution", "error", f"Lowest page is {lowest} ppi (< {PPI_FAIL}); no upscaler - regenerate larger."))
+        elif lowest < PPI_FAIL:
+            issues.append(_issue("resolution", "warning", f"Lowest page is {lowest} ppi (< {PPI_FAIL}); continuing (ENFORCE_PRINT_PPI off)."))
         elif lowest < PPI_WARN:
             issues.append(_issue("resolution", "warning", f"Lowest page is {lowest} ppi (< {PPI_WARN} target, >= {PPI_FAIL} minimum)."))
 

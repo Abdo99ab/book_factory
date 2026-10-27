@@ -275,7 +275,7 @@ def test_images_embedded_without_resampling(emma_build):
     assert (1600, 1600) in [(i.image.width, i.image.height) for i in page.images]
 
 
-def test_below_150_ppi_refuses_to_build(emma_build, tmp_path):
+def test_below_150_ppi_refuses_to_build_when_enforced(emma_build, tmp_path, monkeypatch):
     import shutil
 
     from PIL import Image
@@ -283,6 +283,9 @@ def test_below_150_ppi_refuses_to_build(emma_build, tmp_path):
     copy = tmp_path / "copy"
     shutil.copytree(emma_build.job_dir, copy)
     Image.new("RGB", (1000, 1000), (240, 230, 210)).save(copy / "spreads" / "spread-05" / "art-right.png")
+    # Default path continues; enforcement on raises.
+    pdf_build.build_pdf(copy, emma_build.story, emma_build.pages, emma_build.inputs)
+    monkeypatch.setattr("pipeline.constants.ENFORCE_PRINT_PPI", True)
     with pytest.raises(illustrate.PrintResolutionError):
         pdf_build.build_pdf(copy, emma_build.story, emma_build.pages, emma_build.inputs)
 

@@ -53,14 +53,23 @@ def test_structure_fails_when_art_missing(job):
     assert any(i["code"] == "art_missing" for i in report["reports"]["structure"]["issues"])
 
 
-def test_structure_fails_below_150_ppi(job):
+def test_structure_warns_below_150_ppi_when_enforcement_off(job, monkeypatch):
     from PIL import Image
 
     Image.new("RGB", (1000, 1000), (240, 230, 210)).save(job / "spreads" / "spread-02" / "art-left.png")
+    monkeypatch.setattr("pipeline.constants.ENFORCE_PRINT_PPI", False)
     report = qa.run_qa(job)
-    assert not report["reports"]["structure"]["passed"]
     assert report["min_effective_ppi"] < 150
-    from pipeline.illustrate import PrintResolutionError, assert_print_resolution
+    res = [i for i in report["reports"]["structure"]["issues"] if i["code"] == "resolution"]
+    assert res and res[0]["severity"] == "warning"
+    from pipeline.illustrate import assert_print_resolution
+
+    assert assert_print_resolution(job) is not None
+
+    monkeypatch.setattr("pipeline.constants.ENFORCE_PRINT_PPI", True)
+    report2 = qa.run_qa(job)
+    assert not report2["reports"]["structure"]["passed"]
+    from pipeline.illustrate import PrintResolutionError
 
     with pytest.raises(PrintResolutionError):
         assert_print_resolution(job)

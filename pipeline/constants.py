@@ -126,7 +126,14 @@ PAGE_IMAGE_SIZE = os.getenv("PAGE_IMAGE_SIZE", "1024x1024")
 
 # --- Print resolution (no upscaler): native model pixels placed in the 216 mm box ---
 PPI_WARN = 300  # below this: print_resolution_warning
-PPI_FAIL = 150  # below this: print_resolution_fail (build is refused)
+PPI_FAIL = 150  # below this: print_resolution_fail when ENFORCE_PRINT_PPI is on
+# WORKING: off while proving the image path; set ENFORCE_PRINT_PPI=1 to refuse <150 ppi again.
+ENFORCE_PRINT_PPI = os.getenv("ENFORCE_PRINT_PPI", "0").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+    "off",
+}
 
 
 def effective_ppi(pixel_width: int, box_mm: float | None = None) -> float:

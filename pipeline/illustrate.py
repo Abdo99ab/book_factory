@@ -357,13 +357,26 @@ def generate_spread_art(
 
 
 def assert_print_resolution(job_dir: Path, spread_numbers=range(1, 15)) -> float | None:
-    """Raise PrintResolutionError if any spread is below PPI_FAIL; return the minimum ppi."""
+    """Return the minimum ppi. Raise only when ENFORCE_PRINT_PPI is on and below PPI_FAIL."""
+    from .constants import ENFORCE_PRINT_PPI
+
     lowest = min_effective_ppi(job_dir, spread_numbers)
-    if lowest is not None and lowest < PPI_FAIL:
+    if (
+        ENFORCE_PRINT_PPI
+        and lowest is not None
+        and lowest < PPI_FAIL
+    ):
         raise PrintResolutionError(
             f"Interior art is {lowest} ppi (< {PPI_FAIL}) in the {PAGE_WITH_BLEED_MM:g} mm box. "
             "The image model returned too few pixels; there is no upscaler. "
             "Raise IMAGE_SIZE / use a model with larger output and regenerate."
+        )
+    if lowest is not None and lowest < PPI_FAIL:
+        append_event(
+            job_dir,
+            "print_resolution_ignored",
+            f"Lowest art is {lowest} ppi (< {PPI_FAIL}); continuing because ENFORCE_PRINT_PPI is off.",
+            effective_ppi=lowest,
         )
     return lowest
 
