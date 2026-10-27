@@ -55,6 +55,27 @@ def _reference(job_dir: Path) -> Path:
     return refs[0]
 
 
+def _ensure_manuscript(client, job_dir: Path, inputs: dict) -> dict:
+    """Load manuscript or generate it once. Does not require the character sheet."""
+    path = job_dir / "story" / "manuscript.json"
+    if path.is_file():
+        return _load_story(job_dir)
+    _update_job(job_dir, status="generating_content", error=None)
+    story = generate_content(client, job_dir, inputs)
+    inputs = {**inputs, "route": story.get("route")}
+    write_json(job_dir / "inputs.json", inputs)
+    return story
+
+
+def _ensure_character(client, job_dir: Path, inputs: dict) -> Path:
+    """Return character.png, generating it from the reference photo if needed."""
+    path = job_dir / "character" / "character.png"
+    if path.is_file():
+        return path
+    _update_job(job_dir, status="generating_character", error=None)
+    return generate_character(client, job_dir, _reference(job_dir), inputs)
+
+
 def run_prepare(job_id: str, job_dir: Path) -> None:
     """Content (one text call) + character sheet. Stops at content_ready."""
     inputs = read_json(job_dir / "inputs.json")
@@ -64,12 +85,10 @@ def run_prepare(job_id: str, job_dir: Path) -> None:
     _update_job(job_dir, status="generating_content", error=None)
     client = create_client()
     try:
-        story = generate_content(client, job_dir, inputs)
-        inputs = {**inputs, "route": story.get("route")}
-        write_json(job_dir / "inputs.json", inputs)
-        _update_job(job_dir, status="generating_character", book_title=story.get("title"))
-        if not (job_dir / "character" / "character.png").is_file():
-            generate_character(client, job_dir, _reference(job_dir), inputs)
+        story = _ensure_manuscript(client, job_dir, inputs)
+        inputs = read_json(job_dir / "inputs.json") or inputs
+        _update_job(job_dir, book_title=story.get("title"))
+        _ensure_character(client, job_dir, inputs)
         _update_job(
             job_dir,
             status="content_ready",
@@ -95,10 +114,9 @@ def run_preview(job_id: str, job_dir: Path) -> None:
     _update_job(job_dir, status="generating_preview", error=None)
     client = create_client()
     try:
-        if not (job_dir / "story" / "manuscript.json").is_file():
-            run_prepare(job_id, job_dir)
-        story = _load_story(job_dir)
-        character = _character_path(job_dir)
+        story = _ensure_manuscript(client, job_dir, inputs)
+        inputs = read_json(job_dir / "inputs.json") or inputs
+        character = _ensure_character(client, job_dir, inputs)
         generate_cover_panels(client, job_dir, inputs, story, character, front_only=True)
         ensure_spreads(
             client,
@@ -133,11 +151,10 @@ def run_build(job_id: str, job_dir: Path) -> Path:
     _update_job(job_dir, status="building", error=None)
     client = create_client()
     try:
-        if not (job_dir / "story" / "manuscript.json").is_file():
-            run_prepare(job_id, job_dir)
-        story = _load_story(job_dir)
+        story = _ensure_manuscript(client, job_dir, inputs)
+        inputs = read_json(job_dir / "inputs.json") or inputs
         pages = _load_pages(job_dir)
-        character = _character_path(job_dir)
+        character = _ensure_character(client, job_dir, inputs)
         generate_title_spot(client, job_dir, inputs, story)
         generate_cover_panels(client, job_dir, inputs, story, character, front_only=False)
         ensure_spreads(client, job_dir, inputs, story, character, list(range(1, SPREAD_COUNT + 1)))
@@ -161,10 +178,10 @@ def run_build(job_id: str, job_dir: Path) -> Path:
 def run_edit_spread(job_id: str, job_dir: Path, n: int, instruction: str) -> None:
     inputs = read_json(job_dir / "inputs.json")
     story = _load_story(job_dir)
-    character = _character_path(job_dir)
     client = create_client()
     _update_job(job_dir, status="editing", error=None)
     try:
+        character = _ensure_character(client, job_dir, inputs)
         regenerate_spread(client, job_dir, inputs, story, character, int(n), instruction)
         # Rebuild PDF if we already had one so the edit is visible immediately.
         if (read_json(job_dir / "job.json") or {}).get("pdf") or all(
@@ -191,10 +208,10 @@ def run_edit_spread(job_id: str, job_dir: Path, n: int, instruction: str) -> Non
 def run_edit_cover(job_id: str, job_dir: Path, kind: str, instruction: str) -> None:
     inputs = read_json(job_dir / "inputs.json")
     story = _load_story(job_dir)
-    character = _character_path(job_dir)
     client = create_client()
     _update_job(job_dir, status="editing", error=None)
     try:
+        character = _ensure_character(client, job_dir, inputs)
         regenerate_cover(client, job_dir, inputs, story, character, kind, instruction)
         if kind == "front":
             try:
