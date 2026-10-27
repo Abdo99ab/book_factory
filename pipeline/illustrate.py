@@ -660,12 +660,12 @@ def _cover_prompt(kind: str, inputs: dict, story: dict, fix_zones: list[str] | N
         body = (
             f"Create the BACK COVER illustration only for '{story['title']}'.\n"
             "Same world, palette and cast as the front.\n"
-            "KEEP PLAIN: the UPPER TWO THIRDS of the picture is a plain, calm, soft wash with no "
-            "figures, objects or detail (the question, blurb and honesty line are printed there). "
-            "A quiet epilogue moment showing the anchor object sits in the LOWER THIRD only, and "
-            "every figure and the anchor stay at least 20 mm above the bottom edge of the trim.\n"
-            f"QR KEEP-CLEAR: the {corner} corner (about {BACK_QR_SAFE_MM:g} mm square) stays "
-            "completely plain and empty of figures (the printer prints over whatever is beneath).\n"
+            "COMPOSITION: a quiet epilogue moment with the carer and child (and the anchor object) "
+            "in the middle of the picture. Keep the BOTTOM 40% of the picture calm and open — a "
+            "white text plate with the question, blurb, logo and QR code is printed there.\n"
+            "Figures stay above that bottom band and at least 20 mm above the trim bottom.\n"
+            f"QR KEEP-CLEAR: leave the {corner} of that bottom band (about {BACK_QR_SAFE_MM:g} mm "
+            "square) free of figures — the QR sits inside the white plate there.\n"
             "NO EDGE CUTS: nothing important touches or is cut by the edges."
         )
     if fix_zones:
@@ -741,28 +741,21 @@ def _try_reframe_and_soften_front(client, path: Path, check: dict) -> dict:
         return check
     if reframe.get("shifted"):
         faces = [reframe["face"]]
-        imagecheck.soften_cover_layout_zones(path, top=True, logo=True)
+        # Soften the title zone only — the logo sits on a white plate in the PDF, so a beige
+        # logo-zone flatten would show around the plate as a second box.
+        imagecheck.soften_cover_layout_zones(path, top=True, logo=False)
         check = _front_layout_check(client, path, faces=faces)
         check["reframe"] = reframe
-        # Soften again if a zone is still flagged busy.
         failures = " ".join(check.get("failures") or [])
-        if "top band/title zone" in failures or "logo zone" in failures:
-            imagecheck.soften_cover_layout_zones(
-                path,
-                top="top band/title zone" in failures,
-                logo="logo zone" in failures,
-            )
+        if "top band/title zone" in failures:
+            imagecheck.soften_cover_layout_zones(path, top=True, logo=False)
             check = _front_layout_check(client, path, faces=faces)
             check["reframe"] = reframe
         return check
-    # Face not too high (or already in range): still soften busy zones when that is the only issue.
+    # Face not too high (or already in range): still soften a busy title zone.
     failures = " ".join(check.get("failures") or [])
-    if "top band/title zone" in failures or "logo zone" in failures:
-        imagecheck.soften_cover_layout_zones(
-            path,
-            top="top band/title zone" in failures,
-            logo="logo zone" in failures,
-        )
+    if "top band/title zone" in failures:
+        imagecheck.soften_cover_layout_zones(path, top=True, logo=False)
         check = _front_layout_check(client, path, faces=faces or [main])
         check["reframe"] = {"shifted": False, "softened_only": True}
     return check

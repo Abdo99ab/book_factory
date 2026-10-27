@@ -217,7 +217,7 @@ def test_front_prompt_keeps_carer_off_and_states_layout_rules(bundle):
     assert "38-42%" in front and "TOP 35%" in front and "BOTTOM 18%" in front
     assert "NO EDGE CUTS" in front and "calm" in front.lower()
     back = illustrate._cover_prompt("back", inputs, story)
-    assert "UPPER TWO THIRDS" in back and "QR KEEP-CLEAR" in back
+    assert "BOTTOM 40%" in back and "QR KEEP-CLEAR" in back
     assert "20 mm" in back
     assert "never on the front cover" not in back
     retry = illustrate._cover_prompt("front", inputs, story, fix_zones=["top band/title zone (top 35%)"])
@@ -249,9 +249,11 @@ def test_layout_check_rules(tmp_path):
             if (x + y) // 8 % 2:
                 image.paste((20, 30, 60), (x, y, x + 8, y + 8))
     image.save(busy)
-    failures = imagecheck.check_front_cover_layout(busy, [centred])["failures"]
-    assert any("top band/title zone" in f for f in failures)
-    assert any("logo zone" in f for f in failures)
+    result = imagecheck.check_front_cover_layout(busy, [centred])
+    assert any("top band/title zone" in f for f in result["failures"])
+    # Logo zone is covered by a white plate in the PDF — busy floor is noted, not a hard fail.
+    assert result["logo_busy"] is True
+    assert not any("logo zone" in f for f in result["failures"])
 
 
 def test_reframe_cover_shifts_slightly_high_face_and_rejects_too_far(tmp_path):
@@ -298,7 +300,7 @@ def _front_calls(fake):
 
 def _cover_face_detector(front_face: dict):
     """Return ``front_face`` on front art; a lower-third face on back so back layout stays quiet."""
-    back_face = {"x": 0.40, "y": 0.55, "w": 0.20, "h": 0.18}
+    back_face = {"x": 0.40, "y": 0.28, "w": 0.20, "h": 0.22}  # above the bottom text band
 
     def detector(client, path):
         name = Path(path).name.lower()
@@ -362,7 +364,9 @@ def test_face_far_too_high_regens_then_soft_plate_continues(cover_job, monkeypat
 
 
 def test_plain_top_and_centred_face_gives_no_warning_and_a_composed_preview(cover_job, monkeypatch):
-    monkeypatch.setattr(qa, "detect_faces", lambda client, path: [{"x": 0.38, "y": 0.45, "w": 0.24, "h": 0.22}])
+    monkeypatch.setattr(
+        qa, "detect_faces", _cover_face_detector({"x": 0.38, "y": 0.45, "w": 0.24, "h": 0.22})
+    )
     illustrate.generate_cover_panels(
         MagicMock(), cover_job.job, cover_job.inputs, cover_job.story, cover_job.character
     )
@@ -409,8 +413,10 @@ def test_detect_faces_prefers_local_haar_and_falls_back_to_vision(tmp_path, monk
 
 
 def test_forced_plate_is_used_when_the_cover_is_drawn(cover_job, monkeypatch):
-    """With force_soft_plate the title/logo plate is drawn even on calm art (checked via plate layers)."""
-    monkeypatch.setattr(qa, "detect_faces", lambda client, path: [{"x": 0.38, "y": 0.45, "w": 0.24, "h": 0.22}])
+    """With force_soft_plate the title plate is drawn even on calm art (logo already has a white plate)."""
+    monkeypatch.setattr(
+        qa, "detect_faces", _cover_face_detector({"x": 0.38, "y": 0.45, "w": 0.24, "h": 0.22})
+    )
     illustrate.generate_cover_panels(
         MagicMock(), cover_job.job, cover_job.inputs, cover_job.story, cover_job.character
     )
@@ -423,13 +429,29 @@ def test_forced_plate_is_used_when_the_cover_is_drawn(cover_job, monkeypatch):
     write_json(cover_job.job / "cover" / "cover.json", cover)
     pdf_build.render_front_preview(cover_job.job, cover_job.inputs, cover_job.story)
     plain = (cover_job.job / "cover" / "front_preview.png").read_bytes()
-    assert forced != plain  # the forced soft plate changes what is drawn
+    assert forced != plain  # the forced title plate changes what is drawn
+
+
+def test_front_logo_uses_logo_main(cover_job, monkeypatch):
+    monkeypatch.setattr(
+        qa, "detect_faces", _cover_face_detector({"x": 0.38, "y": 0.45, "w": 0.24, "h": 0.22})
+    )
+    illustrate.generate_cover_panels(
+        MagicMock(), cover_job.job, cover_job.inputs, cover_job.story, cover_job.character
+    )
+    assert pdf_build.LOGO_FILES["main"].name == "logo-main.png"
+    assert pdf_build.LOGO_KEY == "main"
+    pdf_build.render_front_preview(cover_job.job, cover_job.inputs, cover_job.story)
+    preview = cover_job.job / "cover" / "front_preview.png"
+    assert preview.is_file()
 
 
 def test_job_page_shows_composed_front_next_to_raw_art(cover_job, monkeypatch, tmp_path):
     from app import create_app
 
-    monkeypatch.setattr(qa, "detect_faces", lambda client, path: [{"x": 0.38, "y": 0.45, "w": 0.24, "h": 0.22}])
+    monkeypatch.setattr(
+        qa, "detect_faces", _cover_face_detector({"x": 0.38, "y": 0.45, "w": 0.24, "h": 0.22})
+    )
     illustrate.generate_cover_panels(
         MagicMock(), cover_job.job, cover_job.inputs, cover_job.story, cover_job.character
     )

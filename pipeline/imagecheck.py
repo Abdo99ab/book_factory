@@ -20,15 +20,19 @@ BUSY_P10 = 0.25
 
 # Front cover art zones, as fractions of the (square) art: (x0, y0, x1, y1).
 TOP_ZONE = (0.0, 0.0, 1.0, 0.35)  # plain wall for band + title (top 35 %)
-LOGO_ZONE = (0.30, 0.82, 0.70, 1.0)  # bottom 18 %, centre 40 % — plain floor
+# Logo keep-clear (informational): the PDF always draws the logo on a white plate, so a busy
+# floor here is not a hard layout failure.
+LOGO_ZONE = (0.30, 0.82, 0.70, 1.0)  # bottom 18 %, centre 40 %
 FACE_Y_RANGE = (0.38, 0.72)
 FACE_X_RANGE = (0.25, 0.75)
 # Deterministic cover reframe: nudge a slightly-high face down so the head top sits here.
 TARGET_HEAD_TOP = 0.40
 MAX_REFRAME_SHIFT = 0.15  # if the face is higher than this delta, fall back to a model regen
-# Back cover: figures only in the lower third; keep 20 mm clear of the trim bottom on a 216 mm panel.
-BACK_FIGURE_Y_MIN = 1.0 / 3.0
+# Back cover: bottom ~40 % is the white text plate; figures stay above it, 20 mm clear of trim bottom.
+BACK_TEXT_BAND_TOP = 0.60  # figures must end above this (bottom 40 % reserved for the plate)
 BACK_BOTTOM_CLEAR_FRAC = 20.0 / 216.0  # ≈ 0.093 of the square art height
+# Deprecated alias kept for imports; unused by the layout check.
+BACK_FIGURE_Y_MIN = 0.0
 
 
 def _lin(v: float) -> float:
@@ -370,8 +374,7 @@ def check_front_cover_layout(art_path: Path | str, faces: list[dict] | None) -> 
     if is_busy(top):
         failures.append("top band/title zone (top 35%): must be plain, soft and empty")
     logo = region_stats(art_path, LOGO_ZONE)
-    if is_busy(logo):
-        failures.append("logo zone (bottom 18%, centre 40%): must be plain floor, soft and empty")
+    # Logo sits on a white plate in the PDF — a busy floor is noted but does not fail the check.
     return {
         "passed": not failures,
         "failures": failures,
@@ -379,36 +382,33 @@ def check_front_cover_layout(art_path: Path | str, faces: list[dict] | None) -> 
         "main_face": main,
         "top_zone": top,
         "logo_zone": logo,
+        "logo_busy": is_busy(logo),
     }
 
 
 def check_back_cover_layout(art_path: Path | str, faces: list[dict] | None) -> dict:
-    """Back art: faces / figures only in the lower third, clear of the bottom wrap."""
+    """Back art: figures stay above the bottom text band; clear of the trim bottom."""
     failures: list[str] = []
     face_checked = faces is not None
     if faces:
         for face in faces:
-            y0 = float(face.get("y", 0))
-            y1 = y0 + float(face.get("h", 0))
-            if y0 < BACK_FIGURE_Y_MIN:
-                failures.append("back face: figures must stay in the lower third (upper two thirds plain wall)")
+            y1 = float(face.get("y", 0)) + float(face.get("h", 0))
+            if y1 > BACK_TEXT_BAND_TOP:
+                failures.append(
+                    "back face: figures must stay above the bottom 40% (white text plate + QR)"
+                )
                 break
             if y1 > 1.0 - BACK_BOTTOM_CLEAR_FRAC:
                 failures.append(
                     "back bottom: figures and the anchor stay at least 20 mm above the trim bottom"
                 )
                 break
-    upper = region_stats(art_path, (0.0, 0.0, 1.0, BACK_FIGURE_Y_MIN))
-    if is_busy(upper) and (faces is None or faces):
-        # Only flag a busy upper third when we also saw a face too high, or couldn't check faces.
-        if faces is None or any(float(f.get("y", 0)) < BACK_FIGURE_Y_MIN for f in faces or []):
-            if "back face" not in " ".join(failures):
-                failures.append("back upper two thirds: must be plain wall with no figures")
+    bottom = region_stats(art_path, (0.0, BACK_TEXT_BAND_TOP, 1.0, 1.0))
     return {
         "passed": not failures,
         "failures": failures,
         "face_checked": face_checked,
-        "upper_zone": upper,
+        "bottom_zone": bottom,
     }
 
 

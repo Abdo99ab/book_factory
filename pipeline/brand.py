@@ -75,9 +75,11 @@ SIZE_SCALE = {
 }
 
 # Spec §7 — logo masters under assets/brand/
+# ``logo-main.png`` is the live lockup; older full-colour / one-ink filenames stay as aliases.
 LOGO_FILES = {
-    "full_colour": ASSETS_BRAND / "logo-full-colour.png",
-    "one_ink": ASSETS_BRAND / "logo-one-ink.png",
+    "main": ASSETS_BRAND / "logo-main.png",
+    "full_colour": ASSETS_BRAND / "logo-main.png",
+    "one_ink": ASSETS_BRAND / "logo-main.png",
     "mini_r": ASSETS_BRAND / "logo-mini-r.png",
     "reverse": ASSETS_BRAND / "logo-reverse.png",
 }

@@ -39,7 +39,7 @@ def _env_bool(name: str, default: str = "0") -> bool:
 
 # --- Feature flags (OPEN / RECOMMENDED — owners in comments) ---
 PRINTED_IN_UK_LINE = _env_bool("PRINTED_IN_UK_LINE", "0")  # OPEN: after UK printer contract
-TEXT_PLATE = os.getenv("TEXT_PLATE", "auto").strip().lower()  # RECOMMENDED auto; Taoufik
+TEXT_PLATE = os.getenv("TEXT_PLATE", "always").strip().lower()  # always white plate under story/cover text
 OUTFIT_CONSTANT = _env_bool("OUTFIT_CONSTANT", "1")  # RECOMMENDED constant outfit
 # Read from the environment (openai_util.image_quality re-reads IMAGE_QUALITY at call time); "high" is
 # only the default when the variable is unset.
@@ -66,7 +66,7 @@ PRINTER_PROFILES = {
         "colour_profile": None,  # no ICC for now
         "packaging": "single_pdf_cover_flat_first",  # as today
         "qr_safe_mm": 28.0,  # WORKING — Meda confirms corner/size
-        "qr_corner": "bottom_right",  # WORKING
+        "qr_corner": "bottom_left",  # inside the back-cover white plate
         "barcode_required": False,
         "pdf_standard": None,
     },
@@ -80,7 +80,7 @@ PRINTER_PROFILES = {
         "colour_profile": None,
         "packaging": "single_pdf_cover_first_back_last",
         "qr_safe_mm": 28.0,
-        "qr_corner": "bottom_right",
+        "qr_corner": "bottom_left",
         "barcode_required": False,
         "pdf_standard": None,
     },

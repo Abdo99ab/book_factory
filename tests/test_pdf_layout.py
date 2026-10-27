@@ -118,17 +118,29 @@ def test_images_embedded_at_native_pixels_no_upscale(built):
     assert (1440, 1440) in sizes  # one half of the 2840 x 1440 spread, cut not resampled
 
 
-def test_text_plate_used_only_when_contrast_requires(built):
+def test_story_text_always_sits_on_a_white_plate(built):
     job_dir, *_ = built
     import json
 
     layout = json.loads((job_dir / "print" / "layout.json").read_text(encoding="utf-8"))
-    carrying = {r["page"]: r for r in layout["pages"] if r.get("kind") == "spread_half" and r["text"]}
+    carrying = [r for r in layout["pages"] if r.get("kind") == "spread_half" and r["text"]]
     assert len(carrying) == 14  # exactly one text-carrying page per spread
-    dark = carrying[4] if 4 in carrying else carrying[5]  # spread 2 has dark art
-    assert dark["plate"] is True
-    light = [r for page, r in carrying.items() if page not in (4, 5)]
-    assert light and all(r["plate"] is False for r in light)
+    assert all(r["plate"] is True for r in carrying)
+
+
+def test_back_cover_qr_sits_inside_the_white_plate(built):
+    job_dir, *_ = built
+    import json
+
+    layout = json.loads((job_dir / "print" / "layout.json").read_text(encoding="utf-8"))
+    qr = next(r for r in layout["pages"] if r.get("kind") == "qr_keep_clear")
+    qx, qy, qw, qh = qr["box_mm"]
+    px, py, pw, ph = qr["plate_mm"]
+    assert qx >= px - 0.5
+    assert qy >= py - 0.5
+    assert qx + qw <= px + pw + 0.5
+    assert qy + qh <= py + ph + 0.5
+    assert "left" in qr["corner"]
 
 
 def test_contrast_ratio_helper():

@@ -100,7 +100,9 @@ def test_anchor_reset_seen_by_reviewer(job):
 
 def test_text_over_face_fails(job):
     layout = read_json(job / "print" / "layout.json")
-    carrying = next(r for r in layout["pages"] if r.get("box_mm"))
+    carrying = next(
+        r for r in layout["pages"] if r.get("kind") == "spread_half" and r.get("box_mm")
+    )
     left, top, width, height = carrying["box_mm"]
     # face boxes are normalised on the WHOLE spread; the right page's text box sits 210 mm in
     shift = 0.0 if carrying["side"] == "left" else SPREAD_WIDTH_MM - PAGE_WITH_BLEED_MM
@@ -173,7 +175,9 @@ def test_send_route_blocked_then_allowed(job, tmp_path, monkeypatch):
 def test_text_over_face_ignores_a_face_on_the_other_half(job):
     """A face at the far side of the spread from the text box is fine (and the old per-page keys are not read)."""
     layout = read_json(job / "print" / "layout.json")
-    carrying = next(r for r in layout["pages"] if r.get("box_mm"))
+    carrying = next(
+        r for r in layout["pages"] if r.get("kind") == "spread_half" and r.get("box_mm")
+    )
     far_x = 0.8 if carrying["side"] == "left" else 0.05
     face = {"x": far_x, "y": 0.1, "w": 0.1, "h": 0.1}
     write_json(job / "qa" / "review_record.json", {"spreads": {str(carrying["spread"]): {"faces": [face]}}})

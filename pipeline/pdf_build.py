@@ -57,14 +57,19 @@ from .pages import split_spread, spread_art_path, spread_art_rel
 
 SITE_URL = "raisedready.co.uk"
 CONTRAST_TARGET = 7.0  # story text on art: p10-based navy vs paper must clear 7:1
-PLATE_ALPHA = 0.88
+PLATE_ALPHA = 0.92
 PLATE_LAYERS = 8
 BAND_DEPTH_MM = float(SIZE_SCALE["band_depth_mm"])
 TITLE_SIZE_FLOOR = float(SIZE_SCALE["front_title_rest"][0])  # 44 pt
+# Default lockup used on covers, title page, dedication.
+LOGO_KEY = "main"
 
 INK = COLOURS["ink_navy"]["rgb"]
 PAPER = COLOURS["paper"]["rgb"]
+WHITE = COLOURS["white"]["rgb"]
 OAT = COLOURS["oat"]["rgb"]
+# Soft plates under text / logo are white (not paper beige).
+PLATE = WHITE
 
 
 # --- small helpers -------------------------------------------------------------------------------
@@ -218,10 +223,10 @@ def _fill_rect(c, x, y, w, h, rgb) -> None:
 
 
 def _soft_plate(c, x, y, w, h) -> None:
-    """Soft-edged paper plate (#FAF6EF, ~88 % opacity): feathered layers, no hard white box."""
+    """Soft-edged white plate under text or logo: feathered layers, no hard rectangle."""
     per_layer = 1 - (1 - PLATE_ALPHA) ** (1 / PLATE_LAYERS)
     c.saveState()
-    c.setFillColorRGB(*_c01(PAPER))
+    c.setFillColorRGB(*_c01(PLATE))
     for i in range(PLATE_LAYERS):
         grow = (PLATE_LAYERS - 1 - i) * 0.8
         c.setFillAlpha(per_layer)
@@ -237,21 +242,34 @@ def _soft_plate(c, x, y, w, h) -> None:
     c.restoreState()
 
 
-def _decide_ink(ctx: _Ctx, art: _Art | None, box_mm, allow_light_ink: bool = False, label: str = ""):
-    """(ink_rgb, plate_bool). Navy on a light calm zone; plate only when contrast fails."""
+def _decide_ink(
+    ctx: _Ctx,
+    art: _Art | None,
+    box_mm,
+    allow_light_ink: bool = False,
+    label: str = "",
+    *,
+    plate_policy: str | None = None,
+):
+    """(ink_rgb, plate_bool). Default policy is ``TEXT_PLATE`` (always → white plate under story text).
+
+    Pass ``plate_policy='auto'`` for the front-cover title: plate only when contrast fails (or the
+    caller forces one) so the title is not locked in a white box over the child's face.
+    """
     if art is None:
         return INK, False
+    policy = (plate_policy or TEXT_PLATE).strip().lower()
+    if policy == "always":
+        return INK, True
     s = art.stats(box_mm)
     navy_contrast = (s["p10"] + 0.05) / (_lum(INK) + 0.05)
-    if navy_contrast >= CONTRAST_TARGET and TEXT_PLATE != "always":
+    if navy_contrast >= CONTRAST_TARGET:
         return INK, False
-    if TEXT_PLATE == "always":
-        return INK, True
     if allow_light_ink:
         light_contrast = (_lum(PAPER) + 0.05) / (s["p90"] + 0.05)
         if light_contrast >= CONTRAST_TARGET:
             return PAPER, False
-    if TEXT_PLATE == "none":
+    if policy == "none":
         append_event(
             ctx.job_dir,
             "text_contrast_warning",
@@ -434,7 +452,11 @@ def _draw_title_block(
     height_pt = (l1_pt if line1 else 0) + lead * len(lines)
     height_mm = height_pt * 25.4 / 72
     box = (centre_x_mm - width_mm / 2, top_mm - 2, centre_x_mm + width_mm / 2, top_mm + height_mm + 2)
-    ink, plate = _decide_ink(ctx, art, box, allow_light_ink=allow_light_ink, label=label)
+    # Front title: contrast/force only — never the global "always" white plate.
+    title_policy = "auto" if label.startswith("Front cover") else None
+    ink, plate = _decide_ink(
+        ctx, art, box, allow_light_ink=allow_light_ink, label=label, plate_policy=title_policy
+    )
     if force_plate and TEXT_PLATE != "none":
         ink, plate = INK, True
     if plate:
@@ -625,7 +647,7 @@ def _draw_title_page(ctx: _Ctx, page: dict) -> None:
     else:
         append_event(ctx.job_dir, "title_spot_missing", "No title-page spot illustration; page 1 has none.")
     logo_w = 34.0
-    _draw_logo(c, "one_ink", (page_w - logo_w) / 2, page_w - BLEED_MM - SAFE_MM["trim"] - 14, logo_w)
+    _draw_logo(c, LOGO_KEY, (page_w - logo_w) / 2, page_w - BLEED_MM - SAFE_MM["trim"] - 14, logo_w)
     ctx.layout_log.append({"page": 1, "kind": "title", "text": True, "plate": False})
     c.showPage()
 
@@ -705,7 +727,7 @@ def _draw_dedication_page(ctx: _Ctx, page: dict) -> None:
     _draw_lines(c, note, reportlab_name("body"), size, left, cursor, size * 1.45, INK)
     bottom = PAGE_WITH_BLEED_MM - BLEED_MM - SAFE_MM["trim"]
     logo_w = 34.0
-    _draw_logo(c, "one_ink", left, bottom - 22, logo_w)
+    _draw_logo(c, LOGO_KEY, left, bottom - 22, logo_w)
     _draw_lines(
         c,
         [SITE_URL],
@@ -745,7 +767,7 @@ def _draw_front(ctx: _Ctx, c, art: _Art, panel: tuple[float, float], strip, alig
     sx, sy, sw, sh = strip
     _draw_band(ctx, c, sx, sw, sy, trim_y, trim_x + trim_w / 2)
     centre = trim_x + trim_w / 2
-    height, _ink, _plate = _draw_title_block(
+    _draw_title_block(
         ctx,
         c,
         art,
@@ -757,20 +779,19 @@ def _draw_front(ctx: _Ctx, c, art: _Art, panel: tuple[float, float], strip, alig
         "Front cover title",
         force_plate=ctx.force_cover_plate,
     )
-    # Logo bottom centre; full colour only when >= 60 mm wide (else one-ink navy).
+    # Logo bottom centre on a white plate only (no beige under-layer).
     logo_w = 62.0
-    with Image.open(LOGO_FILES["full_colour"]) as im:
+    with Image.open(LOGO_FILES[LOGO_KEY]) as im:
         logo_h = logo_w * im.size[1] / im.size[0]
     logo_y = trim_y + trim_w - 10 - logo_h
-    box = (centre - logo_w / 2, logo_y, centre + logo_w / 2, logo_y + logo_h)
-    s = art.stats(box)
-    busy = s["std"] > 0.10 or s["p10"] < 0.25 or ctx.force_cover_plate
-    if busy and TEXT_PLATE != "none":
-        _soft_plate(c, box[0] - 6, box[1] - 4, logo_w + 12, logo_h + 8)
-    _draw_logo(c, "full_colour", centre - logo_w / 2, logo_y, logo_w)
+    logo_x = centre - logo_w / 2
+    if TEXT_PLATE != "none":
+        _soft_plate(c, logo_x - 6, logo_y - 4, logo_w + 12, logo_h + 8)
+    _draw_logo(c, LOGO_KEY, logo_x, logo_y, logo_w)
 
 
 def _draw_back(ctx: _Ctx, c, art: _Art, panel: tuple[float, float], strip, align: str) -> None:
+    """Back cover: one white plate at the bottom holding copy + logo + QR keep-clear."""
     px, py = panel
     _strip_art(ctx, c, art, strip, align)
     trim_x, trim_y = px + BLEED_MM, py + BLEED_MM
@@ -786,17 +807,29 @@ def _draw_back(ctx: _Ctx, c, art: _Art, panel: tuple[float, float], strip, align
     q_h = len(question_lines) * q_size * 1.2 * 25.4 / 72
     b_h = len(blurb_lines) * blurb_lead * 25.4 / 72
     h_h = len(honesty_lines) * 13 * 25.4 / 72
-    logo_w = 62.0
-    with Image.open(LOGO_FILES["full_colour"]) as im:
+    logo_w = 48.0
+    with Image.open(LOGO_FILES[LOGO_KEY]) as im:
         logo_h = logo_w * im.size[1] / im.size[0]
 
-    top = trim_y + 20
-    gap = 8
-    stack_h = q_h + gap + b_h + gap + h_h + gap + 6 + gap + logo_h
-    box = (left, top, left + width, top + stack_h)
-    ink, plate = _decide_ink(ctx, art, box, label="Back cover")
-    if plate:
-        _soft_plate(c, left - 8, top - 6, width + 16, stack_h + 12)
+    qr = BACK_QR_SAFE_MM
+    gap = 6.0
+    url_h = 6.0
+    # Text stack, then a footer row: QR (bottom-left) + logo to its right.
+    text_h = q_h + gap + b_h + gap + h_h + gap + url_h
+    footer_h = max(qr, logo_h)
+    stack_h = text_h + gap + footer_h
+    pad_x, pad_y = 8.0, 6.0
+    # Sit the plate on the bottom of the trim, clear of the wrap.
+    bottom = trim_y + trim_w - 12
+    top = bottom - stack_h
+    plate_x = left - pad_x
+    plate_y = top - pad_y
+    plate_w = width + 2 * pad_x
+    plate_h = stack_h + 2 * pad_y
+    ink = INK
+    if TEXT_PLATE != "none":
+        _soft_plate(c, plate_x, plate_y, plate_w, plate_h)
+
     cursor = top
     _draw_lines(c, question_lines, q_font, q_size, left, cursor, q_size * 1.2, ink)
     cursor += q_h + gap
@@ -805,24 +838,26 @@ def _draw_back(ctx: _Ctx, c, art: _Art, panel: tuple[float, float], strip, align
     _draw_lines(c, honesty_lines, reportlab_name("body"), 10, left, cursor, 13, ink)
     cursor += h_h + gap
     _draw_lines(c, [SITE_URL], reportlab_name("body_bold"), 11, left, cursor, 14, ink)
-    cursor += 6 + gap
     if PRINTED_IN_UK_LINE:  # OPEN flag, default off (needs a signed UK printer contract)
-        _draw_lines(c, ["Printed in the UK"], reportlab_name("body"), 8, left, cursor - 4, 10, ink)
-    _draw_logo(c, "full_colour", left, cursor, logo_w)
+        _draw_lines(c, ["Printed in the UK"], reportlab_name("body"), 8, left + 70, cursor, 10, ink)
 
-    # Keep-clear for the printer's QR / batch code: sample the mean colour of the art under the
-    # box (never a flat paper rectangle). Text stays out of it; the printer prints over whatever is beneath.
-    q = BACK_QR_SAFE_MM
-    qx = trim_x + trim_w - q if "right" in BACK_QR_SAFE_CORNER else trim_x
-    qy = trim_y + trim_w - q if "bottom" in BACK_QR_SAFE_CORNER else trim_y
-    try:
-        stats = art.stats((qx, qy, qx + q, qy + q))
-        # Reconstruct an approximate mid-tone from the sampled luminance band.
-        mid = (stats["p10"] + stats["p90"]) / 2
-        tone = int(max(0, min(255, round(mid * 255))))
-        _fill_rect(c, qx, qy, q, q, (tone, tone, tone))
-    except Exception:  # noqa: BLE001 - leave the art if sampling fails
-        pass
+    # Footer inside the plate: QR keep-clear bottom-left, logo beside it.
+    footer_top = top + text_h + gap
+    qx = left
+    qy = footer_top + max(0.0, (footer_h - qr) / 2)
+    # Leave the QR square as plain white plate (printer prints the code over it).
+    # A faint inset mark is unnecessary; just reserve the space — no grey mean-tone fill.
+    _draw_logo(c, LOGO_KEY, qx + qr + gap, footer_top + max(0.0, (footer_h - logo_h) / 2), logo_w)
+    # Record the reserved QR box so layout/QA can see it stays inside the plate.
+    ctx.layout_log.append(
+        {
+            "page": "back_cover_qr",
+            "kind": "qr_keep_clear",
+            "box_mm": [qx, qy, qr, qr],
+            "plate_mm": [plate_x, plate_y, plate_w, plate_h],
+            "corner": BACK_QR_SAFE_CORNER,
+        }
+    )
 
 
 def _draw_spine(ctx: _Ctx, c, x_mm: float, y_mm: float, w_mm: float, h_mm: float) -> None:
