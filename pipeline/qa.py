@@ -128,22 +128,26 @@ def cover_layout_issues(job_dir: Path) -> list[dict]:
     cover = read_json(Path(job_dir) / "cover" / "cover.json") or {}
     layout = cover.get("layout") or {}
     issues: list[dict] = []
-    if layout.get("title_overlap") or cover.get("status") == "cover_title_overlap":
-        issues.append(
-            _issue(
-                "cover_title_overlap",
-                "error",
-                "Front title would print over the child's face; stopped for the operator.",
-            )
-        )
     failures = list(layout.get("failures") or []) + list(layout.get("back_failures") or [])
-    if failures:
+    soft_plate = bool(layout.get("force_soft_plate"))
+    title_overlap = bool(layout.get("title_overlap") or cover.get("status") == "cover_title_overlap")
+    # Soft plate means the job continued for the human check — never a hard stop.
+    if soft_plate or title_overlap or failures:
+        parts = []
+        if soft_plate:
+            parts.append("soft title plate applied for the human check")
+        if title_overlap and not soft_plate:
+            parts.append("front title may print near the child's face")
+        if failures:
+            parts.append("; ".join(failures))
         issues.append(
             _issue(
                 "cover_layout_warning",
                 "warning",
-                "Cover art breaks the layout rules: " + "; ".join(failures),
+                "Cover art needs a human check: " + "; ".join(parts),
                 failures=failures,
+                force_soft_plate=soft_plate,
+                title_overlap=title_overlap,
             )
         )
     return issues

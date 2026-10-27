@@ -697,11 +697,12 @@ FRONT_LAYOUT_FIX = (
 
 
 class CoverTitleOverlapError(RuntimeError):
-    """Title box would print over the child's face even after shrink + regen — stop for the operator."""
+    """Deprecated: cover layout no longer stops the job; kept for import compatibility."""
 
 
-def _front_layout_check(client, path: Path) -> dict:
-    faces = qa.detect_faces(client, path)
+def _front_layout_check(client, path: Path, faces: list[dict] | None = None) -> dict:
+    if faces is None:
+        faces = qa.detect_faces(client, path)
     return imagecheck.check_front_cover_layout(path, faces)
 
 
@@ -721,11 +722,57 @@ def _title_face_overlap(path: Path, faces: list[dict] | None, title_height_frac:
     return imagecheck.rects_overlap(title_box, imagecheck.face_box_norm(main))
 
 
+def _try_reframe_and_soften_front(client, path: Path, check: dict) -> dict:
+    """Deterministic fix before calling the image model again.
+
+    If the face is too high by ≤ 15% of the height, shift the art down to ~40% head top,
+    soften the title / logo zones, and re-check. Returns the (possibly updated) layout check.
+    """
+    main = check.get("main_face")
+    faces = [main] if main else (qa.detect_faces(client, path) or [])
+    if main is None and faces:
+        main = max(faces, key=lambda f: float(f.get("w", 0)) * float(f.get("h", 0)))
+    if not main:
+        return check
+    reframe = imagecheck.reframe_cover_for_face(path, main)
+    if reframe.get("too_far"):
+        check = dict(check)
+        check["reframe"] = reframe
+        return check
+    if reframe.get("shifted"):
+        faces = [reframe["face"]]
+        imagecheck.soften_cover_layout_zones(path, top=True, logo=True)
+        check = _front_layout_check(client, path, faces=faces)
+        check["reframe"] = reframe
+        # Soften again if a zone is still flagged busy.
+        failures = " ".join(check.get("failures") or [])
+        if "top band/title zone" in failures or "logo zone" in failures:
+            imagecheck.soften_cover_layout_zones(
+                path,
+                top="top band/title zone" in failures,
+                logo="logo zone" in failures,
+            )
+            check = _front_layout_check(client, path, faces=faces)
+            check["reframe"] = reframe
+        return check
+    # Face not too high (or already in range): still soften busy zones when that is the only issue.
+    failures = " ".join(check.get("failures") or [])
+    if "top band/title zone" in failures or "logo zone" in failures:
+        imagecheck.soften_cover_layout_zones(
+            path,
+            top="top band/title zone" in failures,
+            logo="logo zone" in failures,
+        )
+        check = _front_layout_check(client, path, faces=faces or [main])
+        check["reframe"] = {"shifted": False, "softened_only": True}
+    return check
+
+
 def generate_cover_panels(client, job_dir: Path, inputs: dict, story: dict, character_path: Path):
     """Front and back cover art, text-free, character-locked. Typography is added in pdf_build.
 
-    Front: up to two layout regens with the empty-wall brief; never force a plate over a face —
-    shrink the title to the 44 pt floor, regen once more if needed, then ``cover_title_overlap``.
+    Front: try a deterministic reframe + zone soften first; only then one model regen. If layout
+    still fails, force the soft title plate and emit ``cover_layout_warning`` — never stop the job.
     Back: one layout regen, then ``cover_layout_warning``.
     """
     if not Path(character_path).is_file():
@@ -748,16 +795,20 @@ def generate_cover_panels(client, job_dir: Path, inputs: dict, story: dict, char
         data = _generate_cover_image(client, kind, prompt, ref_paths, path)
         if kind == "front":
             check = _front_layout_check(client, path)
-            layout["first_attempt"] = check["failures"]
+            layout["first_attempt"] = list(check["failures"])
             layout["regenerated"] = 0
-            for _regen in range(2):
-                if check["passed"]:
-                    break
+            layout["reframed"] = False
+            if not check["passed"]:
+                check = _try_reframe_and_soften_front(client, path, check)
+                layout["reframed"] = bool((check.get("reframe") or {}).get("shifted"))
+            if not check["passed"]:
                 append_event(
                     job_dir,
                     "cover_layout_retry",
-                    "Front cover layout check failed; regenerating: " + "; ".join(check["failures"]),
+                    "Front cover layout check failed; regenerating once: "
+                    + "; ".join(check["failures"]),
                     failures=check["failures"],
+                    main_face=check.get("main_face"),
                 )
                 front_prompt = _cover_prompt(
                     "front",
@@ -767,71 +818,49 @@ def generate_cover_panels(client, job_dir: Path, inputs: dict, story: dict, char
                 )
                 data = _generate_cover_image(client, kind, front_prompt, ref_paths, path)
                 check = _front_layout_check(client, path)
-                layout["regenerated"] += 1
-            faces = qa.detect_faces(client, path) or []
+                layout["regenerated"] = 1
+                if not check["passed"]:
+                    check = _try_reframe_and_soften_front(client, path, check)
+                    layout["reframed"] = layout["reframed"] or bool(
+                        (check.get("reframe") or {}).get("shifted")
+                    )
+            faces = (
+                [check["main_face"]]
+                if check.get("main_face")
+                else (qa.detect_faces(client, path) or [])
+            )
             overlap = _title_face_overlap(path, faces)
             title_shrunk = False
-            if overlap:
+            if overlap and check["passed"]:
+                # Title still hits the face: shrink to the 44 pt floor for composition.
                 title_shrunk = True
-                append_event(
-                    job_dir,
-                    "cover_title_shrink",
-                    "Front title would overlap the face; shrinking to the 44 pt floor and regenerating once.",
-                )
-                front_prompt = _cover_prompt(
-                    "front",
-                    inputs,
-                    story,
-                    fix_zones=[
-                        "the top 38% of the picture is empty wall, the head top starts below it",
-                        FRONT_LAYOUT_FIX,
-                    ],
-                )
-                data = _generate_cover_image(client, kind, front_prompt, ref_paths, path)
-                faces = qa.detect_faces(client, path) or []
-                check = _front_layout_check(client, path)
-                overlap = _title_face_overlap(path, faces)
-                layout["regenerated"] += 1
+            force_plate = (not check["passed"]) or overlap
+            if force_plate:
+                title_shrunk = True
             layout.update(
                 {
                     "failures": check["failures"],
                     "face_checked": check["face_checked"],
                     "main_face": check.get("main_face"),
                     "title_shrunk": title_shrunk,
-                    # Never force a plate over a face; plates only cover the text box + 6 mm.
-                    "force_soft_plate": False,
+                    "force_soft_plate": force_plate,
                     "title_overlap": overlap,
+                    "reframe": check.get("reframe"),
                 }
             )
-            if overlap:
-                layout["status"] = "cover_title_overlap"
-                write_json(
-                    cover_dir / "cover.json",
-                    {
-                        "title": story["title"],
-                        "front_prompt": front_prompt,
-                        "back_prompt": back_prompt,
-                        "front_art": "front_art.png",
-                        "back_art": "back_art.png",
-                        "layout": layout,
-                        "status": "cover_title_overlap",
-                    },
-                )
-                append_event(
-                    job_dir,
-                    "cover_title_overlap",
-                    "Front title still overlaps the child's face after shrink + regen; stopped for the operator.",
-                )
-                raise CoverTitleOverlapError(
-                    "Front cover title would print over the child's face. Regenerate the cover art."
-                )
-            if check["failures"]:
+            if force_plate:
                 append_event(
                     job_dir,
                     "cover_layout_warning",
-                    "Front cover still breaks the layout rules after retries (no plate over face): "
-                    + "; ".join(check["failures"]),
+                    (
+                        "Front cover layout still fails after reframe"
+                        + (" + one regen" if layout["regenerated"] else "")
+                        + "; using the soft title plate for the human check: "
+                        + ("; ".join(check["failures"]) if check["failures"] else "title overlaps face")
+                    ),
                     failures=check["failures"],
+                    main_face=check.get("main_face"),
+                    title_overlap=overlap,
                 )
         else:
             check = _back_layout_check(client, path)

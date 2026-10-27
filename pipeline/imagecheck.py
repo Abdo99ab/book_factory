@@ -23,6 +23,9 @@ TOP_ZONE = (0.0, 0.0, 1.0, 0.35)  # plain wall for band + title (top 35 %)
 LOGO_ZONE = (0.30, 0.82, 0.70, 1.0)  # bottom 18 %, centre 40 % — plain floor
 FACE_Y_RANGE = (0.38, 0.72)
 FACE_X_RANGE = (0.25, 0.75)
+# Deterministic cover reframe: nudge a slightly-high face down so the head top sits here.
+TARGET_HEAD_TOP = 0.40
+MAX_REFRAME_SHIFT = 0.15  # if the face is higher than this delta, fall back to a model regen
 # Back cover: figures only in the lower third; keep 20 mm clear of the trim bottom on a 216 mm panel.
 BACK_FIGURE_Y_MIN = 1.0 / 3.0
 BACK_BOTTOM_CLEAR_FRAC = 20.0 / 216.0  # ≈ 0.093 of the square art height
@@ -225,6 +228,122 @@ def _face_in_range(face: dict) -> bool:
         and FACE_X_RANGE[0] <= x
         and x + w <= FACE_X_RANGE[1]
     )
+
+
+def _mean_rgb(pixels) -> tuple[int, int, int]:
+    n = len(pixels) or 1
+    r = sum(p[0] for p in pixels) // n
+    g = sum(p[1] for p in pixels) // n
+    b = sum(p[2] for p in pixels) // n
+    return (r, g, b)
+
+
+def reframe_cover_for_face(
+    art_path: Path | str,
+    face: dict,
+    *,
+    target_y: float = TARGET_HEAD_TOP,
+    max_shift: float = MAX_REFRAME_SHIFT,
+) -> dict:
+    """Shift cover art down so the face top lands near ``target_y``.
+
+    Extends the top with a plain band sampled from the top-edge colour (soft vertical blend)
+    and crops the same amount from the bottom. Only applies when the face is too high by at
+    most ``max_shift`` of the height. Returns
+    ``{shifted, too_far, shift_frac, face}`` — ``face`` is the adjusted box when shifted.
+    """
+    y = float(face.get("y", 0))
+    delta = target_y - y
+    if delta <= 0.005:
+        return {"shifted": False, "too_far": False, "shift_frac": 0.0, "face": face}
+    if delta > max_shift:
+        return {"shifted": False, "too_far": True, "shift_frac": delta, "face": face}
+
+    path = Path(art_path)
+    with Image.open(path) as source:
+        rgb = source.convert("RGB")
+        width, height = rgb.size
+        shift_px = max(1, int(round(delta * height)))
+        if shift_px >= height:
+            return {"shifted": False, "too_far": True, "shift_frac": delta, "face": face}
+        edge = rgb.crop((0, 0, width, max(1, min(8, height // 40))))
+        fill = _mean_rgb(list(edge.getdata()))
+        out = Image.new("RGB", (width, height), fill)
+        kept = rgb.crop((0, 0, width, height - shift_px))
+        out.paste(kept, (0, shift_px))
+        # Soft seam: blend the first rows of the shifted content into the fill band.
+        blend = max(4, min(shift_px, height // 40))
+        for row in range(blend):
+            t = (row + 1) / (blend + 1)
+            y_out = shift_px + row
+            if y_out >= height:
+                break
+            for x in range(width):
+                pixel = kept.getpixel((x, row))
+                out.putpixel(
+                    (x, y_out),
+                    (
+                        int(fill[0] * (1 - t) + pixel[0] * t),
+                        int(fill[1] * (1 - t) + pixel[1] * t),
+                        int(fill[2] * (1 - t) + pixel[2] * t),
+                    ),
+                )
+        out.save(path, format="PNG")
+
+    new_face = {
+        "x": float(face.get("x", 0)),
+        "y": y + delta,
+        "w": float(face.get("w", 0)),
+        "h": float(face.get("h", 0)),
+    }
+    return {"shifted": True, "too_far": False, "shift_frac": delta, "face": new_face}
+
+
+def soften_cover_zone(art_path: Path | str, zone: tuple[float, float, float, float]) -> None:
+    """Flatten a fractional zone toward a sampled background colour with a soft inner edge."""
+    path = Path(art_path)
+    with Image.open(path) as source:
+        rgb = source.convert("RGB")
+        width, height = rgb.size
+        x0 = max(0, int(zone[0] * width))
+        y0 = max(0, int(zone[1] * height))
+        x1 = min(width, max(x0 + 1, int(zone[2] * width + 0.999)))
+        y1 = min(height, max(y0 + 1, int(zone[3] * height + 0.999)))
+        # Sample fill from the outer strip of the zone (toward the image edge).
+        if zone[1] <= 0.01:  # top zone — sample the very top rows
+            sample = rgb.crop((x0, y0, x1, min(y1, y0 + max(2, (y1 - y0) // 8))))
+        else:  # bottom / logo — sample the very bottom rows
+            sample = rgb.crop((x0, max(y0, y1 - max(2, (y1 - y0) // 8)), x1, y1))
+        fill = _mean_rgb(list(sample.getdata()))
+        zone_h = max(1, y1 - y0)
+        feather = max(4, zone_h // 5)
+        pixels = rgb.load()
+        for y in range(y0, y1):
+            if zone[1] <= 0.01:
+                # Full strength near the top edge; ease off toward the bottom of the zone.
+                dist_from_inner = y1 - 1 - y
+            else:
+                dist_from_inner = y - y0
+            if dist_from_inner >= feather:
+                strength = 0.92
+            else:
+                strength = 0.92 * (dist_from_inner / feather)
+            for x in range(x0, x1):
+                r, g, b = pixels[x, y][:3]
+                pixels[x, y] = (
+                    int(r * (1 - strength) + fill[0] * strength),
+                    int(g * (1 - strength) + fill[1] * strength),
+                    int(b * (1 - strength) + fill[2] * strength),
+                )
+        rgb.save(path, format="PNG")
+
+
+def soften_cover_layout_zones(art_path: Path | str, *, top: bool = True, logo: bool = True) -> None:
+    """Flatten the title / logo keep-clear zones so the busy-zone check can pass after a reframe."""
+    if top:
+        soften_cover_zone(art_path, TOP_ZONE)
+    if logo:
+        soften_cover_zone(art_path, LOGO_ZONE)
 
 
 def check_front_cover_layout(art_path: Path | str, faces: list[dict] | None) -> dict:

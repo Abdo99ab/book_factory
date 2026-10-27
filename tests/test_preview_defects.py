@@ -254,6 +254,21 @@ def test_layout_check_rules(tmp_path):
     assert any("logo zone" in f for f in failures)
 
 
+def test_reframe_cover_shifts_slightly_high_face_and_rejects_too_far(tmp_path):
+    art = tmp_path / "cover.png"
+    _write_plain(art)
+    slight = {"x": 0.38, "y": 0.31, "w": 0.24, "h": 0.20}
+    shifted = imagecheck.reframe_cover_for_face(art, slight)
+    assert shifted["shifted"] is True and shifted["too_far"] is False
+    assert abs(shifted["face"]["y"] - imagecheck.TARGET_HEAD_TOP) < 0.02
+    assert imagecheck.check_front_cover_layout(art, [shifted["face"]])["passed"]
+
+    far = tmp_path / "far.png"
+    _write_plain(far)
+    result = imagecheck.reframe_cover_for_face(far, {"x": 0.38, "y": 0.10, "w": 0.24, "h": 0.20})
+    assert result["shifted"] is False and result["too_far"] is True
+
+
 class PlainCoverImageEdit:
     def __init__(self, colour=(240, 230, 210)):
         self.calls: list[dict] = []
@@ -281,32 +296,69 @@ def _front_calls(fake):
     return [c for c in fake.calls if c["description"].startswith("Front")]
 
 
-def test_face_in_top_third_regenerates_up_to_twice_without_forcing_plate_over_face(cover_job, monkeypatch):
-    seen_faces = []
+def _cover_face_detector(front_face: dict):
+    """Return ``front_face`` on front art; a lower-third face on back so back layout stays quiet."""
+    back_face = {"x": 0.40, "y": 0.55, "w": 0.20, "h": 0.18}
 
     def detector(client, path):
-        face = [{"x": 0.38, "y": 0.05, "w": 0.24, "h": 0.22}]
-        seen_faces.append(face)
-        return face
+        name = Path(path).name.lower()
+        if "back" in name:
+            return [dict(back_face)]
+        return [dict(front_face)]
 
-    monkeypatch.setattr(qa, "detect_faces", detector)
-    # Top-of-frame face also triggers title-overlap shrink+regen; allow CoverTitleOverlapError.
-    try:
-        illustrate.generate_cover_panels(
-            MagicMock(), cover_job.job, cover_job.inputs, cover_job.story, cover_job.character
-        )
-    except illustrate.CoverTitleOverlapError:
-        pass
+    return detector
+
+
+def test_face_slightly_high_is_reframed_without_regen(cover_job, monkeypatch):
+    """Face at y≈0.31 (≤15% above target) → deterministic shift to ~0.40; no new image call."""
+    monkeypatch.setattr(
+        qa, "detect_faces", _cover_face_detector({"x": 0.38, "y": 0.31, "w": 0.24, "h": 0.20})
+    )
+    illustrate.generate_cover_panels(
+        MagicMock(), cover_job.job, cover_job.inputs, cover_job.story, cover_job.character
+    )
+    assert len(_front_calls(cover_job.fake)) == 1  # no model regen
+    cover = read_json(cover_job.job / "cover" / "cover.json")
+    layout = cover["layout"]
+    assert layout.get("reframed") is True
+    assert layout.get("regenerated") == 0
+    assert layout.get("force_soft_plate") is False
+    assert layout.get("failures") == []
+    main = layout.get("main_face") or {}
+    assert abs(float(main.get("y", 0)) - imagecheck.TARGET_HEAD_TOP) < 0.02
+    types = [e["type"] for e in read_events(cover_job.job)]
+    assert "cover_layout_retry" not in types
+    assert "cover_layout_warning" not in types
+
+
+def test_face_far_too_high_regens_then_soft_plate_continues(cover_job, monkeypatch):
+    """Face at y=0.10 (>15% off) → one regen; still failing → soft plate + warning, job continues."""
+    monkeypatch.setattr(
+        qa, "detect_faces", _cover_face_detector({"x": 0.38, "y": 0.10, "w": 0.24, "h": 0.20})
+    )
+    illustrate.generate_cover_panels(
+        MagicMock(), cover_job.job, cover_job.inputs, cover_job.story, cover_job.character
+    )
     front = _front_calls(cover_job.fake)
-    assert len(front) >= 2  # at least one layout regen
+    assert len(front) == 2  # initial + one regen only
     assert any("RETRY" in c["prompt"] or "empty plain wall" in c["prompt"] for c in front[1:])
+    cover = read_json(cover_job.job / "cover" / "cover.json")
+    layout = cover["layout"]
+    assert layout.get("force_soft_plate") is True
+    assert layout.get("regenerated") == 1
+    assert (cover_job.job / "cover" / "front_art.png").is_file()
     events = read_events(cover_job.job)
     types = [e["type"] for e in events]
     assert "cover_layout_retry" in types
-    cover = read_json(cover_job.job / "cover" / "cover.json") or {}
-    layout = cover.get("layout") or {}
-    assert layout.get("force_soft_plate") is False  # never plate over a face
-    assert (cover_job.job / "cover" / "front_art.png").is_file()
+    assert "cover_layout_warning" in types
+    assert "cover_title_overlap" not in types
+    retry = next(e for e in events if e["type"] == "cover_layout_retry")
+    assert retry.get("main_face") is not None
+    assert float(retry["main_face"]["y"]) == pytest.approx(0.10, abs=0.001)
+    assert pdf_build._cover_forces_plate(cover_job.job)
+    issues = qa.cover_layout_issues(cover_job.job)
+    assert issues and issues[0]["code"] == "cover_layout_warning"
+    assert issues[0]["severity"] == "warning"
 
 
 def test_plain_top_and_centred_face_gives_no_warning_and_a_composed_preview(cover_job, monkeypatch):
