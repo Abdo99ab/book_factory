@@ -105,7 +105,7 @@ UK_SPELLING = {
     "flashlight": "torch",
     "preschool": "nursery",
     "kindergarten": "reception",
-    "pants": "trousers",  # US pants → UK trousers (underwear = pants in UK — context!)
+    # Do NOT map pants→trousers: Raised Ready UK uses "pants" for underwear (spec §5).
     "practice": "practise",  # verb; noun stays practice — guard uses word lists carefully
 }
 
