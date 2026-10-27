@@ -1,58 +1,161 @@
-<!doctype html>
-<html lang="en-GB">
-<head>
-  <meta charset="utf-8">
-  <title>Raised Ready — New book</title>
-  <style>
-    body { font-family: Georgia, serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; color: #22324A; background: #FAF6EF; }
-    label { display: block; margin-top: 0.9rem; font-weight: 600; }
-    input, select, textarea { width: 100%; padding: 0.5rem; margin-top: 0.25rem; box-sizing: border-box; }
-    button { margin-top: 1.5rem; background: #22324A; color: #F3EBDD; border: 0; padding: 0.75rem 1.25rem; cursor: pointer; }
-    .flash { padding: 0.75rem; background: #F3EBDD; margin-bottom: 1rem; }
-    .err { background: #f8d7da; }
-  </style>
-</head>
-<body>
-  <h1>New book</h1>
-  <p><a href="{{ url_for('list_jobs') }}">Jobs</a></p>
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% for cat, msg in messages %}<div class="flash {% if cat == 'error' %}err{% endif %}">{{ msg }}</div>{% endfor %}
-  {% endwith %}
-  <form method="post" action="{{ url_for('create_job') }}" enctype="multipart/form-data">
-    <label>Title
-      <select name="title_id" required>
-        {% for t in titles %}
-        <option value="{{ t.title_id }}">{{ t.band }} — {{ t.title_template }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>Child name <input name="name" required></label>
-    <label>Age <input name="age" required></label>
-    <label>Pronouns
-      <select name="pronouns" required>
-        <option value="she">she</option>
-        <option value="he">he</option>
-        <option value="they">they</option>
-      </select>
-    </label>
-    <label>Carer name <input name="carer_name" required></label>
-    <label>Carer role <input name="carer_role" required placeholder="Mum / Dad / Nana…"></label>
-    <label>Home type
-      <select name="home_type">
-        <option value="house">house</option>
-        <option value="flat">flat</option>
-      </select>
-    </label>
-    <label>Comfort object <input name="comfort_object" required></label>
-    <label>Order ID <input name="order_id" required pattern="[A-Za-z0-9-]+"></label>
-    <label>Dedication (optional) <textarea name="dedication_text" rows="2"></textarea></label>
-    <label>Child photo <input type="file" name="reference_image" accept="image/*" required></label>
-    <p style="font-size:0.9rem;opacity:0.8">Extra slots (if the title needs them) can be typed below after choosing a title that lists them on the catalogue — for now use optional free fields:</p>
-    <label>Slot: school_name <input name="slot_school_name"></label>
-    <label>Slot: sibling_friend <input name="slot_sibling_friend"></label>
-    <label>Slot: potty_or_seat <input name="slot_potty_or_seat" placeholder="potty / toilet seat"></label>
-    <label>Slot: underwear <input name="slot_underwear"></label>
-    <button type="submit">Create — generate manuscript + character</button>
+{% extends "base.html" %}
+{% block title %}New book · Raised Ready{% endblock %}
+{% block content %}
+  <section class="form-header">
+    <p class="eyebrow">New job</p>
+    <h1>Build a Raised Ready book</h1>
+    <p class="lede">Catalogue title, child details, order ID and one photo. Fields marked <span class="req">*</span> are required.</p>
+  </section>
+
+  <form class="panel" method="post" action="{{ url_for('create_job') }}" enctype="multipart/form-data" id="create-form">
+    <div class="form-grid">
+      <label class="wide">Title <span class="req">*</span>
+        <select name="title_id" id="title_id" required>
+          <option value="">Choose a title</option>
+          {% for t in titles %}
+          <option value="{{ t.title_id }}"
+                  data-family="{{ t.family }}"
+                  data-band="{{ t.band }}"
+                  data-age="{{ t.age_band }}"
+                  data-slots='{{ t.personalisation_slots | tojson }}'>
+            {{ t.title_template.replace('{name}', '…') }} — {{ t.band }} · ages {{ t.age_band }}
+          </option>
+          {% endfor %}
+        </select>
+        <small id="title-meta"></small>
+      </label>
+
+      <label>Child name <span class="req">*</span>
+        <input name="name" required autocomplete="off" placeholder="e.g. Emma">
+      </label>
+      <label>Age (years) <span class="req">*</span>
+        <input name="age" required type="number" min="1" max="14" placeholder="3">
+        <small id="age-warning" class="hint"></small>
+      </label>
+      <label>Pronouns <span class="req">*</span>
+        <select name="pronouns" required>
+          <option value="">Choose</option>
+          <option value="she">She / her</option>
+          <option value="he">He / him</option>
+          <option value="they">They / them</option>
+        </select>
+      </label>
+      <label>Carer name <span class="req">*</span>
+        <input name="carer_name" required placeholder="e.g. Sam">
+      </label>
+      <label>Carer role <span class="req">*</span>
+        <input name="carer_role" required placeholder="Mum / Dad / Nana / Grandad…">
+      </label>
+      <label>Home type <span class="req">*</span>
+        <select name="home_type" required>
+          <option value="house">House</option>
+          <option value="flat">Flat</option>
+        </select>
+      </label>
+      <label>Comfort object <span class="req">*</span>
+        <input name="comfort_object" required placeholder="e.g. blue bunny">
+      </label>
+      <label>Order ID <span class="req">*</span>
+        <input name="order_id" required pattern="[A-Za-z0-9-]+" placeholder="RR-1001">
+        <small>Letters, numbers and hyphens — used in the print filename.</small>
+      </label>
+
+      <label class="wide">Dedication
+        <textarea name="dedication_text" rows="2" placeholder="For Emma, from Nana — with all our love"></textarea>
+        <small>Optional. Printed as typed on page 32.</small>
+      </label>
+
+      <fieldset class="wide" id="slots-fieldset" hidden>
+        <legend>Title personalisation</legend>
+        <div id="slots-container" class="form-grid"></div>
+      </fieldset>
+
+      <label class="wide">Child photo <span class="req">*</span>
+        <input name="reference_image" type="file" accept="image/png,image/jpeg,image/webp" required>
+        <small>One clear face photo. Used only to make this book.</small>
+      </label>
+    </div>
+
+    <div class="actions" style="margin-top:1.5rem">
+      <button class="button accent" type="submit">Start — manuscript &amp; character</button>
+      <a class="button secondary" href="{{ url_for('list_jobs') }}">Cancel</a>
+    </div>
   </form>
-</body>
-</html>
+
+  <script>
+    const titleSelect = document.getElementById('title_id');
+    const slotsBox = document.getElementById('slots-container');
+    const slotsFieldset = document.getElementById('slots-fieldset');
+    const titleMeta = document.getElementById('title-meta');
+    const ageInput = document.querySelector('input[name="age"]');
+    const ageWarning = document.getElementById('age-warning');
+
+    function parseAgeBand(band) {
+      const m = String(band || '').match(/(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)/);
+      if (!m) return null;
+      return { lo: parseFloat(m[1]), hi: parseFloat(m[2]) };
+    }
+
+    function renderSlots() {
+      const opt = titleSelect.selectedOptions[0];
+      slotsBox.innerHTML = '';
+      if (!opt || !opt.value) {
+        slotsFieldset.hidden = true;
+        titleMeta.textContent = '';
+        return;
+      }
+      titleMeta.textContent = `${opt.dataset.band} · ${opt.dataset.family.replaceAll('_', ' ')} · ages ${opt.dataset.age}`;
+      let slots = [];
+      try { slots = JSON.parse(opt.dataset.slots || '[]'); } catch (e) { slots = []; }
+      if (!slots.length) {
+        slotsFieldset.hidden = true;
+        return;
+      }
+      slotsFieldset.hidden = false;
+      slots.forEach((slot) => {
+        const label = document.createElement('label');
+        label.className = slot.type === 'select' ? '' : '';
+        const star = slot.required ? ' <span class="req">*</span>' : '';
+        label.innerHTML = `${slot.label || slot.id}${star}`;
+        let field;
+        if (slot.type === 'select' && Array.isArray(slot.options)) {
+          field = document.createElement('select');
+          field.name = `slot_${slot.id}`;
+          const blank = document.createElement('option');
+          blank.value = '';
+          blank.textContent = 'Choose';
+          field.appendChild(blank);
+          slot.options.forEach((o) => {
+            const op = document.createElement('option');
+            op.value = o;
+            op.textContent = o;
+            field.appendChild(op);
+          });
+        } else {
+          field = document.createElement('input');
+          field.type = 'text';
+          field.name = `slot_${slot.id}`;
+        }
+        if (slot.required) field.required = true;
+        label.appendChild(field);
+        slotsBox.appendChild(label);
+      });
+      checkAge();
+    }
+
+    function checkAge() {
+      const opt = titleSelect.selectedOptions[0];
+      ageWarning.textContent = '';
+      if (!opt || !opt.value || !ageInput.value) return;
+      const band = parseAgeBand(opt.dataset.age);
+      const age = parseFloat(ageInput.value);
+      if (band && !Number.isNaN(age) && (age < band.lo || age > band.hi)) {
+        ageWarning.textContent = `This title is aimed at ages ${opt.dataset.age}. You can still continue.`;
+      }
+    }
+
+    titleSelect.addEventListener('change', renderSlots);
+    ageInput.addEventListener('input', checkAge);
+    renderSlots();
+  </script>
+{% endblock %}

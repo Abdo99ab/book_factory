@@ -1,101 +1,164 @@
-<!doctype html>
-<html lang="en-GB">
-<head>
-  <meta charset="utf-8">
-  <title>{{ job.book_title or 'Job' }}</title>
-  <meta http-equiv="refresh" content="12">
-  <style>
-    body { font-family: Georgia, serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #22324A; background: #FAF6EF; }
-    .row { display: flex; gap: 1rem; flex-wrap: wrap; }
-    .card { background: #fff; padding: 1rem; margin: 1rem 0; border: 1px solid #E8DFD0; flex: 1 1 280px; }
-    img { max-width: 100%; height: auto; }
-    button, .btn { background: #22324A; color: #F3EBDD; border: 0; padding: 0.5rem 1rem; cursor: pointer; text-decoration: none; display: inline-block; }
-    textarea, input[type=text] { width: 100%; box-sizing: border-box; }
-    .flash { padding: 0.75rem; background: #F3EBDD; margin-bottom: 1rem; }
-    .err { color: #A9502F; }
-    code { font-size: 0.85rem; }
-    .events { max-height: 220px; overflow: auto; font-size: 0.85rem; }
-  </style>
-</head>
-<body>
-  <p><a href="{{ url_for('list_jobs') }}">Jobs</a> · <a href="{{ url_for('create_form') }}">New</a></p>
-  <h1>{{ job.book_title or job.name }}</h1>
-  <p>Status: <strong>{{ job.status }}</strong>
-    {% if job.error %}<span class="err"> — {{ job.error }}</span>{% endif %}
-  </p>
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% for cat, msg in messages %}<div class="flash">{{ msg }}</div>{% endfor %}
-  {% endwith %}
+{% extends "base.html" %}
+{% block title %}{{ job.book_title or job.name }} · Raised Ready{% endblock %}
+{% block content %}
+  {% set busy = job.status in ['queued', 'generating_content', 'generating_character', 'generating_preview', 'building', 'building_pdf', 'editing'] %}
 
-  <div class="row">
-    <form method="post" action="{{ url_for('start_preview', job_id=job.job_id) }}">
-      <button type="submit">Preview (front + spreads 1–2)</button>
-    </form>
-    <form method="post" action="{{ url_for('start_build', job_id=job.job_id) }}">
-      <button type="submit">Build full book</button>
-    </form>
-    {% if job.pdf %}
-    <a class="btn" href="{{ url_for('job_file', job_id=job.job_id, rel=job.pdf) }}">Download PDF</a>
-    {% endif %}
+  <div class="job-hero">
+    <div>
+      <p class="eyebrow">{{ job.order_id or job.job_id[:8] }}</p>
+      <h1>{{ job.book_title or inputs.name }}</h1>
+      <p class="meta">
+        {% if title_meta %}{{ title_meta.band }} · ages {{ title_meta.age_band }}{% endif %}
+        · {{ inputs.name }}, {{ inputs.age }}
+        {% if inputs.carer %} · {{ inputs.carer.name }}{% endif %}
+      </p>
+      <p style="margin:0.75rem 0 0">
+        <span class="status-pill {{ 'busy' if busy else job.status }}">{{ job.status }}</span>
+      </p>
+    </div>
+    <div class="actions">
+      <form method="post" action="{{ url_for('start_preview', job_id=job.job_id) }}"
+            onsubmit="this.querySelector('button').disabled=true">
+        <button class="button accent" type="submit" {% if busy %}disabled{% endif %}>
+          Preview · cover + 2 spreads
+        </button>
+      </form>
+      <form method="post" action="{{ url_for('start_build', job_id=job.job_id) }}"
+            onsubmit="this.querySelector('button').disabled=true">
+        <button class="button" type="submit" {% if busy %}disabled{% endif %}>
+          Build full book
+        </button>
+      </form>
+      {% if job.pdf %}
+      <a class="button secondary" href="{{ url_for('job_file', job_id=job.job_id, rel=job.pdf) }}">Download PDF</a>
+      {% endif %}
+      <a class="button secondary" href="{{ url_for('list_jobs') }}">All jobs</a>
+    </div>
   </div>
 
-  <div class="row">
-    <div class="card">
-      <h3>Front cover</h3>
-      {% if front_preview %}
-      <img src="{{ url_for('job_file', job_id=job.job_id, rel='cover/front_preview.png') }}" alt="Front preview">
-      {% elif has_front %}
-      <img src="{{ url_for('job_file', job_id=job.job_id, rel='cover/front_art.png') }}" alt="Front art">
-      {% else %}<p>Not generated yet.</p>{% endif %}
+  {% if job.error %}
+  <div class="err-banner">
+    <strong>Failed</strong> — {{ job.error }}
+    <div class="hint" style="margin-top:0.35rem">Fix the cause, then run Preview again (missing character sheets are regenerated automatically).</div>
+  </div>
+  {% endif %}
+
+  {% if has_character %}
+  <section class="panel">
+    <p class="eyebrow">Reference</p>
+    <h2>Character sheet</h2>
+    <div class="media-frame" style="max-width:280px">
+      <img src="{{ url_for('job_file', job_id=job.job_id, rel='character/character.png') }}" alt="Character sheet">
+    </div>
+  </section>
+  {% endif %}
+
+  <div class="cover-grid">
+    <section class="panel">
+      <p class="eyebrow">Cover</p>
+      <h2>Front</h2>
+      <div class="media-frame">
+        {% if front_preview %}
+        <img src="{{ url_for('job_file', job_id=job.job_id, rel='cover/front_preview.png') }}" alt="Front cover">
+        {% elif has_front %}
+        <img src="{{ url_for('job_file', job_id=job.job_id, rel='cover/front_art.png') }}" alt="Front art">
+        {% else %}
+        <p class="placeholder">Not generated yet</p>
+        {% endif %}
+      </div>
       <form method="post" action="{{ url_for('edit_cover', job_id=job.job_id, kind='front') }}">
-        <label>Edit front art<textarea name="instruction" rows="2" placeholder="e.g. more empty wall above the head"></textarea></label>
-        <button type="submit">Apply front edit</button>
+        <label>Edit front art
+          <textarea name="instruction" rows="2" placeholder="e.g. more empty wall above the head"></textarea>
+        </label>
+        <div class="actions" style="margin-top:0.75rem">
+          <button class="button secondary" type="submit" {% if busy or not has_front %}disabled{% endif %}>Apply front edit</button>
+        </div>
       </form>
-    </div>
-    <div class="card">
-      <h3>Back cover</h3>
-      {% if has_back %}
-      <img src="{{ url_for('job_file', job_id=job.job_id, rel='cover/back_art.png') }}" alt="Back art">
-      {% else %}<p>Generated on full Build.</p>{% endif %}
+    </section>
+
+    <section class="panel">
+      <p class="eyebrow">Cover</p>
+      <h2>Back</h2>
+      <div class="media-frame">
+        {% if has_back %}
+        <img src="{{ url_for('job_file', job_id=job.job_id, rel='cover/back_art.png') }}" alt="Back art">
+        {% else %}
+        <p class="placeholder">Created on full Build</p>
+        {% endif %}
+      </div>
       <form method="post" action="{{ url_for('edit_cover', job_id=job.job_id, kind='back') }}">
-        <label>Edit back art<textarea name="instruction" rows="2"></textarea></label>
-        <button type="submit">Apply back edit</button>
+        <label>Edit back art
+          <textarea name="instruction" rows="2" placeholder="e.g. calmer bottom band for the text plate"></textarea>
+        </label>
+        <div class="actions" style="margin-top:0.75rem">
+          <button class="button secondary" type="submit" {% if busy or not has_back %}disabled{% endif %}>Apply back edit</button>
+        </div>
       </form>
-    </div>
+    </section>
   </div>
 
-  <h2>Spreads</h2>
-  {% for s in spreads %}
-  <div class="card">
-    <h3>Spread {{ s.n }} {% if s.calm_zone %}(calm {{ s.calm_zone }}){% endif %}</h3>
-    {% if s.has_art %}
-    <img src="{{ url_for('job_file', job_id=job.job_id, rel=s.art_rel) }}" alt="Spread {{ s.n }}">
-    {% else %}<p>Art not generated yet.</p>{% endif %}
-    <form method="post" action="{{ url_for('edit_spread', job_id=job.job_id, n=s.n) }}">
-      <label>Text (calm half overlay)
-        <textarea name="text" rows="3">{{ s.text or '' }}</textarea>
-      </label>
-      <button type="submit" name="save_text" value="1">Save text</button>
-      <label>Art edit instruction
-        <textarea name="instruction" rows="2" placeholder="e.g. clearer empty left half"></textarea>
-      </label>
-      <button type="submit">Regenerate this spread’s art</button>
-    </form>
-  </div>
-  {% endfor %}
+  <section class="panel">
+    <p class="eyebrow">Interior</p>
+    <h2>Spreads</h2>
+    <p class="meta">Calm half alternates left / right. Edit text without regenerating art, or regenerate one spread’s picture.</p>
+  </section>
 
-  <h2>Manuscript</h2>
-  <div class="card">
-    <p><strong>{{ story.title }}</strong></p>
-    <p>{{ story.back_question }}</p>
-    <p>{{ story.back_blurb }}</p>
-  </div>
-
-  <h2>Events</h2>
-  <div class="card events">
-    {% for e in events|reverse %}
-    <div><code>{{ e.type }}</code> — {{ e.message }}</div>
+  <div class="spread-list">
+    {% for s in spreads %}
+    <section class="panel spread-card" id="spread-{{ s.n }}">
+      <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;align-items:baseline">
+        <h3>Spread {{ s.n }}</h3>
+        {% if s.calm_zone %}<span class="status-pill">calm {{ s.calm_zone }}</span>{% endif %}
+      </div>
+      <div class="media-frame wide">
+        {% if s.has_art %}
+        <img src="{{ url_for('job_file', job_id=job.job_id, rel=s.art_rel) }}" alt="Spread {{ s.n }}">
+        {% else %}
+        <p class="placeholder">Art not generated yet</p>
+        {% endif %}
+      </div>
+      <div class="spread-tools">
+        <form method="post" action="{{ url_for('edit_spread', job_id=job.job_id, n=s.n) }}">
+          <label>Text (calm-half overlay)
+            <textarea name="text" rows="3">{{ s.text or '' }}</textarea>
+          </label>
+          <div class="row-actions" style="margin-top:0.65rem">
+            <button class="button secondary" type="submit" name="save_text" value="1">Save text</button>
+          </div>
+          <label style="margin-top:0.85rem">Art edit instruction
+            <textarea name="instruction" rows="2" placeholder="e.g. clearer empty left half, no objects in the calm zone"></textarea>
+          </label>
+          <div class="row-actions" style="margin-top:0.65rem">
+            <button class="button" type="submit" {% if busy %}disabled{% endif %}>Regenerate this spread’s art</button>
+          </div>
+        </form>
+      </div>
+    </section>
     {% endfor %}
   </div>
-</body>
-</html>
+
+  {% if story.title %}
+  <section class="panel">
+    <p class="eyebrow">Manuscript</p>
+    <h2>{{ story.title }}</h2>
+    <p class="meta">{{ story.back_question }}</p>
+    <p>{{ story.back_blurb }}</p>
+  </section>
+  {% endif %}
+
+  <section class="panel">
+    <p class="eyebrow">Log</p>
+    <h2>Events</h2>
+    <div class="events">
+      {% for e in events|reverse %}
+      <div><span class="type">{{ e.type }}</span> — {{ e.message }}</div>
+      {% else %}
+      <div>No events yet.</div>
+      {% endfor %}
+    </div>
+  </section>
+
+  {% if busy %}
+  <script>setTimeout(function () { location.reload(); }, 8000);</script>
+  {% endif %}
+{% endblock %}

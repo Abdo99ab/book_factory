@@ -161,6 +161,12 @@ def create_app() -> Flask:
                     "text": (next((s for s in story.get("spreads") or [] if int(s["n"]) == n), {}) or {}).get("text"),
                 }
             )
+        title_meta = None
+        try:
+            if inputs.get("title_id"):
+                title_meta = get_title(inputs["title_id"])
+        except Exception:
+            title_meta = None
         return render_template(
             "job.html",
             job=job,
@@ -168,6 +174,8 @@ def create_app() -> Flask:
             story=story,
             events=events,
             spreads=spreads,
+            title_meta=title_meta,
+            has_character=(job_dir / "character" / "character.png").is_file(),
             has_front=(job_dir / "cover" / "front_art.png").is_file(),
             has_back=(job_dir / "cover" / "back_art.png").is_file(),
             front_preview=(job_dir / "cover" / "front_preview.png").is_file(),

@@ -1,26 +1,30 @@
-<!doctype html>
-<html lang="en-GB">
-<head>
-  <meta charset="utf-8">
-  <title>Jobs</title>
-  <style>
-    body { font-family: Georgia, serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; color: #22324A; background: #FAF6EF; }
-    a { color: #A9502F; }
-    li { margin: 0.5rem 0; }
-  </style>
-</head>
-<body>
-  <h1>Jobs</h1>
-  <p><a href="{{ url_for('create_form') }}">New book</a></p>
-  <ul>
+{% extends "base.html" %}
+{% block title %}Jobs · Raised Ready{% endblock %}
+{% block content %}
+  <div class="job-hero">
+    <div>
+      <p class="eyebrow">Queue</p>
+      <h1>Jobs</h1>
+      <p class="lede">Open a job to preview, build or edit spreads.</p>
+    </div>
+    <div class="actions">
+      <a class="button accent" href="{{ url_for('create_form') }}">New book</a>
+    </div>
+  </div>
+
+  <ul class="job-list">
     {% for j in jobs %}
     <li>
-      <a href="{{ url_for('job_page', job_id=j.job_id) }}">{{ j.book_title or j.name }}</a>
-      — {{ j.status }} {% if j.order_id %}({{ j.order_id }}){% endif %}
+      <a href="{{ url_for('job_page', job_id=j.job_id) }}">
+        <span>
+          <strong>{{ j.book_title or j.name }}</strong><br>
+          <span class="meta">{{ j.order_id or '—' }} · {{ j.title_id or '' }}</span>
+        </span>
+        <span class="status-pill {{ j.status }}">{{ j.status }}</span>
+      </a>
     </li>
     {% else %}
-    <li>No jobs yet.</li>
+    <li class="panel"><p class="meta">No jobs yet. <a href="{{ url_for('create_form') }}">Create one</a>.</p></li>
     {% endfor %}
   </ul>
-</body>
-</html>
+{% endblock %}
