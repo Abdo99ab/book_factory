@@ -20,9 +20,12 @@ from .pages import compile_pages, set_spread_text, spread_text
 from .text_guards import (
     SOFT_GUARD_CODES,
     _norm_text,
+    _text_has_token,
     check_spreads,
+    drawable_must_include,
     ensure_catalogue_last_line,
     last_line_present,
+    must_include_issues,
 )
 
 CALM_ZONES = {"left", "right"}
@@ -84,6 +87,8 @@ Warnings only (passed can still be true):
 
 Never edit the locked block (title, front band, back question, parent spread, dedication).
 Never edit or remove locked_last_line from spread 14 text in repair; you may edit the rest of that spread.
+Never drop a locked_must_include token in repair: every token must stay in the repaired text;
+drawable scene tokens must stay in the repaired scene (dialogue tokens are text-only).
 repair.page_fixes may only touch story spread pages (2-29).
 """
 
@@ -573,8 +578,101 @@ def _scrub_repair_preserving_last_line(repair: dict, last_line: str, pages: list
     return out
 
 
+def _locked_must_include_payload(inputs: dict) -> tuple[list[dict], dict[int, list[str]], dict[int, str]]:
+    """(prompt rows, must_include_map, beat_texts) for locked beat tokens."""
+    from .catalogue import beat_text_map, must_include_map
+
+    title_id = str((inputs or {}).get("title_id") or "")
+    required = must_include_map(title_id) if title_id else {}
+    beat_texts = beat_text_map(title_id) if title_id else {}
+    rows = []
+    for n in sorted(required):
+        tokens = list(required[n])
+        rows.append(
+            {
+                "spread": n,
+                "tokens": tokens,
+                "scene_tokens": drawable_must_include(tokens, beat_texts.get(n, "")),
+            }
+        )
+    return rows, required, beat_texts
+
+
+def _fix_drops_must_include(
+    spread_n: int,
+    *,
+    old_text: str,
+    old_scene: str,
+    new_text,
+    new_scene,
+    required: list[str],
+    beat_text: str,
+) -> tuple[bool, bool]:
+    """Return (drop_text_fix, drop_scene_fix) when a rewrite would lose locked tokens."""
+    drop_text = False
+    drop_scene = False
+    if new_text is not None:
+        for token in required:
+            if _text_has_token(old_text, token) and not _text_has_token(str(new_text), token):
+                drop_text = True
+                break
+    if new_scene is not None:
+        for token in drawable_must_include(required, beat_text):
+            if _text_has_token(old_scene, token) and not _text_has_token(str(new_scene), token):
+                drop_scene = True
+                break
+    return drop_text, drop_scene
+
+
+def _scrub_repair_preserving_must_include(
+    repair: dict,
+    pages: list,
+    must_by_spread: dict[int, list[str]],
+    beat_texts: dict[int, str],
+) -> dict:
+    """Drop text/scene rewrites that would remove locked must_include tokens present now."""
+    if not repair or not must_by_spread:
+        return repair or {"needed": False}
+    out = copy.deepcopy(repair)
+    by_number = {int(p.get("number") or 0): p for p in pages or []}
+    cleaned = []
+    for raw in out.get("page_fixes") or []:
+        fix = dict(raw)
+        num = int(fix.get("number") or 0)
+        page = by_number.get(num) or {}
+        spread_n = int(page.get("spread") or 0)
+        required = must_by_spread.get(spread_n) or []
+        if required:
+            old_text = spread_text(pages, spread_n) if spread_n else (page.get("text") or "")
+            old_scene = page.get("scene") or ""
+            drop_text, drop_scene = _fix_drops_must_include(
+                spread_n,
+                old_text=old_text,
+                old_scene=old_scene,
+                new_text=fix.get("text"),
+                new_scene=fix.get("scene"),
+                required=required,
+                beat_text=beat_texts.get(spread_n, ""),
+            )
+            if drop_text:
+                fix.pop("text", None)
+            if drop_scene:
+                fix.pop("scene", None)
+        if fix.get("scene") or fix.get("text") is not None or fix.get("calm_zone"):
+            cleaned.append(fix)
+    out["page_fixes"] = cleaned
+    if not cleaned and not out.get("supporting_characters") and not out.get("recurring_outfit"):
+        out["needed"] = False
+    return out
+
+
+def _must_include_text_ok(story: dict, must_by_spread: dict[int, list[str]]) -> bool:
+    return not must_include_issues(story.get("spreads") or [], must_by_spread, field="text")
+
+
 def _llm_validate(client, inputs: dict, story: dict, pages: list) -> dict:
     last_line = _resolved_last_line(inputs)
+    locked_rows, _required, _beats = _locked_must_include_payload(inputs)
     spread_pages = [
         {
             "number": p.get("number"),
@@ -583,6 +681,10 @@ def _llm_validate(client, inputs: dict, story: dict, pages: list) -> dict:
             "text": spread_text(pages, p.get("spread")),
             "calm_zone": p.get("calm_zone"),
             "anchor_state": p.get("anchor_state"),
+            "must_include": next(
+                (row["tokens"] for row in locked_rows if row["spread"] == int(p.get("spread") or 0)),
+                [],
+            ),
         }
         for p in pages
         if p.get("kind") == "spread_half" and p.get("side") == "left"
@@ -604,6 +706,15 @@ def _llm_validate(client, inputs: dict, story: dict, pages: list) -> dict:
             if last_line
             else ""
         ),
+        "locked_must_include": locked_rows,
+        "locked_must_include_rule": (
+            "LOCKED approved beat copy per spread. Repaired text must keep every token; "
+            "repaired scene must keep every scene_tokens entry (drawable props/events only — "
+            "dialogue tokens such as quoted speech belong in text, not the scene). "
+            "Never drop or replace a locked token in repair."
+            if locked_rows
+            else ""
+        ),
         "story": {
             "title": story.get("title"),
             "recurring_outfit": story.get("recurring_outfit"),
@@ -621,13 +732,23 @@ def _llm_validate(client, inputs: dict, story: dict, pages: list) -> dict:
     return json.loads(raw)
 
 
-def _apply_repair(story: dict, pages: list, repair: dict) -> tuple[dict, list]:
-    """Apply LLM repair to spread scenes/text only. NEVER mutates story['locked']."""
+def _apply_repair(
+    story: dict,
+    pages: list,
+    repair: dict,
+    inputs: dict | None = None,
+) -> tuple[dict, list]:
+    """Apply LLM repair to spread scenes/text only. NEVER mutates story['locked'].
+
+    Rejects a text/scene page_fix that would drop a must_include token the current version has
+    (dialogue tokens only checked on text; drawable tokens also on scene).
+    """
     if not repair or not repair.get("needed"):
         return story, pages
 
     locked_snapshot = copy.deepcopy(story.get("locked"))
     title_snapshot = story.get("title")
+    _rows, must_by_spread, beat_texts = _locked_must_include_payload(inputs or {})
 
     if "supporting_characters" in repair and repair["supporting_characters"] is not None:
         story["supporting_characters"] = repair["supporting_characters"]
@@ -640,23 +761,47 @@ def _apply_repair(story: dict, pages: list, repair: dict) -> tuple[dict, list]:
         for item in repair.get("page_fixes") or []
         if item.get("number") is not None
     }
+    applied_spreads: set[int] = set()
     for page in pages:
         fix = fixes.get(int(page["number"]))
         if not fix or page.get("kind") != "spread_half":
             continue  # title, parent spread and dedication are LOCKED
-        spread = spreads_by_n.get(int(page.get("spread") or 0))
+        spread_n = int(page.get("spread") or 0)
+        if spread_n in applied_spreads:
+            continue
+        applied_spreads.add(spread_n)
+        spread = spreads_by_n.get(spread_n)
+        old_text = (spread or {}).get("text") or spread_text(pages, spread_n) or ""
+        old_scene = (spread or {}).get("scene") or page.get("scene") or ""
+        new_text = fix.get("text")
+        new_scene = fix.get("scene")
+        drop_text, drop_scene = _fix_drops_must_include(
+            spread_n,
+            old_text=old_text,
+            old_scene=old_scene,
+            new_text=new_text,
+            new_scene=new_scene,
+            required=must_by_spread.get(spread_n) or [],
+            beat_text=beat_texts.get(spread_n, ""),
+        )
+        if drop_text:
+            new_text = None
+        if drop_scene:
+            new_scene = None
+        if new_scene is None and new_text is None and fix.get("calm_zone") is None:
+            continue
         for target in [t for t in (page, spread) if t is not None]:
-            if fix.get("scene"):
-                target["scene"] = fix["scene"]
-            if fix.get("text") is not None:
-                target["text"] = fix["text"]
+            if new_scene:
+                target["scene"] = new_scene
+            if new_text is not None:
+                target["text"] = new_text
         # keep the paired half in sync (text lives on the calm-zone half only)
         for other in pages:
-            if other.get("kind") == "spread_half" and other.get("spread") == page.get("spread"):
-                if fix.get("scene"):
-                    other["scene"] = fix["scene"]
-        if fix.get("text") is not None:
-            set_spread_text(pages, int(page["spread"]), fix["text"])
+            if other.get("kind") == "spread_half" and other.get("spread") == spread_n:
+                if new_scene:
+                    other["scene"] = new_scene
+        if new_text is not None:
+            set_spread_text(pages, spread_n, new_text)
 
     # Defence in depth: whatever happened above, locked content is restored.
     story["locked"] = locked_snapshot
@@ -686,6 +831,7 @@ def _soften_llm_report(llm_report: dict, inputs: dict, pages: list | None = None
     report = dict(llm_report or {})
     comfort = str(inputs.get("comfort_object") or "").strip().lower()
     last_line = _resolved_last_line(inputs)
+    _rows, must_by_spread, beat_texts = _locked_must_include_payload(inputs)
     softened_issues = []
     for raw in report.get("issues") or []:
         issue = dict(raw)
@@ -721,6 +867,9 @@ def _soften_llm_report(llm_report: dict, inputs: dict, pages: list | None = None
         report.get("repair") or {"needed": False},
         last_line,
         pages or [],
+    )
+    repair = _scrub_repair_preserving_must_include(
+        repair, pages or [], must_by_spread, beat_texts
     )
 
     # Final gate is hard issues only. Models often set passed=false with a glowing summary.
@@ -832,7 +981,11 @@ def validate_content(client, job_dir: Path, inputs: dict, story: dict, pages: li
     repair = report.get("repair") or {}
     if repair.get("needed"):
         append_event(job_dir, "validation_repair_start", "Auto-repairing invented or invalid content.")
-        story, pages = _apply_repair(story, pages, repair)
+        pre_repair_story = copy.deepcopy(story)
+        pre_repair_pages = copy.deepcopy(pages)
+        _rows, must_by_spread, _beats = _locked_must_include_payload(inputs)
+        original_must_ok = _must_include_text_ok(pre_repair_story, must_by_spread)
+        story, pages = _apply_repair(story, pages, repair, inputs=inputs)
         if not repair.get("page_fixes") and report.get("invented_elements"):
             pages = compile_pages(client, job_dir, inputs, story)
         # Repair must never strip the locked catalogue last_line from spread 14.
@@ -842,6 +995,15 @@ def validate_content(client, job_dir: Path, inputs: dict, story: dict, pages: li
                 job_dir,
                 "validation_last_line_restored",
                 "Re-applied catalogue last_line after LLM repair.",
+            )
+        # Never save a repair that breaks must_include when the original had it.
+        if original_must_ok and not _must_include_text_ok(story, must_by_spread):
+            story = pre_repair_story
+            pages = pre_repair_pages
+            append_event(
+                job_dir,
+                "validation_must_include_restored",
+                "Rejected repair that dropped locked must_include beat tokens; kept original text.",
             )
         write_json(job_dir / "story" / "rebuilt_story.json", story)
         write_json(job_dir / "story" / "pages.json", {"pages": pages})

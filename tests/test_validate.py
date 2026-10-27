@@ -361,3 +361,97 @@ def test_validate_content_raises_on_structural_error(bundle):
         with pytest.raises(ValidationError) as caught:
             validate_content(None, job_dir, inputs, story, pages)
     assert any(i["code"] == "band_mismatch" for i in caught.value.report["issues"])
+
+
+# Spread 11 → pages 22 (left) / 23 (right). Emma text already has potty / wee / hand-wash song / sink.
+SPREAD_11_TEXT = "Emma wees in the potty. They sing the hand-wash song at the sink."
+
+
+def test_repair_that_drops_must_include_token_keeps_original_text(bundle):
+    """Repair that drops 'wee' is scrubbed; original text kept and validation passes."""
+    job_dir, inputs, story, pages = bundle
+    story = clone(story)
+    pages = clone(pages)
+    assert "wee" in story["spreads"][10]["text"].lower()
+    original = story["spreads"][10]["text"]
+    llm = {
+        "passed": False,
+        "score": 70,
+        "summary": "Reword spread 11.",
+        "issues": [],
+        "invented_elements": [],
+        "repair": {
+            "needed": True,
+            "page_fixes": [
+                {
+                    "number": 22,
+                    "text": "At the sink, Emma and Mum sing together to twenty.",
+                }
+            ],
+        },
+    }
+    with patch.object(validate, "_llm_validate", return_value=llm):
+        report = validate_content(None, job_dir, inputs, story, pages)
+    assert report["passed"] is True
+    assert story["spreads"][10]["text"] == original
+    assert "wee" in story["spreads"][10]["text"].lower()
+    assert "potty" in story["spreads"][10]["text"].lower()
+    # Soften dropped the token-stripping rewrite.
+    assert not any(
+        f.get("text") for f in (report.get("repair") or {}).get("page_fixes") or []
+    )
+
+
+def test_repair_that_keeps_must_include_tokens_is_applied(bundle):
+    job_dir, inputs, story, pages = bundle
+    story = clone(story)
+    pages = clone(pages)
+    # Keep every must_include token; stay within the 2–3½ sentence word cap (≤9).
+    reworded = "Emma wees in the potty. They sing the hand-wash song at the sink."
+    llm = {
+        "passed": False,
+        "score": 70,
+        "summary": "Minor wording.",
+        "issues": [
+            {
+                "severity": "error",
+                "code": "awkward_wording",
+                "message": "Spread 11 wording is awkward.",
+                "page": 22,
+                "fix_hint": "Reword.",
+            }
+        ],
+        "invented_elements": [],
+        "repair": {
+            "needed": True,
+            "page_fixes": [{"number": 22, "text": reworded}],
+        },
+    }
+    with patch.object(
+        validate,
+        "_llm_validate",
+        side_effect=[llm, _llm_pass()],
+    ):
+        report = validate_content(None, job_dir, inputs, story, pages)
+    assert report["passed"] is True
+    assert story["spreads"][10]["text"] == reworded
+    from pipeline.text_guards import _text_has_token
+
+    for token in ("potty", "wee", "hand-wash song", "sink"):
+        assert _text_has_token(story["spreads"][10]["text"], token)
+
+
+def test_apply_repair_rejects_text_that_drops_wee(bundle):
+    _job, inputs, story, pages = bundle
+    story = clone(story)
+    pages = clone(pages)
+    original = story["spreads"][10]["text"]
+    repair = {
+        "needed": True,
+        "page_fixes": [
+            {"number": 22, "text": "At the sink, Emma and Mum sing together."}
+        ],
+    }
+    story, pages = _apply_repair(story, pages, repair, inputs=inputs)
+    assert story["spreads"][10]["text"] == original
+    assert "wee" in story["spreads"][10]["text"].lower()
