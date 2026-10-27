@@ -22,7 +22,6 @@ Day three: a cup with no lid. Two hands, one sip, one splash on the table. A clo
 Day four: washing hands at the sink. Cold tap, soap, rub rub rub, singing the song all the way to twenty. Tick four.
 
 ## Spread 6
-must_include: Not today, potty
 The potty is the last picture. {name} looks at it for a while. 'Not today.' {carer}: 'That's fine. It's your turn to choose.' Back to playing.
 
 ## Spread 7
@@ -38,7 +37,6 @@ A try that doesn't work: {name} sits, waits, nothing happens. {carer}: 'Sitting 
 A wet accident during play. {name} says 'Oops.' {carer}: 'Oops is fine. Clean clothes, carry on.' Dry pants in the chosen colour/pattern. No sad face anywhere.
 
 ## Spread 11
-must_include: potty, wee, hand-wash song, sink
 The one that works: a wee in the potty. A small, real celebration — {name} and {carer} sing the hand-wash song together to twenty. No sticker, no present. Draw from the waist up or with the potty partly hidden.
 
 ## Spread 12

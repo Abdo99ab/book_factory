@@ -1,0 +1,849 @@
+{% extends "base.html" %}
+{% block title %}{{ job.book_title or job.name }} | Book Factory{% endblock %}
+{% block content %}
+  <a class="back-link" href="{{ url_for('index') }}">← Jobs</a>
+  <div class="job-topline">
+    <div>
+      <p class="eyebrow">{{ job.job_id }}</p>
+      <h1>{{ job.book_title or inputs.name }}</h1>
+      <p>
+        {% if inputs.title_id %}{{ inputs.title_id|replace('_', ' ')|title }}{% endif %}
+        {% if inputs.band or job.band %} · {{ inputs.band or job.band }}{% endif %}
+        {% if job.order_id or inputs.order_id %} · order {{ job.order_id or inputs.order_id }}{% endif %}
+        · {{ inputs.name }}, age {{ inputs.age }}{% if inputs.age_band %} (band {{ inputs.age_band }}){% endif %}
+      </p>
+      {% if job.age_warning %}
+        <p class="hint">{{ job.age_warning }}</p>
+      {% endif %}
+    </div>
+    <div class="job-actions">
+      {% if preview_available %}
+        <form action="{{ url_for('preview_job', job_id=job.job_id) }}" method="post"
+              onsubmit="this.querySelector('button').disabled = true">
+          <button class="button{% if preferred_next == 'full' %} secondary{% endif %}" type="submit">
+            Preview {{ preview_spread_count }} spreads
+          </button>
+        </form>
+      {% endif %}
+      {% if validate_build_available %}
+        <form action="{{ url_for('validate_and_build_job', job_id=job.job_id) }}" method="post"
+              onsubmit="this.querySelector('button').disabled = true">
+          <button class="button{% if preferred_next != 'full' %} secondary{% endif %}" type="submit">
+            Validate &amp; build
+          </button>
+        </form>
+      {% endif %}
+      {% if retry_available %}
+        <form action="{{ url_for('retry_job', job_id=job.job_id) }}" method="post"
+              onsubmit="this.querySelector('button').disabled = true">
+          <button class="button secondary" type="submit">Retry</button>
+        </form>
+      {% endif %}
+      <a class="button secondary {% if not job.pdf %}disabled{% endif %}"
+         href="{% if job.pdf %}{{ url_for('download_job', job_id=job.job_id) }}{% else %}#{% endif %}">
+        Download PDF
+      </a>
+      {% if self_revise_available %}
+        <form method="post" action="{{ url_for('self_revise_job', job_id=job.job_id) }}"
+              onsubmit="this.querySelector('button').disabled = true; return confirm('Run AI self-revise review? You will get a plan to edit before anything is applied.');">
+          <button class="button secondary" type="submit">
+            {% if self_revise_plan_ready %}Re-run review{% else %}Self revise{% endif %}
+          </button>
+        </form>
+      {% endif %}
+      {% if existing_template_id %}
+        <a class="button secondary" href="{{ url_for('template_list') }}">View template</a>
+      {% elif template_available %}
+        <form method="post" action="{{ url_for('make_template', job_id=job.job_id) }}"
+              onsubmit="return confirm('Save this finished book as a reusable template? Story stays locked; only a new photo + name will change on reuse.');">
+          <button class="button secondary" type="submit">Make template</button>
+        </form>
+      {% endif %}
+      <form method="post" action="{{ url_for('archive_job', job_id=job.job_id) }}"
+            onsubmit="return confirm('Archive this job? You can restore it later from Archive.');">
+        <button class="button secondary" type="submit">Archive</button>
+      </form>
+      <form method="post" action="{{ url_for('delete_job', job_id=job.job_id) }}"
+            onsubmit="return confirm('Delete this job permanently? This cannot be undone.');">
+        <button class="button danger-btn" type="submit">Delete</button>
+      </form>
+    </div>
+  </div>
+
+  {% if job.status == 'character_ready' %}
+  <section class="panel preview-banner">
+    <p class="eyebrow">Hero sheet</p>
+    <h2>Approve character reference</h2>
+    <p class="hint">Check the hero, set and anchor sheets match the child before story generation runs.</p>
+    <div class="page-grid">
+      <figure>
+        <img src="{{ url_for('character_sheet_image', job_id=job.job_id) }}" alt="Hero character sheet">
+        <figcaption>Hero sheet</figcaption>
+      </figure>
+      {% if anchor_sheet_exists %}
+      <figure>
+        <img src="{{ url_for('anchor_sheet_image', job_id=job.job_id) }}" alt="Anchor object sheet">
+        <figcaption>Anchor object</figcaption>
+      </figure>
+      {% endif %}
+    </div>
+    <form method="post" action="{{ url_for('approve_character', job_id=job.job_id) }}">
+      <label>Approved by
+        <input name="approved_by" placeholder="Your name">
+      </label>
+      <button class="button" type="submit">Approve hero sheet</button>
+    </form>
+  </section>
+  {% endif %}
+
+  {% if self_revise or job.status == 'self_revising' or self_revise_plan_ready %}
+  <section class="panel preview-banner review-banner" id="self-revise-panel">
+    <p class="eyebrow">Self revise</p>
+    <h2>
+      {% if job.status == 'self_revising' %}
+        Reviewing spreads…
+      {% elif self_revise and self_revise.phase == 'failed' %}
+        Self-revise failed
+      {% elif self_revise_plan_ready or (self_revise and self_revise.phase == 'awaiting_approval') %}
+        Plan ready — edit, then apply
+      {% elif self_revise and self_revise.phase == 'complete' %}
+        Self-revise finished
+      {% else %}
+        Self-revise
+      {% endif %}
+    </h2>
+    <p>
+      {{ (self_revise.summary if self_revise else 'AI is checking every composed spread for text-over-face, fold, composition, and face issues.') }}
+      {% if self_revise and self_revise.issue_count is defined %}
+        · {{ self_revise.issue_count or 0 }} issue(s) · {{ self_revise.action_count or 0 }} proposed action(s)
+      {% endif %}
+    </p>
+
+    {% if self_revise and self_revise.issues %}
+      <ul class="issue-list">
+        {% for issue in self_revise.issues %}
+          <li class="issue-{{ issue.severity or 'warning' }}">
+            <strong>{{ issue.severity or 'note' }}{% if issue.spread %} · spread {{ issue.spread }}{% elif issue.page %} · page {{ issue.page }}{% endif %}</strong>
+            {{ issue.problem }}
+            {% if issue.fix %}<em>{{ issue.fix }}</em>{% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+
+    {% if self_revise_plan_ready or (self_revise and self_revise.phase == 'awaiting_approval') %}
+    <form class="self-revise-plan" method="post" action="{{ url_for('apply_self_revise_job', job_id=job.job_id) }}" id="self-revise-form">
+      <label class="wide">Plan summary
+        <input name="plan_summary" value="{{ self_revise.summary or '' }}">
+      </label>
+      <div class="support-head">
+        <p class="hint">Add, remove, or edit actions. Empty / invalid rows are ignored. Click Apply only when the plan looks right.</p>
+        <button type="button" class="small-button" id="add-revise-action">Add action</button>
+      </div>
+      <div id="revise-action-rows">
+        {% for action in self_revise.actions or [] %}
+          <div class="revise-action-row">
+            <div class="revise-action-grid">
+              <label>Type
+                <select name="action_type">
+                  {% for option in ['rewrite_spread_text', 'regen_spread_art', 'update_spread_scene'] %}
+                    <option value="{{ option }}" {% if action.type == option %}selected{% endif %}>{{ option }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label>Spread
+                <input name="action_spread" type="number" min="1" max="14" value="{{ action.spread or '' }}" required>
+              </label>
+              <label>Calm zone
+                <select name="action_calm_zone">
+                  <option value="">(unchanged)</option>
+                  {% for option in ['left', 'right'] %}
+                    <option value="{{ option }}" {% if action.calm_zone == option %}selected{% endif %}>{{ option }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label>Force face lock
+                <select name="action_force_character_lock">
+                  <option value="false" {% if not action.force_character_lock %}selected{% endif %}>No</option>
+                  <option value="true" {% if action.force_character_lock %}selected{% endif %}>Yes</option>
+                </select>
+              </label>
+              <label class="wide">Reason
+                <input name="action_reason" value="{{ action.reason or '' }}">
+              </label>
+              <label class="wide">Edit instruction (must-show for illustrator)
+                <input name="action_edit_instruction" value="{{ action.edit_instruction or '' }}">
+              </label>
+              <label class="wide">Story text (for rewrite_spread_text)
+                <textarea name="action_text" rows="2">{{ action.text or '' }}</textarea>
+              </label>
+              <label class="wide">Scene (for update_spread_scene; left AND right half)
+                <textarea name="action_scene" rows="3">{{ action.scene or '' }}</textarea>
+              </label>
+            </div>
+            <button type="button" class="text-button remove-revise-action">Remove</button>
+          </div>
+        {% else %}
+          <p class="hint" id="no-revise-actions">No actions proposed. Add one, or Apply to dismiss.</p>
+        {% endfor %}
+      </div>
+      <div class="editor-actions">
+        <button class="button" type="submit">Apply approved plan</button>
+        <span class="hint">This regenerates only the spreads in the plan, then rebuilds the PDF.</span>
+      </div>
+    </form>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% if job.status == 'rebuilding_content' %}
+  <section class="panel preview-banner review-banner">
+    <p class="eyebrow">Rebuilding after cast change</p>
+    <h2>Rewriting the story and spread scenes…</h2>
+    <p>Please wait. When status returns to Content Ready, review the new text (Leo/Bun-Bun style extras should be gone), then Preview again.</p>
+  </section>
+  {% elif job.status == 'content_ready' %}
+  <section class="panel preview-banner review-banner">
+    <p class="eyebrow">Review before illustration</p>
+    <h2>Edit the story brief, then continue</h2>
+    <p>
+      Check the supporting characters, outfit, and each spread's scene and text below.
+      Remove anything invented (toys, mascots) that should not appear, then Save so the story rebuilds.
+      Then click
+      {% if preferred_next == 'full' %}<strong>Validate &amp; build</strong>{% else %}<strong>Preview {{ preview_spread_count }} spreads</strong>{% endif %}
+      (or the other option).
+    </p>
+  </section>
+  {% elif job.status == 'preview_ready' or job.preview_ready %}
+  <section class="panel preview-banner">
+    <p class="eyebrow">Preview ready</p>
+    <h2>First {{ preview_spread_count }} spreads are ready</h2>
+    <p>
+      Cover was not generated yet.
+      {% if job.preview_page_numbers %}
+        Preview pages: {{ job.preview_page_numbers|join(', ') }}.
+      {% endif %}
+      You can still edit content below (an edited scene clears that spread's art). Then click <strong>Validate &amp; build</strong>.
+    </p>
+  </section>
+  {% endif %}
+
+  <section class="panel status-panel" data-job-status="{{ url_for('job_status', job_id=job.job_id) }}">
+    <div class="status-row">
+      <strong id="status-label">{{ job.status|replace('_', ' ')|title }}</strong>
+      <span id="status-detail">
+        {% if job.status == 'applying_changes' and job.change_progress %}
+          Change {{ job.change_progress.completed_actions or 0 }}/{{ job.change_progress.total_actions or 0 }}
+        {% elif job.spreads_total %}
+          {{ spreads_done }}/{{ spreads_total }} spreads
+        {% endif %}
+      </span>
+    </div>
+    <div class="progress"><span id="progress-bar" style="width: {{
+      (
+        ((job.change_progress.completed_actions / job.change_progress.total_actions) * 100)
+        if job.status == 'applying_changes' and job.change_progress and job.change_progress.total_actions
+        else ((spreads_done / spreads_total) * 100 if spreads_total else 0)
+      )|round|int
+    }}%"></span></div>
+    <p class="error-text" id="job-error">{{ job.error or '' }}</p>
+    <p class="status-note" id="status-note">
+      {% if job.change_progress and job.change_progress.current_action %}
+        {{ job.change_progress.current_action }}
+      {% elif job.status == 'validating_content' %}
+        Checking story, pages, and prompts before illustration…
+      {% elif job.status == 'generating_preview' %}
+        Generating the first {{ preview_spread_count }} spreads (no cover)…
+      {% elif job.status == 'preview_ready' %}
+        First {{ preview_spread_count }} spreads are ready — review them, then Validate &amp; build.
+      {% elif job.status == 'content_ready' %}
+        Content ready — Preview {{ preview_spread_count }} spreads, or Validate &amp; build.
+      {% elif job.status == 'rebuilding_content' %}
+        Rebuilding story and page briefs for the new cast…
+      {% elif job.status == 'self_revising' %}
+        Self-revise: reviewing spreads and preparing a plan for your approval…
+      {% elif job.status == 'self_revise_ready' %}
+        Self-revise plan ready — edit actions below, then Apply.
+      {% endif %}
+    </p>
+    {% if retry_available %}
+      <p class="retry-hint">
+        {% if job.status == 'validation_failed' %}
+          Fix the content issues below (or adjust the draft/design rules and retry). Validation runs again before building art.
+        {% else %}
+          Fix the cause (for example the API key in <code>.env</code>), then click <strong>Retry generation</strong>. Finished steps are kept.
+        {% endif %}
+      </p>
+    {% endif %}
+  </section>
+
+  <section class="panel change-progress-panel {% if not change_progress or change_progress.phase == 'complete' %}is-idle{% endif %}" id="change-progress-panel">
+    <p class="eyebrow">Change queue</p>
+    <h2 id="change-summary">{{ (change_progress.summary if change_progress else 'No change requests yet') }}</h2>
+    <p id="change-demand" class="change-demand">{{ change_progress.demand if change_progress else '' }}</p>
+    <div class="change-meta" id="change-meta">
+      {% if change_progress %}
+        Phase: <strong id="change-phase">{{ change_progress.phase }}</strong>
+        · Actions: <span id="change-counts">{{ change_progress.completed_actions or 0 }}/{{ change_progress.total_actions or 0 }}</span>
+        {% if change_progress.queue_length %}
+          · Queue: <span id="change-queue-len">{{ change_progress.queue_length }}</span>
+        {% endif %}
+      {% endif %}
+    </div>
+    <ul class="action-list" id="change-action-list">
+      {% if change_progress and change_progress.actions %}
+        {% for action in change_progress.actions %}
+          <li class="action-{{ action.status }}">
+            <span class="action-status">{{ action.status }}</span>
+            {{ action.label }}
+          </li>
+        {% endfor %}
+      {% endif %}
+    </ul>
+    {% if queued_changes %}
+      <div class="queued-list" id="queued-list">
+        <p class="eyebrow">Queued / running</p>
+        {% for item in queued_changes %}
+          <div class="queued-row">
+            <strong>{{ item.status }}</strong>
+            <span>{{ item.demand }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+
+  {% if overlay_rebuild_available %}
+  <section class="panel font-panel">
+    <p class="eyebrow">Text layer</p>
+    <h2>Re-render text layer</h2>
+    <p class="hint">Re-applies Raised Ready brand fonts on existing art (no new AI images).</p>
+    <form method="post" action="{{ url_for('rebuild_overlays', job_id=job.job_id) }}">
+      <button class="button" type="submit">Re-render text &amp; PDF (no new images)</button>
+    </form>
+  </section>
+  {% endif %}
+
+  {% if validation %}
+  <section class="panel validation-panel {% if validation.passed %}is-pass{% else %}is-fail{% endif %}">
+    <p class="eyebrow">Pre-build validation</p>
+    <h2>{{ 'Passed' if validation.passed else 'Needs attention' }}{% if validation.score is not none %} · score {{ validation.score }}{% endif %}</h2>
+    <p>{{ validation.summary }}</p>
+    {% if validation.invented_elements %}
+      <p><strong>Invented elements flagged:</strong> {{ validation.invented_elements|join(', ') }}</p>
+    {% endif %}
+    {% if validation.issues %}
+      <ul class="issue-list">
+        {% for issue in validation.issues %}
+          <li class="issue-{{ issue.severity }}">
+            <strong>{{ issue.severity }}{% if issue.page %} · page {{ issue.page }}{% elif issue.spread %} · spread {{ issue.spread }}{% endif %}</strong>
+            {{ issue.message }}
+            {% if issue.fix_hint %}<em>{{ issue.fix_hint }}</em>{% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% if story and content_editable %}
+  <form class="panel content-editor" method="post" action="{{ url_for('save_content', job_id=job.job_id) }}" id="content-editor">
+    <div class="editor-topline">
+      <div>
+        <p class="eyebrow">Pre-build content editor</p>
+        <h2>Outfit &amp; supporting characters</h2>
+        <p>Remove unwanted cast members, then <strong>Save</strong>. Changing the cast <strong>rewrites all 14 spreads</strong> so the removed characters disappear from the plot, then run Preview again. Edit one spread's words or scene inside its card below.</p>
+      </div>
+    </div>
+
+    <details class="editor-section" open>
+      <summary>Locked outfit</summary>
+      <div class="form-grid">
+        <label class="wide">Locked outfit
+          <textarea name="recurring_outfit" rows="2" required>{{ story.recurring_outfit or '' }}</textarea>
+        </label>
+      </div>
+    </details>
+
+    <details class="editor-section" open>
+      <summary>Supporting characters</summary>
+      <div class="support-block" id="support-block">
+        <div class="support-head">
+          <p class="hint">Only keep people/creatures that should appear. Removing a name and saving also deletes that name from the story.</p>
+          <button type="button" class="small-button" id="add-support">Add character</button>
+        </div>
+        <div id="support-rows">
+          {% for character in story.supporting_characters or [] %}
+            <div class="support-row">
+              <input name="support_name" value="{{ character.name }}" placeholder="Name">
+              <input name="support_description" value="{{ character.description }}" placeholder="Visual description / role">
+              <button type="button" class="text-button remove-support">Remove</button>
+            </div>
+          {% else %}
+            <div class="support-row">
+              <input name="support_name" value="" placeholder="Name (optional)">
+              <input name="support_description" value="" placeholder="Visual description / role">
+              <button type="button" class="text-button remove-support">Remove</button>
+            </div>
+          {% endfor %}
+        </div>
+        <p class="hint scrub-check">Saving after an add/remove rewrites the story and every spread scene for the approved cast only.</p>
+      </div>
+    </details>
+
+    <div class="editor-actions">
+      <button class="button" type="submit">Save content edits</button>
+    </div>
+  </form>
+  {% endif %}
+
+  <section class="cover-progress panel" id="cover-card">
+    <div class="cover-heading">
+      <div>
+        <span class="eyebrow">Cover</span>
+        <h2>Front, composed front and back</h2>
+      </div>
+      {% if spread_edit_enabled and cover_front_exists %}
+      <form method="post" action="{{ url_for('cover_regenerate', job_id=job.job_id) }}"
+            onsubmit="this.querySelector('button').disabled = true; return confirm('Regenerate the front and back cover art?');">
+        <button class="button secondary" type="submit">Regenerate cover</button>
+      </form>
+      {% endif %}
+    </div>
+    <div class="cover-grid">
+      <div class="cover-image">
+        {% if cover_front_exists %}
+          <img src="{{ cover_front_url }}?v={{ job.status }}" alt="Front cover art">
+        {% else %}
+          <div class="blank-page">Front art pending</div>
+        {% endif %}
+        <p class="muted">Front (raw art)</p>
+      </div>
+      <div class="cover-image">
+        {% if cover_preview_exists %}
+          <img src="{{ cover_preview_url }}?v={{ job.status }}" alt="Front cover with band, title and logo">
+        {% else %}
+          <div class="blank-page">Composed front pending</div>
+        {% endif %}
+        <p class="muted">Composed front (band + title + logo)</p>
+        {% if cover_layout_failures %}
+          <p class="muted"><strong>Layout warning:</strong> {{ cover_layout_failures | join('; ') }}</p>
+        {% endif %}
+      </div>
+      <div class="cover-image">
+        {% if cover_back_exists %}
+          <img src="{{ cover_back_url }}?v={{ job.status }}" alt="Back cover art">
+        {% else %}
+          <div class="blank-page">Back art pending</div>
+        {% endif %}
+        <p class="muted">Back</p>
+      </div>
+    </div>
+    {% if cover_print_exists %}
+    <div class="cover-image wide">
+      <img src="{{ cover_print_url }}?v={{ job.status }}" alt="Wraparound cover">
+    </div>
+    {% endif %}
+  </section>
+
+  {% if story and story.locked %}
+  <section class="panel" id="title-page-card">
+    <p class="eyebrow">Page 1 · locked</p>
+    <h2>Title page</h2>
+    <p class="locked-block"><strong>Title</strong>{{ story.locked.title }}</p>
+    <p class="locked-block"><strong>Band</strong>{{ story.locked.front_band }}</p>
+    <p class="muted">Illustrated from {{ inputs.name }}'s photo</p>
+  </section>
+  {% endif %}
+
+  <div class="spread-list" id="spreads">
+    {% for sp in spreads %}
+      <article class="panel spread-card" id="spread-{{ sp.n }}">
+        <header class="spread-head">
+          <h2>Spread {{ sp.n }} · pages {{ sp.pages[0] }}–{{ sp.pages[1] }} · text on {{ sp.calm_zone }}</h2>
+          <label class="guides-toggle">
+            <input type="checkbox" class="fold-guides-toggle"> Fold guides ({{ gutter_mm|int }} mm gutters)
+          </label>
+        </header>
+        <div class="spread-art" style="--fold-gutter: {{ (gutter_mm / spread_width_mm * 100)|round(2) }}%">
+          {% if sp.composed_exists %}
+            <img src="{{ sp.composed_url }}?v={{ job.status }}-{{ sp.n }}" alt="Spread {{ sp.n }}">
+          {% elif sp.art_exists %}
+            <img src="{{ sp.art_url }}?v={{ job.status }}-{{ sp.n }}" alt="Spread {{ sp.n }} art">
+          {% else %}
+            <div class="blank-page">Waiting</div>
+          {% endif %}
+          <span class="fold-guides" aria-hidden="true"></span>
+        </div>
+        <p class="spread-text">{{ sp.text }}</p>
+        <ul class="spread-facts">
+          <li>Anchor state (schedule): {{ sp.anchor_state if sp.anchor_state is not none else 'n/a' }}{% if sp.anchor_state_meta is not none and sp.anchor_state_meta != sp.anchor_state %} · generated as {{ sp.anchor_state_meta }}{% endif %}</li>
+          {% if sp.size_received %}
+            <li>Size received: {{ sp.size_received }}{% if sp.effective_ppi is not none %} · {{ sp.effective_ppi }} ppi{% endif %}</li>
+          {% elif sp.effective_ppi is not none %}
+            <li {% if sp.effective_ppi < ppi_warn %}class="warn"{% endif %}>{{ sp.effective_ppi }} ppi</li>
+          {% endif %}
+          {% if sp.fold_failures %}
+            <li class="warn">Fold warning: {{ sp.fold_failures|join(', ') }}</li>
+          {% endif %}
+          {% if sp.no_face_warning %}
+            <li class="warn">No-face warning: child face not clear in frame after retry</li>
+          {% endif %}
+          {% if sp.calm_zone_busy %}
+            <li class="warn">Calm-zone warning: the {{ sp.calm_zone }} half is busy where the text sits</li>
+          {% endif %}
+        </ul>
+        {% if sp.n == 14 and last_line_problem %}
+          <div class="flash error">
+            {{ last_line_problem }}
+            {% if spread_edit_enabled %}
+            <form method="post" action="{{ url_for('spread_insert_last_line', job_id=job.job_id) }}">
+              <button class="small-button" type="submit">Insert last line</button>
+            </form>
+            {% endif %}
+          </div>
+        {% endif %}
+        {% if spread_edit_enabled %}
+        <div class="spread-actions">
+          <form method="post" action="{{ url_for('spread_regenerate', job_id=job.job_id, n=sp.n) }}"
+                onsubmit="this.querySelector('button').disabled = true">
+            <button class="small-button" type="submit">Regenerate</button>
+          </form>
+          <details class="spread-edit">
+            <summary class="small-button secondary-btn">Edit</summary>
+            <form method="post" action="{{ url_for('spread_edit', job_id=job.job_id, n=sp.n) }}">
+              <label class="wide">Story text
+                <textarea name="text" rows="3">{{ sp.text }}</textarea>
+              </label>
+              <label class="wide">Scene (one picture: say what is on the left and on the right)
+                <textarea name="scene" rows="4">{{ sp.scene }}</textarea>
+              </label>
+              <label>Calm zone (text sits on this half)
+                <select name="calm_zone">
+                  {% for option in ['left', 'right'] %}
+                    <option value="{{ option }}" {% if sp.calm_zone == option %}selected{% endif %}>{{ option }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <p class="hint">Changing the scene or the calm zone clears this spread's picture.</p>
+              <button class="button" type="submit">Save spread {{ sp.n }}</button>
+            </form>
+          </details>
+        </div>
+        {% endif %}
+      </article>
+    {% else %}
+      <section class="panel"><p class="hint">Spreads appear once the story and page map are ready.</p></section>
+    {% endfor %}
+  </div>
+
+  {% if story and story.locked and story.locked.parent_spread %}
+  <section class="panel" id="parent-card">
+    <p class="eyebrow">Pages 30–31 · locked</p>
+    <h2>Words for the real moment</h2>
+    {% set parent = story.locked.parent_spread %}
+    {% for label, key in [('You could say', 'you_could_say'), ('Try together', 'try_together'), ('In real life', 'in_real_life'), ('Read it again', 'read_it_again')] %}
+      {% if parent.get(key) %}<p class="locked-block"><strong>{{ label }}</strong>{{ parent.get(key) }}</p>{% endif %}
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  {% if story and story.locked %}
+  <section class="panel" id="dedication-card">
+    <p class="eyebrow">Page 32 · locked</p>
+    <h2>Dedication</h2>
+    <p>{{ story.locked.dedication or ('For ' ~ inputs.name ~ (', from ' ~ inputs.carer.name if inputs.carer and inputs.carer.name else '')) }}</p>
+  </section>
+  {% endif %}
+
+  {% if job.pdf %}
+  <section class="panel {% if qa_report and qa_report.passed %}is-pass{% else %}is-fail{% endif %}" id="human-check">
+    <p class="eyebrow">QA &amp; human check</p>
+    <h2>
+      {% if not qa_report %}QA has not run
+      {% elif qa_report.passed %}QA passed{% else %}QA failed - {{ qa_report.errors }} error(s){% endif %}
+      {% if qa_report and qa_report.warnings %} ? {{ qa_report.warnings }} warning(s){% endif %}
+    </h2>
+    <p>
+      <strong>Lowest spread resolution:</strong>
+      {% if min_effective_ppi is not none and min_effective_ppi is defined %}
+        {{ min_effective_ppi }} ppi
+        {% if min_effective_ppi < ppi_fail %}<span class="issue-error">(below {{ ppi_fail }} - cannot print)</span>
+        {% elif min_effective_ppi < ppi_warn %}<span class="issue-warning">(below the {{ ppi_warn }} ppi target)</span>
+        {% else %}(meets {{ ppi_warn }} ppi){% endif %}
+      {% else %}not recorded{% endif %}
+      - native pixels across the 426 mm spread, no upscaler.
+    </p>
+    {% if qa_report %}
+      <ul class="issue-list">
+        {% for name, report in qa_report.reports.items() %}
+          {% for issue in report.issues %}
+            <li class="issue-{{ issue.severity }}"><strong>{{ name }}{% if issue.page %} ? page {{ issue.page }}{% elif issue.spread %} ? spread {{ issue.spread }}{% endif %}</strong> {{ issue.message }}</li>
+          {% endfor %}
+        {% endfor %}
+      </ul>
+    {% endif %}
+    <form method="post" action="{{ url_for('run_job_qa', job_id=job.job_id) }}">
+      <button class="button secondary" type="submit">{% if qa_report %}Run QA again{% else %}Run QA{% endif %}</button>
+    </form>
+
+    <form method="post" action="{{ url_for('save_human_check', job_id=job.job_id) }}" class="human-check-form">
+      <h3>Human check</h3>
+      <p class="hint">A person looks at the cover and every finished spread before anything is sent. Spreads {{ read_aloud_spreads|join(', ') }} are read aloud. Rebuilding the PDF clears this.</p>
+      {% for key, label in human_check_items %}
+        <label class="wide">
+          <input type="checkbox" name="checked" value="{{ key }}"
+                 {% if human_check and human_check['items'] and human_check['items'].get(key) and human_check.pdf_sha256 == qa_report.pdf_sha256 %}checked{% endif %}>
+          {{ label }}
+        </label>
+      {% endfor %}
+      <label class="wide">Reviewer name
+        <input name="reviewer" value="{{ human_check.reviewer if human_check else '' }}" required>
+      </label>
+      <button class="button" type="submit">Save human check</button>
+    </form>
+
+    <form method="post" action="{{ url_for('send_preview_job', job_id=job.job_id) }}">
+      <button class="button" type="submit" {% if send_blockers %}disabled{% endif %}>Send preview</button>
+      {% if send_blockers %}
+        <ul class="issue-list">
+          {% for reason in send_blockers %}<li class="issue-error">{{ reason }}</li>{% endfor %}
+        </ul>
+      {% elif job.sent_at %}
+        <span class="hint">Preview released.</span>
+      {% endif %}
+    </form>
+  </section>
+  {% endif %}
+
+  <section class="panel change-panel">
+    <p class="eyebrow">Natural language edits</p>
+    <h2>Request a change</h2>
+    <p>Example: “Remove the dinosaur from every page. Shorten page 7. Make the cover warmer.” Requests queue if one is already running; progress updates above.</p>
+    <form method="post" action="{{ url_for('job_changes', job_id=job.job_id) }}">
+      <label class="wide">Change request
+        <textarea name="demand" rows="4" {% if not change_enabled %}disabled{% endif %}
+          placeholder="Describe what to change…"></textarea>
+      </label>
+      <button class="button" type="submit" {% if not change_enabled %}disabled{% endif %}>
+        {% if job.status == 'applying_changes' %}Queue change{% else %}Apply changes{% endif %}
+      </button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Activity log</p>
+    <h2>What the system did</h2>
+    <div class="log-list" id="event-list">
+      {% for event in events %}
+        <div class="log-row">
+          <code>{{ event.iso }}</code>
+          <strong>{{ event.type }}</strong>
+          <span>{{ event.message }}</span>
+        </div>
+      {% else %}
+        <p>No events yet.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <script>
+    (function setupRevisePlanEditor() {
+      const rows = document.getElementById('revise-action-rows');
+      const addButton = document.getElementById('add-revise-action');
+      if (!rows || !addButton) return;
+      const emptyHint = document.getElementById('no-revise-actions');
+      const template = () => {
+        const div = document.createElement('div');
+        div.className = 'revise-action-row';
+        div.innerHTML = `
+          <div class="revise-action-grid">
+            <label>Type
+              <select name="action_type">
+                <option value="rewrite_spread_text">rewrite_spread_text</option>
+                <option value="regen_spread_art" selected>regen_spread_art</option>
+                <option value="update_spread_scene">update_spread_scene</option>
+              </select>
+            </label>
+            <label>Spread
+              <input name="action_spread" type="number" min="1" max="14" value="" required>
+            </label>
+            <label>Calm zone
+              <select name="action_calm_zone">
+                <option value="">(unchanged)</option>
+                <option value="left">left</option>
+                <option value="right">right</option>
+              </select>
+            </label>
+            <label>Force face lock
+              <select name="action_force_character_lock">
+                <option value="false" selected>No</option>
+                <option value="true">Yes</option>
+              </select>
+            </label>
+            <label class="wide">Reason
+              <input name="action_reason" value="">
+            </label>
+            <label class="wide">Edit instruction (must-show for illustrator)
+              <input name="action_edit_instruction" value="">
+            </label>
+            <label class="wide">Story text (for rewrite_spread_text)
+              <textarea name="action_text" rows="2"></textarea>
+            </label>
+            <label class="wide">Scene (for update_spread_scene; left AND right half)
+              <textarea name="action_scene" rows="3"></textarea>
+            </label>
+          </div>
+          <button type="button" class="text-button remove-revise-action">Remove</button>`;
+        return div;
+      };
+      addButton.addEventListener('click', () => {
+        if (emptyHint) emptyHint.remove();
+        rows.appendChild(template());
+      });
+      rows.addEventListener('click', (event) => {
+        if (event.target.classList.contains('remove-revise-action')) {
+          const row = event.target.closest('.revise-action-row');
+          if (row) row.remove();
+        }
+      });
+    })();
+
+    (function setupSupportEditor() {
+      const rows = document.getElementById('support-rows');
+      const addButton = document.getElementById('add-support');
+      if (!rows || !addButton) return;
+      const template = () => {
+        const div = document.createElement('div');
+        div.className = 'support-row';
+        div.innerHTML = `
+          <input name="support_name" value="" placeholder="Name">
+          <input name="support_description" value="" placeholder="Visual description / role">
+          <button type="button" class="text-button remove-support">Remove</button>`;
+        return div;
+      };
+      addButton.addEventListener('click', () => rows.appendChild(template()));
+      rows.addEventListener('click', (event) => {
+        if (event.target.classList.contains('remove-support')) {
+          const row = event.target.closest('.support-row');
+          if (row) row.remove();
+          if (!rows.children.length) rows.appendChild(template());
+        }
+      });
+    })();
+
+    (function setupFoldGuides() {
+      document.querySelectorAll('.fold-guides-toggle').forEach((box) => {
+        box.addEventListener('change', () => {
+          const art = box.closest('.spread-card').querySelector('.spread-art');
+          art.classList.toggle('show-guides', box.checked);
+        });
+      });
+    })();
+
+    (function setupSectionCollapse() {
+      const root = document.getElementById('content-editor');
+      const expandBtn = document.getElementById('expand-all-sections');
+      const collapseBtn = document.getElementById('collapse-all-sections');
+      if (!root || !expandBtn || !collapseBtn) return;
+      const sections = () => root.querySelectorAll('details.editor-section');
+      expandBtn.addEventListener('click', () => {
+        sections().forEach((el) => { el.open = true; });
+      });
+      collapseBtn.addEventListener('click', () => {
+        sections().forEach((el) => { el.open = false; });
+      });
+    })();
+
+    const statusPanel = document.querySelector('[data-job-status]');
+    const statusUrl = statusPanel.dataset.jobStatus;
+    const statusLabel = document.getElementById('status-label');
+    const statusDetail = document.getElementById('status-detail');
+    const progressBar = document.getElementById('progress-bar');
+    const errorText = document.getElementById('job-error');
+    const statusNote = document.getElementById('status-note');
+    const changePanel = document.getElementById('change-progress-panel');
+    const changeSummary = document.getElementById('change-summary');
+    const changeDemand = document.getElementById('change-demand');
+    const changePhase = document.getElementById('change-phase');
+    const changeCounts = document.getElementById('change-counts');
+    const changeActionList = document.getElementById('change-action-list');
+    const active = new Set([
+      'queued', 'starting', 'generating_character', 'rebuilding_story',
+      'compiling_pages', 'rebuilding_content', 'generating_preview', 'validating_content',
+      'generating_cover', 'generating_pages', 'building_pdf', 'applying_changes',
+      'self_revising', 'regenerating_spread'
+    ]);
+    const decision = new Set(['content_ready', 'preview_ready', 'self_revise_ready']);
+    let lastStatus = '{{ job.status }}';
+    function titleCase(value) {
+      return String(value || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+    function renderChangeProgress(progress) {
+      if (!progress) return;
+      changePanel.classList.remove('is-idle');
+      changeSummary.textContent = progress.summary || 'Working on changes…';
+      changeDemand.textContent = progress.demand || '';
+      if (changePhase) changePhase.textContent = progress.phase || '';
+      if (changeCounts) {
+        changeCounts.textContent = `${progress.completed_actions || 0}/${progress.total_actions || 0}`;
+      }
+      if (changeActionList && Array.isArray(progress.actions)) {
+        changeActionList.innerHTML = progress.actions.map((action) => (
+          `<li class="action-${action.status}">` +
+          `<span class="action-status">${action.status}</span> ${action.label || action.type}` +
+          `</li>`
+        )).join('');
+      }
+      statusNote.textContent = progress.current_action || progress.summary || '';
+    }
+    async function poll() {
+      try {
+        const response = await fetch(statusUrl, { headers: { Accept: 'application/json' } });
+        if (!response.ok) return;
+        const job = await response.json();
+        statusLabel.textContent = titleCase(job.status);
+        const progress = job.change_progress;
+        if ((job.status === 'applying_changes' || job.status === 'self_revising') && progress) {
+          const total = progress.total_actions || 0;
+          const done = progress.completed_actions || 0;
+          const label = job.status === 'self_revising' ? 'Self-revise' : 'Change';
+          statusDetail.textContent = total
+            ? `${label} ${done}/${total}`
+            : (progress.phase === 'reviewing' ? 'Reviewing spreads…' : `${label} planning…`);
+          progressBar.style.width = `${total ? Math.round((done / total) * 100) : 12}%`;
+          renderChangeProgress(progress);
+        } else {
+          const spreadsTotal = job.spreads_total || 0;
+          statusDetail.textContent = spreadsTotal ? `${job.spreads_done || 0}/${spreadsTotal} spreads` : '';
+          const pct = spreadsTotal ? Math.round(((job.spreads_done || 0) / spreadsTotal) * 100) : 0;
+          progressBar.style.width = `${pct}%`;
+          if (job.status === 'validating_content') {
+            statusNote.textContent = 'Checking story, spreads, and prompts before illustration…';
+          } else if (job.status === 'generating_preview') {
+            statusNote.textContent = 'Generating the first spreads (no cover)…';
+          } else if (job.status === 'rebuilding_content') {
+            statusNote.textContent = 'Rebuilding the story and spread scenes for the new cast…';
+          } else if (job.status === 'self_revising') {
+            statusNote.textContent = 'Self-revise: reviewing spreads and applying fixes…';
+          } else if (progress && progress.phase === 'complete') {
+            renderChangeProgress(progress);
+          }
+        }
+        errorText.textContent = job.error || '';
+        if (active.has(job.status)) {
+          lastStatus = job.status;
+          setTimeout(poll, 2500);
+        } else if (
+          lastStatus !== job.status &&
+          (decision.has(job.status) || ['complete', 'failed', 'validation_failed'].includes(job.status))
+        ) {
+          location.reload();
+        }
+      } catch (error) {
+        setTimeout(poll, 6000);
+      }
+    }
+    if (active.has(lastStatus)) poll();
+  </script>
+{% endblock %}

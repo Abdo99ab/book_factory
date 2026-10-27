@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <title>Jobs</title>
+  <style>
+    body { font-family: Georgia, serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; color: #22324A; background: #FAF6EF; }
+    a { color: #A9502F; }
+    li { margin: 0.5rem 0; }
+  </style>
+</head>
+<body>
+  <h1>Jobs</h1>
+  <p><a href="{{ url_for('create_form') }}">New book</a></p>
+  <ul>
+    {% for j in jobs %}
+    <li>
+      <a href="{{ url_for('job_page', job_id=j.job_id) }}">{{ j.book_title or j.name }}</a>
+      — {{ j.status }} {% if j.order_id %}({{ j.order_id }}){% endif %}
+    </li>
+    {% else %}
+    <li>No jobs yet.</li>
+    {% endfor %}
+  </ul>
+</body>
+</html>

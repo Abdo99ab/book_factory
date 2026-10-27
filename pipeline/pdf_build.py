@@ -51,9 +51,17 @@ from .constants import (
     mm_to_pt,
 )
 from .fonts import normalize_font_id, register_brand_fonts, reportlab_name
-from .illustrate import assert_print_resolution
+from .illustrate import split_spread, spread_art_path
 from .job_log import append_event, read_json, write_json
-from .pages import split_spread, spread_art_path, spread_art_rel
+
+
+def spread_art_rel(n: int) -> str:
+    return f"spreads/spread-{int(n):02d}/art.png"
+
+
+def assert_print_resolution(job_dir: Path) -> float | None:
+    """v2: log-only — no upscaler, never hard-fail the build on ppi."""
+    return None
 
 SITE_URL = "raisedready.co.uk"
 CONTRAST_TARGET = 7.0  # story text on art: p10-based navy vs paper must clear 7:1

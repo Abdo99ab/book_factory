@@ -1,0 +1,8 @@
+spec notes for Book Factory from TJ's template:
+
+Inner pages: 210 × 210 mm + 3 mm bleed. Our spec said 4 mm, so please build to TJ's 3 mm.
+Cover: 216 + 8 mm spine + 216, with a 16 mm wrap. This spine width is only valid for 32 pages on 170 gsm paper.
+PDF: single pages, no colour profile needed. Endpapers are plain and not counted in the 32 pages.
+Back cover: TJ prints a small QR/batch code in a corner. Keep that corner clear; Meda is asking for the exact corner and size.
+
+IMPORTANT: the specs here overrides the specs mentionned in the brand guidelines if not respected.

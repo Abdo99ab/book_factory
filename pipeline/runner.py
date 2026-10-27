@@ -1,569 +1,263 @@
-"""Orchestrates the full A-to-Z book generation job."""
+"""Job runner v2: content → character → preview → build → per-asset edit."""
 
 from __future__ import annotations
 
 import logging
-import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from .character import generate_anchor_sheet, generate_character, generate_set_sheets
-from .constants import PAGE_CONCURRENCY, PPI_FAIL, SPREAD_COUNT
+from .character import generate_character
+from .constants import PREVIEW_SPREAD_COUNT, SPREAD_COUNT
+from .content import generate_content
 from .illustrate import (
-    PrintResolutionError,
-    assert_print_resolution,
+    ensure_spreads,
     generate_cover_panels,
-    generate_spread_art,
     generate_title_spot,
-    min_effective_ppi,
-    spread_art_exists,
+    regenerate_cover,
+    regenerate_spread,
 )
 from .job_log import append_event, read_json, write_json
 from .openai_util import create_client
-from .pages import clear_spread_art, compile_pages, spread_art_path, spread_pages
-from .pdf_build import build_pdf
-from .qa import run_qa
-from .story import rebuild_story
-from .validate import ValidationError, validate_content
+from .pdf_build import build_pdf, render_front_preview
 
 logger = logging.getLogger(__name__)
 
-# Preview = the first spreads (pages 2-5): one wide picture each, cut into two pages at PDF time.
-PREVIEW_SPREAD_COUNT = 2
-PREVIEW_PAGE_COUNT = PREVIEW_SPREAD_COUNT * 2  # content pages covered by the preview (2-5)
 
-
-def _update_job(job_dir: Path, **updates):
-    path = job_dir / "job.json"
-    job = read_json(path, default={})
-    job.update(updates)
-    job["updated_at"] = time.time()
-    write_json(path, job)
+def _update_job(job_dir: Path, **fields) -> dict:
+    job = read_json(job_dir / "job.json") or {}
+    job.update(fields)
+    write_json(job_dir / "job.json", job)
     return job
 
 
-def count_completed_spreads(job_dir: Path) -> int:
-    """Number of spread images (``art.png``) on disk (0..14)."""
-    return sum(1 for n in range(1, SPREAD_COUNT + 1) if spread_art_path(job_dir, n).is_file())
+def _load_story(job_dir: Path) -> dict:
+    story = read_json(job_dir / "story" / "manuscript.json")
+    if not story:
+        raise FileNotFoundError("manuscript.json missing — run content first.")
+    return story
 
 
-def _progress(job_dir: Path) -> dict:
-    return {"spreads_done": count_completed_spreads(job_dir), "spreads_total": SPREAD_COUNT}
+def _load_pages(job_dir: Path) -> list:
+    data = read_json(job_dir / "story" / "pages.json") or {}
+    return data.get("pages") or []
 
 
-def _preview_spreads(pages: list, count: int = PREVIEW_SPREAD_COUNT) -> list[int]:
-    """First N spread numbers (never the cover)."""
-    return sorted(spread_pages(pages))[:count]
+def _character_path(job_dir: Path) -> Path:
+    path = job_dir / "character" / "character.png"
+    if not path.is_file():
+        raise FileNotFoundError("character.png missing")
+    return path
 
 
-def _spread_page_numbers(spread_numbers: list[int]) -> list[int]:
-    return [p for n in spread_numbers for p in (2 * n, 2 * n + 1)]
+def _reference(job_dir: Path) -> Path:
+    refs = list((job_dir / "character").glob("reference.*"))
+    if not refs:
+        raise FileNotFoundError("Reference photo missing")
+    return refs[0]
 
 
-def _generate_spread_batch(
-    client,
-    job_dir: Path,
-    spread_numbers: list[int],
-    inputs: dict,
-    story: dict,
-    character_path: Path,
-    all_pages: list,
-):
-    briefs = spread_pages(all_pages)
-    pending = [n for n in spread_numbers if not spread_art_exists(job_dir, n)]
-
-    _update_job(job_dir, **_progress(job_dir))
-    if not pending:
-        append_event(job_dir, "pages_skip", "Requested spreads already exist; not regenerating.")
-        return
-
-    errors = []
-    resolution_failed = None
-    with ThreadPoolExecutor(max_workers=PAGE_CONCURRENCY) as executor:
-        futures = {
-            executor.submit(
-                generate_spread_art,
-                client,
-                job_dir,
-                {**briefs[n], "spread": n},
-                inputs,
-                story,
-                character_path,
-            ): n
-            for n in pending
-        }
-        for future in as_completed(futures):
-            n = futures[future]
-            try:
-                meta = future.result()
-                if meta.get("resolution_status") == "fail" and resolution_failed is None:
-                    resolution_failed = meta.get("effective_ppi")
-                    from .constants import ENFORCE_PRINT_PPI
-
-                    if ENFORCE_PRINT_PPI:
-                        # Stop spending on pages that cannot print when enforcement is on.
-                        for other in futures:
-                            other.cancel()
-            except Exception as error:
-                logger.exception("Spread %s failed", n)
-                errors.append(f"Spread {n}: {error}")
-                append_event(job_dir, "page_error", f"Spread {n} failed: {error}")
-            _update_job(job_dir, **_progress(job_dir))
-
-    _update_job(job_dir, min_effective_ppi=min_effective_ppi(job_dir))
-    from .constants import ENFORCE_PRINT_PPI
-
-    if resolution_failed is not None and ENFORCE_PRINT_PPI:
-        raise PrintResolutionError(
-            f"Art is {resolution_failed} ppi across the 426 mm spread (< {PPI_FAIL}). "
-            "The model returned too few pixels and there is no upscaler."
-        )
-    if resolution_failed is not None and not ENFORCE_PRINT_PPI:
-        append_event(
-            job_dir,
-            "print_resolution_ignored",
-            f"Art is {resolution_failed} ppi (< {PPI_FAIL}); continuing — ENFORCE_PRINT_PPI is off.",
-            effective_ppi=resolution_failed,
-        )
-    if errors:
-        raise RuntimeError("; ".join(errors))
-
-
-def _illustrate_and_build(
-    client,
-    job_dir: Path,
-    inputs: dict,
-    story: dict,
-    pages: list,
-    character_path: Path,
-) -> Path:
-    """Title spot + cover + 14 spreads (skipping existing art), resolution gate, PDF."""
-    _update_job(job_dir, status="generating_cover")
-    if not (job_dir / "title_page" / "spot.png").is_file():
-        generate_title_spot(client, job_dir, inputs, story)
-    front = job_dir / "cover" / "front_art.png"
-    back = job_dir / "cover" / "back_art.png"
-    if not (front.is_file() and back.is_file()):
-        generate_cover_panels(client, job_dir, inputs, story, character_path)
-    else:
-        append_event(job_dir, "cover_skip", "Using existing cover panels.")
-
-    _update_job(job_dir, status="generating_pages")
-    # Existing preview art is skipped inside _generate_spread_batch.
-    _generate_spread_batch(
-        client,
-        job_dir,
-        list(range(1, SPREAD_COUNT + 1)),
-        inputs,
-        story,
-        character_path,
-        pages,
-    )
-    # PPI gate is warn-only unless ENFORCE_PRINT_PPI=1.
-    lowest = assert_print_resolution(job_dir)
-
-    _update_job(job_dir, status="building_pdf", min_effective_ppi=lowest)
-    pdf_path = build_pdf(job_dir, story, pages, inputs)
-    _update_job(
-        job_dir,
-        status="complete",
-        pdf=pdf_path.relative_to(job_dir).as_posix(),
-        **_progress(job_dir),
-        min_effective_ppi=lowest,
-        error=None,
-    )
-    try:
-        run_qa(job_dir)  # deterministic reports; Send stays blocked until a human also signs off
-    except Exception as qa_error:  # never lose a finished build to a QA crash
-        append_event(job_dir, "qa_failed_to_run", str(qa_error))
-    return pdf_path
-
-
-def prepare_content(client, job_dir: Path, inputs: dict):
-    """Character sheets (gate) + story rebuild + page briefs. No cover, no illustration."""
-    reference_path = next((job_dir / "character").glob("reference.*"), None)
-    if reference_path is None:
-        raise FileNotFoundError("Reference image missing")
-
-    job = read_json(job_dir / "job.json") or {}
-
-    _update_job(job_dir, status="generating_character", error=None)
-    character_path = job_dir / "character" / "character.png"
-    if not character_path.is_file():
-        character_path = generate_character(client, job_dir, reference_path, inputs)
-    else:
-        append_event(job_dir, "character_skip", "Using existing character sheet.")
-
-    if not (job_dir / "sets").is_dir() or not any((job_dir / "sets").glob("*.png")):
-        generate_set_sheets(client, job_dir, inputs)
-    if not (job_dir / "anchor" / "anchor.png").is_file():
-        generate_anchor_sheet(client, job_dir, inputs)
-
-    job = read_json(job_dir / "job.json") or {}
-    if not job.get("character_approved_at"):
-        _update_job(job_dir, status="character_ready", error=None)
-        append_event(
-            job_dir,
-            "character_awaiting_approval",
-            "Hero, set and anchor sheets ready — approve before story generation.",
-        )
-        return character_path, None, None
-
-    _update_job(job_dir, status="rebuilding_story")
-    story_path = job_dir / "story" / "rebuilt_story.json"
-    if story_path.is_file():
-        story = read_json(story_path)
-        append_event(job_dir, "story_skip", "Using existing rebuilt story.")
-    else:
-        _update_job(job_dir, status="humanizing_story")
-        story = rebuild_story(client, job_dir, inputs)
-    _update_job(job_dir, book_title=story.get("title"))
-
-    _update_job(job_dir, status="compiling_pages")
-    pages_path = job_dir / "story" / "pages.json"
-    if pages_path.is_file():
-        pages = read_json(pages_path)["pages"]
-        append_event(job_dir, "pages_skip", "Using existing page compilation.")
-    else:
-        _update_job(job_dir, status="humanizing_pages")
-        pages = compile_pages(client, job_dir, inputs, story)
-
-    _update_job(
-        job_dir,
-        **_progress(job_dir),  # spreads_done / 14
-        book_title=story.get("title"),
-    )
-    return character_path, story, pages
-
-
-def run_prepare(job_id: str, job_dir: Path):
+def run_prepare(job_id: str, job_dir: Path) -> None:
+    """Content (one text call) + character sheet. Stops at content_ready."""
     inputs = read_json(job_dir / "inputs.json")
     if not inputs:
         raise FileNotFoundError("inputs.json missing")
-
-    append_event(job_dir, "job_start", "Preparing story content (no illustration yet).")
-    _update_job(job_dir, status="starting", error=None)
+    append_event(job_dir, "job_start", "v2 prepare: manuscript + character.")
+    _update_job(job_dir, status="generating_content", error=None)
     client = create_client()
     try:
-        _character_path, story, pages = prepare_content(client, job_dir, inputs)
-        if story is None:
-            _update_job(job_dir, status="character_ready", error=None)
-            append_event(
-                job_dir,
-                "character_ready",
-                "Approve the hero sheet to continue to story and pages.",
-            )
-            return
-        _update_job(job_dir, status="content_ready", error=None)
-        append_event(
-            job_dir,
-            "content_ready",
-            f"Story and pages ready. Choose Preview ({PREVIEW_SPREAD_COUNT} spreads) or Validate & build.",
-        )
-    except Exception as error:
-        logger.exception("Job %s prepare failed", job_id)
-        _update_job(job_dir, status="failed", error=str(error))
-        append_event(job_dir, "job_failed", str(error))
-        raise
-
-
-def run_preview(job_id: str, job_dir: Path):
-    """Generate the first spreads (pages 2-5, one wide picture each; no cover)."""
-    inputs = read_json(job_dir / "inputs.json")
-    if not inputs:
-        raise FileNotFoundError("inputs.json missing")
-
-    append_event(
-        job_dir,
-        "preview_start",
-        f"Generating the first {PREVIEW_SPREAD_COUNT} spreads (pages 2\u2013{PREVIEW_PAGE_COUNT + 1}, no cover).",
-    )
-    _update_job(job_dir, status="generating_preview", error=None)
-    client = create_client()
-    try:
-        character_path, story, pages = prepare_content(client, job_dir, inputs)
-        if story is None or pages is None:
-            raise RuntimeError("Approve the hero character sheet before preview.")
-        preview_spreads = _preview_spreads(pages, PREVIEW_SPREAD_COUNT)
-        if not preview_spreads:
-            raise RuntimeError("No spreads available to preview.")
-
-        numbers = _spread_page_numbers(preview_spreads)
+        story = generate_content(client, job_dir, inputs)
+        inputs = {**inputs, "route": story.get("route")}
+        write_json(job_dir / "inputs.json", inputs)
+        _update_job(job_dir, status="generating_character", book_title=story.get("title"))
+        if not (job_dir / "character" / "character.png").is_file():
+            generate_character(client, job_dir, _reference(job_dir), inputs)
         _update_job(
             job_dir,
-            status="generating_preview",
-            preview_page_numbers=numbers,
-            preview_requested=True,
-        )
-        append_event(
-            job_dir,
-            "preview_pages_selected",
-            f"Preview spreads {preview_spreads} (pages {numbers})",
-            pages=numbers,
-            spreads=preview_spreads,
-        )
-        _generate_spread_batch(
-            client,
-            job_dir,
-            preview_spreads,
-            inputs,
-            story,
-            character_path,
-            pages,
-        )
-        _update_job(
-            job_dir,
-            status="preview_ready",
-            preview_ready=True,
-            preview_page_numbers=numbers,
-            **_progress(job_dir),
+            status="content_ready",
+            book_title=story.get("title"),
             error=None,
         )
         append_event(
             job_dir,
-            "preview_ready",
-            f"First {PREVIEW_SPREAD_COUNT} spreads are ready (pages {numbers[0]}\u2013{numbers[-1]}). Validate & build will keep them.",
+            "content_ready",
+            "Manuscript and character ready. Run Preview (cover + 2 spreads) or Build.",
         )
     except Exception as error:
-        logger.exception("Job %s preview failed", job_id)
+        logger.exception("Prepare failed %s", job_id)
         _update_job(job_dir, status="failed", error=str(error))
         append_event(job_dir, "job_failed", str(error))
         raise
 
 
-def run_validate_and_build(job_id: str, job_dir: Path):
-    """Validate content, then build cover + remaining pages + PDF. Keeps existing page art."""
+def run_preview(job_id: str, job_dir: Path) -> None:
+    """Front cover + spreads 1–2. Keeps existing assets."""
     inputs = read_json(job_dir / "inputs.json")
-    if not inputs:
-        raise FileNotFoundError("inputs.json missing")
-
-    append_event(job_dir, "build_start", "Validate & build started.")
-    _update_job(job_dir, status="starting", error=None)
+    append_event(job_dir, "preview_start", "Preview: front cover + first two spreads.")
+    _update_job(job_dir, status="generating_preview", error=None)
     client = create_client()
     try:
-        character_path, story, pages = prepare_content(client, job_dir, inputs)
-        pages_path = job_dir / "story" / "pages.json"
-
-        job = read_json(job_dir / "job.json") or {}
-        validation_path = job_dir / "story" / "validation_report.json"
-        prior = read_json(validation_path) if validation_path.is_file() else None
-        already_validated = bool(job.get("validation_passed") and prior and prior.get("passed"))
-
-        if already_validated:
-            append_event(job_dir, "validation_skip", "Using prior passed validation.")
-            story = read_json(job_dir / "story" / "rebuilt_story.json") or story
-            pages = read_json(pages_path)["pages"]
-        else:
-            _update_job(job_dir, status="validating_content", error=None)
-            try:
-                validate_content(client, job_dir, inputs, story, pages)
-            except ValidationError as error:
-                _update_job(
-                    job_dir,
-                    status="validation_failed",
-                    error=str(error),
-                    validation_passed=False,
-                )
-                append_event(job_dir, "validation_failed", str(error))
-                return
-            story = read_json(job_dir / "story" / "rebuilt_story.json") or story
-            pages = read_json(pages_path)["pages"]
-            _update_job(
-                job_dir,
-                book_title=story.get("title"),
-                spreads_total=SPREAD_COUNT,
-                validation_passed=True,
-            )
-
-        pdf_path = _illustrate_and_build(
-            client, job_dir, inputs, story, pages, character_path
-        )
-        append_event(job_dir, "job_complete", f"Book ready: {pdf_path.name}")
-
-        # Auto self-revise once: vision-QA composited pages and apply precise fixes.
-        # Failures here must not mark the finished PDF job as failed.
-        job_now = read_json(job_dir / "job.json") or {}
-        if not job_now.get("self_revise_reviewed") and job_now.get("status") != "self_revise_ready":
-            try:
-                from .self_revise import run_self_revise
-
-                append_event(
-                    job_dir,
-                    "self_revise_auto_start",
-                    "Starting automatic self-revise review (plan awaits your approval).",
-                )
-                run_self_revise(client, job_dir, inputs, force=False)
-            except Exception as revise_error:
-                logger.exception("Self-revise failed for %s", job_id)
-                append_event(job_dir, "self_revise_failed", str(revise_error))
-                _update_job(
-                    job_dir,
-                    status="complete",
-                    error=f"Self-revise failed: {revise_error}",
-                    self_revise={
-                        "phase": "failed",
-                        "summary": str(revise_error),
-                    },
-                )
-    except Exception as error:
-        logger.exception("Job %s build failed", job_id)
-        _update_job(job_dir, status="failed", error=str(error))
-        append_event(job_dir, "job_failed", str(error))
-        raise
-
-
-def run_from_template(job_id: str, job_dir: Path):
-    """Reuse approved template text: new sheets + all 14 spread images + cover + PDF.
-
-    Story/pages are already on disk (slots filled, locked copy rebuilt). Does not rewrite the text.
-    """
-    inputs = read_json(job_dir / "inputs.json")
-    if not inputs:
-        raise FileNotFoundError("inputs.json missing")
-
-    story = read_json(job_dir / "story" / "rebuilt_story.json")
-    pages_payload = read_json(job_dir / "story" / "pages.json")
-    if not story or not pages_payload:
-        raise FileNotFoundError("Template story/pages missing on job")
-    pages = pages_payload["pages"]
-
-    append_event(
-        job_dir,
-        "template_run_start",
-        f"Building from template {inputs.get('from_template_id')} "
-        f"(content locked; new hero {inputs.get('name')}).",
-    )
-    _update_job(
-        job_dir,
-        status="starting",
-        error=None,
-        book_title=story.get("title"),
-        spreads_total=SPREAD_COUNT,
-        spreads_done=0,
-        validation_passed=True,
-    )
-    client = create_client()
-    try:
-        reference_path = next((job_dir / "character").glob("reference.*"), None)
-        if reference_path is None:
-            raise FileNotFoundError("Reference image missing")
-
-        _update_job(job_dir, status="generating_character")
-        # Always regenerate the character sheet for the new child.
-        character_path = generate_character(client, job_dir, reference_path, inputs)
-        # Templates never carry sheets over: set and anchor sheets are regenerated too.
-        generate_set_sheets(client, job_dir, inputs)
-        generate_anchor_sheet(client, job_dir, inputs)
-
-        # Force fresh cover/spread art for the new face (ignore any leftover art).
-        for leftover in (
-            job_dir / "cover" / "front_art.png",
-            job_dir / "cover" / "back_art.png",
-            job_dir / "title_page" / "spot.png",
-        ):
-            if leftover.is_file():
-                leftover.unlink()
-        for n in range(1, SPREAD_COUNT + 1):
-            clear_spread_art(job_dir, n)
-        pdf_path = _illustrate_and_build(
-            client, job_dir, inputs, story, pages, character_path
-        )
-        append_event(job_dir, "job_complete", f"Template book ready: {pdf_path.name}")
-
-        job_now = read_json(job_dir / "job.json") or {}
-        if not job_now.get("self_revise_reviewed") and job_now.get("status") != "self_revise_ready":
-            try:
-                from .self_revise import run_self_revise
-
-                append_event(
-                    job_dir,
-                    "self_revise_auto_start",
-                    "Starting automatic self-revise review (plan awaits your approval).",
-                )
-                run_self_revise(client, job_dir, inputs, force=False)
-            except Exception as revise_error:
-                logger.exception("Self-revise failed for %s", job_id)
-                append_event(job_dir, "self_revise_failed", str(revise_error))
-                _update_job(
-                    job_dir,
-                    status="complete",
-                    error=f"Self-revise failed: {revise_error}",
-                    self_revise={
-                        "phase": "failed",
-                        "summary": str(revise_error),
-                    },
-                )
-    except Exception as error:
-        logger.exception("Job %s template run failed", job_id)
-        _update_job(job_dir, status="failed", error=str(error))
-        append_event(job_dir, "job_failed", str(error))
-        raise
-
-
-def run_job(job_id: str, job_dir: Path, mode: str | None = None):
-    """
-    mode:
-      - prepare: stop at content_ready
-      - preview: first 2 spreads (pages 2-5), stop at preview_ready
-      - validate_and_build / full: validate + cover + all pages + PDF
-      - from_template: reuse locked content, new face/name art + PDF
-      - None: read start_mode from job/inputs (default full)
-    """
-    job = read_json(job_dir / "job.json") or {}
-    inputs = read_json(job_dir / "inputs.json") or {}
-    resolved = mode or job.get("run_mode") or inputs.get("start_mode") or "full"
-
-    if resolved in {"prepare", "content"}:
-        return run_prepare(job_id, job_dir)
-    if resolved in {"preview", "preview_first"}:
-        return run_preview(job_id, job_dir)
-    if resolved in {"from_template", "template"}:
-        return run_from_template(job_id, job_dir)
-    return run_validate_and_build(job_id, job_dir)
-
-
-def run_regenerate_spread(job_id: str, job_dir: Path, n: int, edit_instruction: str | None = None):
-    """Regenerate ONE spread's picture (the operator's Regenerate button), then refresh the PDF if built.
-
-    The art is deleted first so a failure never leaves a stale picture behind. The PDF (if one was
-    built) is rebuilt so its composed spread matches the new picture.
-    """
-    inputs = read_json(job_dir / "inputs.json")
-    story = read_json(job_dir / "story" / "rebuilt_story.json")
-    pages_payload = read_json(job_dir / "story" / "pages.json")
-    if not (inputs and story and pages_payload):
-        raise FileNotFoundError("Story/pages are not ready.")
-    pages = pages_payload["pages"]
-    briefs = spread_pages(pages)
-    if int(n) not in briefs:
-        raise ValueError(f"Unknown spread {n}.")
-    character_path = job_dir / "character" / "character.png"
-    previous_status = (read_json(job_dir / "job.json") or {}).get("status")
-    append_event(job_dir, "spread_regenerate", f"Regenerating spread {n}.", spread=int(n))
-    _update_job(job_dir, status="regenerating_spread", error=None)
-    client = create_client()
-    try:
-        clear_spread_art(job_dir, int(n))
-        generate_spread_art(
+        if not (job_dir / "story" / "manuscript.json").is_file():
+            run_prepare(job_id, job_dir)
+        story = _load_story(job_dir)
+        character = _character_path(job_dir)
+        generate_cover_panels(client, job_dir, inputs, story, character, front_only=True)
+        ensure_spreads(
             client,
             job_dir,
-            {**briefs[int(n)], "spread": int(n)},
             inputs,
             story,
-            character_path,
-            edit_instruction=edit_instruction,
+            character,
+            list(range(1, PREVIEW_SPREAD_COUNT + 1)),
         )
-        job = read_json(job_dir / "job.json") or {}
-        updates: dict = {**_progress(job_dir), "error": None}
-        if job.get("pdf") and count_completed_spreads(job_dir) == SPREAD_COUNT:
-            pdf_path = build_pdf(job_dir, story, pages, inputs)
-            updates["pdf"] = pdf_path.relative_to(job_dir).as_posix()
-            updates["status"] = "complete"
-        else:
-            updates["status"] = previous_status if previous_status != "regenerating_spread" else "preview_ready"
-        _update_job(job_dir, **updates)
+        try:
+            render_front_preview(job_dir, inputs, story)
+        except Exception as preview_err:  # noqa: BLE001
+            append_event(job_dir, "cover_preview_failed", str(preview_err))
+        _update_job(
+            job_dir,
+            status="preview_ready",
+            preview_ready=True,
+            error=None,
+        )
+        append_event(job_dir, "preview_ready", "Front cover + spreads 1–2 ready.")
     except Exception as error:
-        logger.exception("Job %s spread %s regenerate failed", job_id, n)
+        logger.exception("Preview failed %s", job_id)
         _update_job(job_dir, status="failed", error=str(error))
         append_event(job_dir, "job_failed", str(error))
         raise
+
+
+def run_build(job_id: str, job_dir: Path) -> Path:
+    """Generate any missing art, then the full TJ PDF. Never regenerates existing files."""
+    inputs = read_json(job_dir / "inputs.json")
+    append_event(job_dir, "build_start", "Full build (reuse existing art).")
+    _update_job(job_dir, status="building", error=None)
+    client = create_client()
+    try:
+        if not (job_dir / "story" / "manuscript.json").is_file():
+            run_prepare(job_id, job_dir)
+        story = _load_story(job_dir)
+        pages = _load_pages(job_dir)
+        character = _character_path(job_dir)
+        generate_title_spot(client, job_dir, inputs, story)
+        generate_cover_panels(client, job_dir, inputs, story, character, front_only=False)
+        ensure_spreads(client, job_dir, inputs, story, character, list(range(1, SPREAD_COUNT + 1)))
+        _update_job(job_dir, status="building_pdf")
+        pdf_path = build_pdf(job_dir, story, pages, inputs)
+        _update_job(
+            job_dir,
+            status="complete",
+            pdf=pdf_path.relative_to(job_dir).as_posix(),
+            error=None,
+        )
+        append_event(job_dir, "job_complete", f"Book ready: {pdf_path.name}")
+        return pdf_path
+    except Exception as error:
+        logger.exception("Build failed %s", job_id)
+        _update_job(job_dir, status="failed", error=str(error))
+        append_event(job_dir, "job_failed", str(error))
+        raise
+
+
+def run_edit_spread(job_id: str, job_dir: Path, n: int, instruction: str) -> None:
+    inputs = read_json(job_dir / "inputs.json")
+    story = _load_story(job_dir)
+    character = _character_path(job_dir)
+    client = create_client()
+    _update_job(job_dir, status="editing", error=None)
+    try:
+        regenerate_spread(client, job_dir, inputs, story, character, int(n), instruction)
+        # Rebuild PDF if we already had one so the edit is visible immediately.
+        if (read_json(job_dir / "job.json") or {}).get("pdf") or all(
+            (job_dir / "spreads" / f"spread-{i:02d}" / "art.png").is_file()
+            for i in range(1, SPREAD_COUNT + 1)
+        ) and (job_dir / "cover" / "back_art.png").is_file():
+            pages = _load_pages(job_dir)
+            if len(pages) == 32 and (job_dir / "cover" / "back_art.png").is_file():
+                pdf_path = build_pdf(job_dir, story, pages, inputs)
+                _update_job(job_dir, status="complete", pdf=pdf_path.relative_to(job_dir).as_posix())
+            else:
+                _update_job(job_dir, status="preview_ready" if int(n) <= PREVIEW_SPREAD_COUNT else "editing")
+        else:
+            prev = (read_json(job_dir / "job.json") or {}).get("status")
+            _update_job(job_dir, status=prev if prev != "editing" else "preview_ready")
+        append_event(job_dir, "edit_done", f"Spread {n} updated.", spread=int(n))
+    except Exception as error:
+        logger.exception("Edit spread failed %s", job_id)
+        _update_job(job_dir, status="failed", error=str(error))
+        append_event(job_dir, "job_failed", str(error))
+        raise
+
+
+def run_edit_cover(job_id: str, job_dir: Path, kind: str, instruction: str) -> None:
+    inputs = read_json(job_dir / "inputs.json")
+    story = _load_story(job_dir)
+    character = _character_path(job_dir)
+    client = create_client()
+    _update_job(job_dir, status="editing", error=None)
+    try:
+        regenerate_cover(client, job_dir, inputs, story, character, kind, instruction)
+        if kind == "front":
+            try:
+                render_front_preview(job_dir, inputs, story)
+            except Exception:  # noqa: BLE001
+                pass
+        job = read_json(job_dir / "job.json") or {}
+        if job.get("pdf") and (job_dir / "cover" / "back_art.png").is_file():
+            pages = _load_pages(job_dir)
+            if len(pages) == 32:
+                pdf_path = build_pdf(job_dir, story, pages, inputs)
+                _update_job(job_dir, status="complete", pdf=pdf_path.relative_to(job_dir).as_posix())
+            else:
+                _update_job(job_dir, status="preview_ready")
+        else:
+            _update_job(job_dir, status="preview_ready")
+        append_event(job_dir, "edit_done", f"{kind} cover updated.")
+    except Exception as error:
+        logger.exception("Edit cover failed %s", job_id)
+        _update_job(job_dir, status="failed", error=str(error))
+        append_event(job_dir, "job_failed", str(error))
+        raise
+
+
+def run_edit_text(job_dir: Path, target: str, text: str) -> None:
+    """Update manuscript text for a spread (n=1..14) or back_blurb / dedication / parent block.
+
+    Does not call the image model — next PDF rebuild picks up the new words.
+    """
+    story = _load_story(job_dir)
+    pages = _load_pages(job_dir)
+    if target.startswith("spread:"):
+        n = int(target.split(":", 1)[1])
+        for sp in story["spreads"]:
+            if int(sp["n"]) == n:
+                sp["text"] = text.strip()
+        for page in pages:
+            if page.get("spread") == n and page.get("side") == page.get("calm_zone"):
+                page["text"] = text.strip()
+            elif page.get("spread") == n:
+                page["text"] = ""
+    elif target == "back_blurb":
+        story["back_blurb"] = text.strip()
+    elif target == "dedication":
+        story["dedication"] = text.strip()
+        for page in pages:
+            if page.get("kind") == "dedication":
+                page["text"] = text.strip()
+    elif target.startswith("parent:"):
+        key = target.split(":", 1)[1]
+        story.setdefault("parent_spread", {})[key] = text.strip()
+        story.setdefault("locked", {}).setdefault("parent_spread", {})[key] = text.strip()
+        for page in pages:
+            if page.get("kind") in {"parent_left", "parent_right"}:
+                page["parent"] = story["parent_spread"]
+    else:
+        raise ValueError(f"Unknown text target: {target}")
+    write_json(job_dir / "story" / "manuscript.json", story)
+    write_json(job_dir / "story" / "pages.json", {"pages": pages})
+    append_event(job_dir, "text_edit", f"Updated {target}.")
+    inputs = read_json(job_dir / "inputs.json") or {}
+    if (job_dir / "cover" / "back_art.png").is_file() and all(
+        (job_dir / "spreads" / f"spread-{i:02d}" / "art.png").is_file() for i in range(1, SPREAD_COUNT + 1)
+    ):
+        pdf_path = build_pdf(job_dir, story, pages, inputs)
+        _update_job(job_dir, status="complete", pdf=pdf_path.relative_to(job_dir).as_posix())
