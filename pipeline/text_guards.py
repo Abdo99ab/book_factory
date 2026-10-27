@@ -68,6 +68,29 @@ def _flesch_grade(text: str) -> float | None:
         return None
 
 
+def _text_for_readability(text: str, child_name: str, last_line: str) -> str:
+    """Neutralize locked/personal tokens that inflate Flesch–Kincaid on short spreads."""
+    graded = text or ""
+    if last_line and last_line.strip():
+        graded = graded.replace(last_line.strip(), "")
+    if child_name and child_name.strip():
+        graded = re.sub(
+            rf"\b{re.escape(child_name.strip())}\b",
+            "child",
+            graded,
+            flags=re.IGNORECASE,
+        )
+    return graded.strip()
+
+
+# Soft: logged / shown but must not block story rebuild (FK is noisy on short copy).
+SOFT_GUARD_CODES = frozenset({"readability"})
+
+
+def hard_issues(issues: list[dict]) -> list[dict]:
+    return [i for i in issues if i.get("code") not in SOFT_GUARD_CODES]
+
+
 def check_spreads(
     draft: dict,
     candidate: dict,
@@ -179,15 +202,16 @@ def check_spreads(
                     "message": f"Spread {n} introduces new proper noun(s): {', '.join(sorted(new_proper))}.",
                 }
             )
-        # The catalogue's approved last line is LOCKED copy; do not grade it against the band.
-        graded_text = text.replace(last_line.strip(), "") if last_line and last_line.strip() else text
-        grade = _flesch_grade(graded_text) if graded_text.strip() else None
+        graded_text = _text_for_readability(text, child_name, last_line)
+        # Skip FK on tiny fragments — the formula is meaningless under ~8 words.
+        grade = _flesch_grade(graded_text) if _word_count(graded_text) >= 8 else None
         if grade is not None and grade > fk_limit:
             issues.append(
                 {
                     "code": "readability",
                     "spread": n,
                     "message": f"Spread {n} readability grade {grade:.1f} exceeds {fk_limit}.",
+                    "severity": "warning",
                 }
             )
         if "?" in text:

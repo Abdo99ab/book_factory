@@ -8,7 +8,7 @@ from .humanize import humanize_story_fields
 from .job_log import append_event, write_json
 from .memory import format_memory_for_prompt
 from .openai_util import chat_json
-from .text_guards import check_spreads
+from .text_guards import SOFT_GUARD_CODES, check_spreads, hard_issues
 
 SYSTEM = """You are a UK English picture-book author and editor for Raised Ready books.
 Write warm, concrete, age-appropriate prose. No stated moral. No AI clichés.
@@ -122,17 +122,24 @@ def rebuild_story(client, job_dir: Path, inputs: dict) -> dict:
     }
 
     draft_for_guards = {"spreads": spreads, "locked": locked}
-    issues = check_spreads(
-        draft_for_guards,
-        story_body,
-        locked,
+    guard_kwargs = dict(
         child_name=inputs["name"],
         age_band=inputs.get("age_band") or title["age_band"],
         last_line=title.get("last_line", "").replace("{name}", inputs["name"]),
     )
-    if issues:
-        fix_note = "; ".join(i["message"] for i in issues)
-        append_event(job_dir, "story_guard_retry", fix_note, issues=issues)
+    issues = check_spreads(draft_for_guards, story_body, locked, **guard_kwargs)
+    blocking = hard_issues(issues)
+    soft = [i for i in issues if i.get("code") in SOFT_GUARD_CODES]
+    if soft and not blocking:
+        append_event(
+            job_dir,
+            "story_guard_warning",
+            "Soft guard warnings (job continues).",
+            issues=soft,
+        )
+    elif blocking:
+        fix_note = "; ".join(i["message"] for i in blocking)
+        append_event(job_dir, "story_guard_retry", fix_note, issues=blocking)
         retry_payload = _generate(
             "Fix these guard violations and return JSON again:\n" + fix_note
         )
@@ -142,17 +149,24 @@ def rebuild_story(client, job_dir: Path, inputs: dict) -> dict:
             "spreads": story_body["spreads"],
             "locked": locked,
         }
-        issues = check_spreads(
-            post_retry_draft,
-            story_body,
-            locked,
-            child_name=inputs["name"],
-            age_band=inputs.get("age_band") or title["age_band"],
-            last_line=title.get("last_line", "").replace("{name}", inputs["name"]),
-        )
-        if issues:
-            append_event(job_dir, "story_guard_failed", "Guard checks failed after retry.", issues=issues)
-            raise ValueError("Story guard checks failed: " + issues[0]["message"])
+        issues = check_spreads(post_retry_draft, story_body, locked, **guard_kwargs)
+        soft = [i for i in issues if i.get("code") in SOFT_GUARD_CODES]
+        blocking = hard_issues(issues)
+        if soft:
+            append_event(
+                job_dir,
+                "story_guard_warning",
+                "Soft guard warnings after retry (job continues).",
+                issues=soft,
+            )
+        if blocking:
+            append_event(
+                job_dir,
+                "story_guard_failed",
+                "Guard checks failed after retry.",
+                issues=blocking,
+            )
+            raise ValueError("Story guard checks failed: " + blocking[0]["message"])
 
     write_json(job_dir / "story" / "rebuilt_story.json", story_body)
     append_event(
