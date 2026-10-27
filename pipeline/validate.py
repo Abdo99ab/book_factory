@@ -447,10 +447,11 @@ def _structural_issues(inputs: dict, story: dict, pages: list) -> list:
     must_not_show = title.get("must_not_show") or []
     schedule = (title.get("anchor") or {}).get("state_schedule")
     context = _context_text(inputs, title)
-    from .catalogue import must_include_map
+    from .catalogue import beat_text_map, must_include_map
     from .text_guards import must_include_issues
 
     required = must_include_map(inputs["title_id"])
+    beat_texts = beat_text_map(inputs["title_id"])
     for page in pages:
         number = page.get("number")
         if page.get("kind") != "spread_half" or page.get("blank"):
@@ -503,10 +504,13 @@ def _structural_issues(inputs: dict, story: dict, pages: list) -> list:
                         fix_hint="Add it to the scene or remove it from the text.",
                     )
                 )
+            # Scene: only drawable props/objects (skip quoted dialogue like "Not today").
             for guard in must_include_issues(
                 [{"n": spread_n, "scene": scene}],
                 required,
                 field="scene",
+                beat_texts=beat_texts,
+                drawable_only=True,
             ):
                 issues.append(
                     _issue(
@@ -514,7 +518,7 @@ def _structural_issues(inputs: dict, story: dict, pages: list) -> list:
                         "must_include_scene",
                         guard["message"],
                         page=number,
-                        fix_hint="Rewrite the scene so every must_include beat token is visible.",
+                        fix_hint="Rewrite the scene so every drawable must_include prop is visible.",
                     )
                 )
     return issues

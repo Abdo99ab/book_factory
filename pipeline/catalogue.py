@@ -152,6 +152,15 @@ def must_include_map(title_id: str) -> dict[int, list[str]]:
     }
 
 
+def beat_text_map(title_id: str) -> dict[int, str]:
+    """``{spread_n: beat body}`` for dialogue detection against must_include tokens."""
+    try:
+        beats = load_story_beats(title_id).get("beats") or []
+    except CatalogueError:
+        return {}
+    return {int(beat["n"]): str(beat.get("text") or "") for beat in beats}
+
+
 def _validate_title(title_id: str, entry: dict) -> None:
     missing = [k for k in REQUIRED_TITLE_KEYS if k not in entry]
     if missing:

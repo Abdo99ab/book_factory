@@ -198,6 +198,55 @@ def test_spread_11_text_without_potty_fails():
     assert any(i["code"] == "must_include" and "potty" in i["message"] for i in issues)
 
 
+def test_dialogue_must_include_skipped_on_scene_but_prop_still_required():
+    """Spoken tokens (quoted in the beat) are text-only; drawable props stay scene-hard."""
+    from pipeline.catalogue import beat_text_map
+    from pipeline.text_guards import drawable_must_include, is_dialogue_must_include
+
+    beats = {b["n"]: b for b in load_story_beats("big_kid_list")["beats"]}
+    beat6 = beats[6]["text"]
+    assert is_dialogue_must_include("Not today", beat6) is True
+    assert is_dialogue_must_include("potty", beat6) is False
+    assert drawable_must_include(["Not today", "potty"], beat6) == ["potty"]
+
+    required = must_include_map("big_kid_list")
+    beat_texts = beat_text_map("big_kid_list")
+    # Scene without the spoken line — not an error.
+    no_dialogue = must_include_issues(
+        [
+            {
+                "n": 6,
+                "scene": "On the left a quiet bathroom; on the right Emma looks at the potty.",
+            }
+        ],
+        required,
+        field="scene",
+        beat_texts=beat_texts,
+    )
+    assert no_dialogue == []
+    # Scene missing the drawable prop — still an error.
+    no_potty = must_include_issues(
+        [
+            {
+                "n": 6,
+                "scene": "On the left a quiet hall; on the right Emma shakes her head.",
+            }
+        ],
+        required,
+        field="scene",
+        beat_texts=beat_texts,
+    )
+    assert any(i["code"] == "must_include" and "potty" in i["message"] for i in no_potty)
+    assert all("Not today" not in i["message"] for i in no_potty)
+    # Text still requires the dialogue token.
+    text_miss = must_include_issues(
+        [{"n": 6, "text": "Emma looks at the potty."}],
+        required,
+        field="text",
+    )
+    assert any("Not today" in i["message"] for i in text_miss)
+
+
 def test_scene_with_guitar_fails():
     issues = forbidden_prop_issues(
         [{"n": 11, "scene": "Mum plays a guitar in the living room on the right half."}]

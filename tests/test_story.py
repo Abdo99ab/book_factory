@@ -32,9 +32,8 @@ def _spread(n: int) -> dict:
     # Catalogue must_include tokens for spreads 6 and 11 must appear in the mock text/scene.
     if n == 6:
         text = "Emma looks at the potty. Not today."
-        scene = (
-            "Spread 6: on the left the potty sits quiet; on the right Emma says Not today."
-        )
+        # Scene needs the drawable prop only — dialogue stays in the text.
+        scene = "Spread 6: on the left the potty sits quiet; on the right Emma looks away."
     elif n == 11:
         text = "Emma wees in the potty. They sing the hand-wash song at the sink."
         scene = (

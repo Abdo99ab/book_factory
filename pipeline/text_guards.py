@@ -247,22 +247,69 @@ FORBIDDEN_SCENE_PROPS = (
     "saxophone",
 )
 
+# Quoted runs in a beat (straight / curly single or double quotes).
+_BEAT_QUOTE_RE = re.compile(
+    r"[\"'\u2018\u2019\u201c\u201d]([^\"'\u2018\u2019\u201c\u201d]+)[\"'\u2018\u2019\u201c\u201d]"
+)
+
+
+def quoted_phrases_in_beat(beat_text: str) -> list[str]:
+    """Dialogue / spoken fragments quoted in the catalogue beat body."""
+    return [m.group(1).strip() for m in _BEAT_QUOTE_RE.finditer(beat_text or "") if m.group(1).strip()]
+
+
+def is_dialogue_must_include(token: str, beat_text: str = "") -> bool:
+    """True when a must_include token is spoken words, not a drawable prop/object.
+
+    A token is dialogue when it appears inside quotes in the beat (e.g. ``'Not today.'``),
+    or when it is a multi-word speech phrase that matches a quoted run after normalisation.
+    Single-word props (``potty``, ``sink``) and unquoted event names (``hand-wash song``)
+    stay drawable.
+    """
+    needle = _norm_text(token)
+    if not needle:
+        return False
+    for phrase in quoted_phrases_in_beat(beat_text):
+        quoted = _norm_text(phrase)
+        if not quoted:
+            continue
+        if needle == quoted or needle in quoted or quoted in needle:
+            return True
+    return False
+
+
+def drawable_must_include(tokens: list[str], beat_text: str = "") -> list[str]:
+    """must_include tokens that belong in a scene brief (props/objects/events, not dialogue)."""
+    return [t for t in tokens if not is_dialogue_must_include(t, beat_text)]
+
 
 def must_include_issues(
     spreads: list,
     must_include_by_spread: dict[int, list[str]] | None,
     *,
     field: str = "text",
+    beat_texts: dict[int, str] | None = None,
+    drawable_only: bool | None = None,
 ) -> list[dict]:
-    """Fail a spread whose ``field`` misses any catalogue ``must_include`` token."""
+    """Fail a spread whose ``field`` misses any catalogue ``must_include`` token.
+
+    For ``field="scene"``, dialogue tokens (quoted speech in the beat) are skipped by default
+    — spoken words cannot appear in a picture description. Text checks still require every token.
+    """
     if not must_include_by_spread:
         return []
+    if drawable_only is None:
+        drawable_only = field == "scene"
     issues: list[dict] = []
     for spread in spreads or []:
         n = int(spread.get("n") or spread.get("spread") or 0)
-        required = must_include_by_spread.get(n) or []
+        required = list(must_include_by_spread.get(n) or [])
         if not required:
             continue
+        if drawable_only:
+            required = drawable_must_include(required, (beat_texts or {}).get(n, ""))
+            if not required:
+                continue
         body = spread.get(field) or ""
         missing = [token for token in required if not _text_has_token(body, token)]
         if missing:
