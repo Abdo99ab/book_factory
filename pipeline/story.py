@@ -8,7 +8,12 @@ from .humanize import humanize_story_fields
 from .job_log import append_event, write_json
 from .memory import format_memory_for_prompt
 from .openai_util import chat_json
-from .text_guards import SOFT_GUARD_CODES, check_spreads, hard_issues
+from .text_guards import (
+    SOFT_GUARD_CODES,
+    check_spreads,
+    ensure_catalogue_last_line,
+    hard_issues,
+)
 
 SYSTEM = """You are a UK English picture-book author and editor for Raised Ready books.
 Write warm, concrete, age-appropriate prose. No stated moral. No AI clichés.
@@ -106,8 +111,10 @@ def rebuild_story(client, job_dir: Path, inputs: dict) -> dict:
         )
         return json.loads(raw)
 
+    catalogue_last_line = title.get("last_line", "").replace("{name}", inputs["name"])
+
     draft_payload = _generate()
-    spreads = draft_payload.get("spreads") or []
+    spreads = ensure_catalogue_last_line(draft_payload.get("spreads") or [], catalogue_last_line)
     story_body = {
         "title_id": title_id,
         "title": locked["title"],
@@ -125,7 +132,7 @@ def rebuild_story(client, job_dir: Path, inputs: dict) -> dict:
     guard_kwargs = dict(
         child_name=inputs["name"],
         age_band=inputs.get("age_band") or title["age_band"],
-        last_line=title.get("last_line", "").replace("{name}", inputs["name"]),
+        last_line=catalogue_last_line,
     )
     issues = check_spreads(draft_for_guards, story_body, locked, **guard_kwargs)
     blocking = hard_issues(issues)
@@ -143,7 +150,9 @@ def rebuild_story(client, job_dir: Path, inputs: dict) -> dict:
         retry_payload = _generate(
             "Fix these guard violations and return JSON again:\n" + fix_note
         )
-        story_body["spreads"] = retry_payload.get("spreads") or spreads
+        story_body["spreads"] = ensure_catalogue_last_line(
+            retry_payload.get("spreads") or spreads, catalogue_last_line
+        )
         # Baseline draft = retry output so word-growth only applies to humanize later
         post_retry_draft = {
             "spreads": story_body["spreads"],
@@ -179,13 +188,17 @@ def rebuild_story(client, job_dir: Path, inputs: dict) -> dict:
     pre_humanize = json.loads(json.dumps(story_body))
     story_body = humanize_story_fields(client, job_dir, story_body)
     if story_body.get("humanized"):
+        # Humanize must not drop the locked last line.
+        story_body["spreads"] = ensure_catalogue_last_line(
+            story_body.get("spreads") or [], catalogue_last_line
+        )
         post_issues = check_spreads(
             pre_humanize,
             story_body,
             locked,
             child_name=inputs["name"],
             age_band=inputs.get("age_band") or title["age_band"],
-            last_line=title.get("last_line", "").replace("{name}", inputs["name"]),
+            last_line=catalogue_last_line,
         )
         if post_issues:
             story_body = pre_humanize
@@ -200,4 +213,8 @@ def rebuild_story(client, job_dir: Path, inputs: dict) -> dict:
                 reasons=post_issues,
             )
 
+    story_body["spreads"] = ensure_catalogue_last_line(
+        story_body.get("spreads") or [], catalogue_last_line
+    )
+    write_json(job_dir / "story" / "rebuilt_story.json", story_body)
     return story_body

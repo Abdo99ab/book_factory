@@ -132,6 +132,21 @@ def test_llm_false_pass_flag_with_clean_issues_still_passes(bundle):
     assert report["score"] == 100
 
 
+def test_validate_auto_appends_missing_catalogue_last_line(bundle):
+    job_dir, inputs, story, pages = bundle
+    story = clone(story)
+    pages = clone(pages)
+    story["spreads"][-1]["text"] = "Emma smiles at the list."
+    for page in pages:
+        if page.get("spread") == 14:
+            page["text"] = story["spreads"][-1]["text"]
+    with patch.object(validate, "_llm_validate", return_value=_llm_pass()):
+        report = validate_content(None, job_dir, inputs, story, pages)
+    assert report["passed"] is True
+    saved = json.loads((job_dir / "story" / "rebuilt_story.json").read_text(encoding="utf-8"))
+    assert "can choose again tomorrow" in saved["spreads"][-1]["text"]
+
+
 def test_must_not_show_in_scene_is_error(bundle):
     _job, inputs, story, pages = bundle
     pages = clone(pages)

@@ -17,7 +17,12 @@ from .constants import CONTENT_PAGE_COUNT, SPREAD_COUNT
 from .job_log import append_event, write_json
 from .openai_util import chat_json
 from .pages import compile_pages
-from .text_guards import SOFT_GUARD_CODES, check_spreads
+from .text_guards import (
+    SOFT_GUARD_CODES,
+    check_spreads,
+    ensure_catalogue_last_line,
+    last_line_present,
+)
 
 CALM_ZONES = {"left", "right"}
 
@@ -654,9 +659,56 @@ def _merge_report(structural: list, llm_report: dict) -> dict:
     }
 
 
+def _sync_spread_text_onto_pages(pages: list, spreads: list) -> list:
+    """Keep page-map halves in sync after forcing locked spread text."""
+    by_n = {int(s.get("n") or 0): s for s in spreads or []}
+    for page in pages or []:
+        if page.get("kind") != "spread_half":
+            continue
+        spread = by_n.get(int(page.get("spread") or 0))
+        if spread and spread.get("text") is not None:
+            page["text"] = spread["text"]
+            if spread.get("scene") is not None:
+                page["scene"] = spread["scene"]
+    return pages
+
+
+def _force_catalogue_last_line(inputs: dict, story: dict, pages: list) -> tuple[dict, list, bool]:
+    """Append locked catalogue last_line to spread 14 if the model omitted it."""
+    try:
+        title = get_title(inputs["title_id"])
+    except Exception:
+        return story, pages, False
+    last_line = (title.get("last_line") or "").replace("{name}", str(inputs.get("name") or ""))
+    if not last_line.strip():
+        return story, pages, False
+    before = story.get("spreads") or []
+    already = False
+    for spread in before:
+        if int(spread.get("n") or 0) == 14 and last_line_present(spread.get("text") or "", last_line):
+            already = True
+            break
+    if already:
+        return story, pages, False
+    story = dict(story)
+    story["spreads"] = ensure_catalogue_last_line(before, last_line)
+    pages = _sync_spread_text_onto_pages(list(pages or []), story["spreads"])
+    return story, pages, True
+
+
 def validate_content(client, job_dir: Path, inputs: dict, story: dict, pages: list) -> dict:
     """Validate and optionally auto-repair once. Raises ValidationError if still failing."""
     append_event(job_dir, "validation_start", "Validating story, pages, and prompts before illustration.")
+
+    story, pages, last_line_fixed = _force_catalogue_last_line(inputs, story, pages)
+    if last_line_fixed:
+        write_json(job_dir / "story" / "rebuilt_story.json", story)
+        write_json(job_dir / "story" / "pages.json", {"pages": pages})
+        append_event(
+            job_dir,
+            "validation_last_line_fixed",
+            "Appended catalogue last_line to spread 14 before validation.",
+        )
 
     structural = _structural_issues(inputs, story, pages)
     llm_report = _soften_llm_report(_llm_validate(client, inputs, story, pages), inputs)

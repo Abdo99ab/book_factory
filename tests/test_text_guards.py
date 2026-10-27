@@ -97,6 +97,18 @@ def test_missing_last_line_is_flagged():
     assert any(i["code"] == "last_line" and i["spread"] == 14 for i in issues)
 
 
+def test_ensure_catalogue_last_line_appends_locked_line():
+    from pipeline.text_guards import ensure_catalogue_last_line, last_line_present
+
+    title = get_title("big_kid_list")
+    last = title["last_line"].replace("{name}", NAME)
+    cand = emma_story()
+    cand["spreads"][-1]["text"] = "Emma smiles."
+    fixed = ensure_catalogue_last_line(cand["spreads"], last)
+    assert last_line_present(fixed[-1]["text"], last)
+    assert "last_line" not in _codes(_run({**cand, "spreads": fixed}))
+
+
 def test_word_cap_for_age_band():
     cand = emma_story()
     cand["spreads"][5]["text"] = " ".join(["Emma sits."] * 30)  # 60 words > cap 45

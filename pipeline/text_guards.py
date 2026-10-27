@@ -91,6 +91,34 @@ def hard_issues(issues: list[dict]) -> list[dict]:
     return [i for i in issues if i.get("code") not in SOFT_GUARD_CODES]
 
 
+def _norm_ws(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").strip())
+
+
+def last_line_present(text: str, last_line: str) -> bool:
+    """True if catalogue last_line appears in the spread (whitespace-tolerant)."""
+    needle = _norm_ws(last_line)
+    if not needle:
+        return True
+    return needle in _norm_ws(text)
+
+
+def ensure_catalogue_last_line(spreads: list, last_line: str) -> list:
+    """Force the locked catalogue last_line onto spread 14 (spec §11 — not LLM luck)."""
+    target = _norm_ws(last_line)
+    if not target or not spreads:
+        return spreads
+    out = []
+    for spread in spreads:
+        item = dict(spread)
+        if int(item.get("n") or 0) == 14:
+            text = (item.get("text") or "").strip()
+            if not last_line_present(text, target):
+                item["text"] = f"{text} {target}".strip() if text else target
+        out.append(item)
+    return out
+
+
 def check_spreads(
     draft: dict,
     candidate: dict,
@@ -227,8 +255,9 @@ def check_spreads(
         )
 
     if last_line:
-        last_text = (cand_spreads[-1].get("text") or "").strip()
-        if last_line.strip() not in last_text:
+        # Prefer explicit n=14; fall back to list order.
+        final = next((s for s in cand_spreads if int(s.get("n") or 0) == 14), cand_spreads[-1])
+        if not last_line_present(final.get("text") or "", last_line):
             issues.append(
                 {
                     "code": "last_line",
