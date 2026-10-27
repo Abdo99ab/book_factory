@@ -205,6 +205,7 @@ def _generate_with_faces(tmp_path, monkeypatch, faces_per_call):
 
     from emma_data import emma_bundle
     from mock_openai import FakeImageEdit
+    from pipeline import imagecheck
     from pipeline.illustrate import generate_spread_art
     from pipeline.pages import spread_pages
 
@@ -215,6 +216,7 @@ def _generate_with_faces(tmp_path, monkeypatch, faces_per_call):
     Image.new("RGB", (32, 32)).save(character)
     calls = iter(faces_per_call)
     monkeypatch.setattr(qa, "detect_faces", lambda client, path: next(calls))
+    monkeypatch.setattr(imagecheck, "head_cut_heuristic", lambda path: False)
     fake = FakeImageEdit(size=3408)
     with patch("pipeline.illustrate.image_edit", fake):
         meta = generate_spread_art(
@@ -262,19 +264,24 @@ def test_clear_spread_is_ok_with_one_call(tmp_path, monkeypatch):
     assert meta["fold_checked"] is True and meta["fold_failures"] == []
 
 
-def test_undetectable_faces_do_not_block_or_retry(tmp_path, monkeypatch):
+def test_undetectable_faces_skip_fold_check_but_empty_list_is_no_face(tmp_path, monkeypatch):
+    from pipeline import imagecheck
+
+    monkeypatch.setattr(imagecheck, "head_cut_heuristic", lambda path: False)
+    # None = detector unavailable → fold not checked, no no_face failure.
     job_dir, meta, fake = _generate_with_faces(tmp_path, monkeypatch, [None])
     assert len(fake.calls) == 1
     assert meta["fold_checked"] is False and meta["fold_failures"] == []
 
 
 def test_busy_calm_half_warns_without_regenerating(tmp_path, monkeypatch):
-    """Spread 1 keeps its text on the LEFT half; the dark lower band in the fixture makes it busy."""
+    """Spread 1 keeps its text on the LEFT half; a busy centred calm box warns without regen."""
     from unittest.mock import patch
 
     from PIL import Image
 
     from emma_data import emma_bundle
+    from pipeline import imagecheck
     from pipeline.illustrate import generate_spread_art
     from pipeline.job_log import read_events
     from pipeline.pages import spread_pages
@@ -285,13 +292,27 @@ def test_busy_calm_half_warns_without_regenerating(tmp_path, monkeypatch):
     character = job_dir / "character" / "character.png"
     character.parent.mkdir(parents=True, exist_ok=True)
     Image.new("RGB", (32, 32)).save(character)
-    monkeypatch.setattr(qa, "detect_faces", lambda client, path: [])
+    monkeypatch.setattr(
+        qa, "detect_faces", lambda client, path: [{"x": 0.62, "y": 0.4, "w": 0.08, "h": 0.12}]
+    )
+    monkeypatch.setattr(imagecheck, "head_cut_heuristic", lambda path: False)
     fake = FixedPngImageEdit()
     fake._cycle = [(FIXTURES / "page_dark_lower.png").read_bytes()] * 3
     with patch("pipeline.illustrate.image_edit", fake):
         meta = generate_spread_art(
             MagicMock(), job_dir, {**spread_pages(pages)[1], "spread": 1}, inputs, story, character
         )
-    assert len(fake.calls) == 1
-    assert meta["calm_zone_busy"] is True
-    assert "calm_zone_warning" in [e["type"] for e in read_events(job_dir)]
+    monkeypatch.setattr(imagecheck, "is_busy", lambda stats: True)
+    fake2 = FixedPngImageEdit()
+    fake2._cycle = [(FIXTURES / "page_dark_lower.png").read_bytes()] * 3
+    job2 = tmp_path / "busy2"
+    inputs, story, pages = emma_bundle(job2)
+    character = job2 / "character" / "character.png"
+    character.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (32, 32)).save(character)
+    with patch("pipeline.illustrate.image_edit", fake2):
+        meta2 = generate_spread_art(
+            MagicMock(), job2, {**spread_pages(pages)[1], "spread": 1}, inputs, story, character
+        )
+    assert meta2["calm_zone_busy"] is True
+    assert "calm_zone_warning" in [e["type"] for e in read_events(job2)]

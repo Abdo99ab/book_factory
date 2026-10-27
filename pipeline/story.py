@@ -178,11 +178,14 @@ def rebuild_story(client, job_dir: Path, inputs: dict) -> dict:
     }
 
     draft_for_guards = {"spreads": spreads, "locked": locked}
+    from .catalogue import must_include_map
+
     guard_kwargs = dict(
         child_name=inputs["name"],
         age_band=inputs.get("age_band") or title["age_band"],
         last_line=catalogue_last_line,
         require_scenes=True,
+        must_include_by_spread=must_include_map(title_id),
     )
     issues = check_spreads(draft_for_guards, story_body, locked, **guard_kwargs)
     blocking = hard_issues(issues)

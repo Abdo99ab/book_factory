@@ -19,10 +19,13 @@ BUSY_STD = 0.10
 BUSY_P10 = 0.25
 
 # Front cover art zones, as fractions of the (square) art: (x0, y0, x1, y1).
-TOP_ZONE = (0.0, 0.0, 1.0, 0.30)  # family band + title
-LOGO_ZONE = (0.30, 0.85, 0.70, 1.0)  # bottom 15 %, centre 40 %
+TOP_ZONE = (0.0, 0.0, 1.0, 0.35)  # plain wall for band + title (top 35 %)
+LOGO_ZONE = (0.30, 0.82, 0.70, 1.0)  # bottom 18 %, centre 40 % — plain floor
 FACE_Y_RANGE = (0.38, 0.72)
 FACE_X_RANGE = (0.25, 0.75)
+# Back cover: figures only in the lower third; keep 20 mm clear of the trim bottom on a 216 mm panel.
+BACK_FIGURE_Y_MIN = 1.0 / 3.0
+BACK_BOTTOM_CLEAR_FRAC = 20.0 / 216.0  # ≈ 0.093 of the square art height
 
 
 def _lin(v: float) -> float:
@@ -71,16 +74,70 @@ def is_busy(stats: dict) -> bool:
 
 # --- spread layout (fold, edges, crop bands, calm zone) ------------------------------------------------
 
-# The calm half's text sits in its lower two thirds: (x0, y0, x1, y1) as fractions of the SPREAD art.
+# Calm-zone text sits in the CENTRE of the calm half: ~60 % of half width, ~45 % of height.
+# (x0, y0, x1, y1) as fractions of the whole SPREAD art.
+def calm_zone_box(calm_zone: str) -> tuple[float, float, float, float]:
+    half_x0 = 0.0 if calm_zone == "left" else 0.5
+    # centre of the half: half is 0.5 wide; box is 0.6 * 0.5 = 0.3 wide, centred in the half
+    pad_x = (0.5 - 0.5 * 0.60) / 2  # 0.1
+    pad_y = (1.0 - 0.45) / 2  # 0.275
+    return (
+        half_x0 + pad_x,
+        pad_y,
+        half_x0 + 0.5 - pad_x,
+        1.0 - pad_y,
+    )
+
+
 CALM_ZONE_BOXES = {
-    "left": (0.0, 1 / 3, 0.5, 1.0),
-    "right": (0.5, 1 / 3, 1.0, 1.0),
+    "left": calm_zone_box("left"),
+    "right": calm_zone_box("right"),
 }
+
+# Top band of the frame used by the cheap head-cut heuristic (fraction of height).
+HEAD_CUT_TOP_FRACTION = 0.03
 
 
 def calm_zone_stats(art_path: Path | str, calm_zone: str) -> dict:
-    """Luminance p10 / p90 / std of the lower two thirds of the calm half (``left`` or ``right``)."""
-    return region_stats(art_path, CALM_ZONE_BOXES["left" if calm_zone == "left" else "right"])
+    """Luminance p10 / p90 / std of the centred calm-zone text box on the calm half."""
+    return region_stats(art_path, calm_zone_box(calm_zone))
+
+
+def head_cut_heuristic(source) -> bool:
+    """True when skin-tone / figure mass appears to touch the top ``HEAD_CUT_TOP_FRACTION`` of the frame.
+
+    Compares luminance variance of the top rows against the band just below; a busy top with a
+    calmer band underneath is treated as a cut-off head / figure. Also trips on skin-tone density
+    alone in the top strip (a cut-off head is often a solid skin band with little local variance).
+    """
+    image = _open_rgb(source)
+    image.thumbnail((320, 320))
+    w, h = image.size
+    top_h = max(2, int(h * HEAD_CUT_TOP_FRACTION + 0.999))
+    below_h = max(top_h * 3, int(h * 0.12))
+    top = image.crop((0, 0, w, top_h))
+    below = image.crop((0, top_h, w, min(h, top_h + below_h)))
+
+    def _stats(region: Image.Image) -> tuple[float, float]:
+        pixels = list(region.getdata())
+        n = len(pixels) or 1
+        lums = [luminance(p) for p in pixels]
+        mean = sum(lums) / n
+        var = sum((v - mean) ** 2 for v in lums) / n
+        skin = sum(
+            1
+            for r, g, b in pixels
+            if r > 90 and g > 50 and b > 30 and r >= g and (r - b) > 20
+        ) / n
+        return var, skin
+
+    top_var, top_skin = _stats(top)
+    below_var, below_skin = _stats(below)
+    if top_skin >= 0.08 and top_skin > below_skin * 1.5:
+        return True
+    top_act = top_var + top_skin * 0.1
+    below_act = below_var + below_skin * 0.1
+    return top_act > 0.008 and top_act > below_act * 1.25
 
 
 def spread_layout_failures(
@@ -175,10 +232,11 @@ def check_front_cover_layout(art_path: Path | str, faces: list[dict] | None) -> 
 
     ``faces`` are normalised 0-1 boxes ``{x, y, w, h}`` (top-left origin). ``None`` means the face
     could not be detected, so only the detail zones are checked (``face_checked`` False). The child's
-    face is the largest box. Returns ``{"passed", "failures": [zone, ...], "face_checked", ...}``.
+    face is the largest box. Returns ``{"passed", "failures": [zone, ...], "face_checked", "main_face"}``.
     """
     failures: list[str] = []
     face_checked = faces is not None
+    main = None
     if faces is not None:
         if not faces:
             failures.append("face: no child face found (head must sit at 50-62% of the height)")
@@ -187,18 +245,61 @@ def check_front_cover_layout(art_path: Path | str, faces: list[dict] | None) -> 
             if not _face_in_range(main):
                 failures.append(
                     "face: the child's face must sit inside 38-72% of the height and 25-75% of the "
-                    "width (head at 50-62% height, centred)"
+                    "width (head top at 38-42%, centred)"
                 )
     top = region_stats(art_path, TOP_ZONE)
     if is_busy(top):
-        failures.append("top band/title zone (top 30%): must be plain, soft and empty")
+        failures.append("top band/title zone (top 35%): must be plain, soft and empty")
     logo = region_stats(art_path, LOGO_ZONE)
     if is_busy(logo):
-        failures.append("logo zone (bottom 15%, centre 40%): must be plain, soft and empty")
+        failures.append("logo zone (bottom 18%, centre 40%): must be plain floor, soft and empty")
     return {
         "passed": not failures,
         "failures": failures,
         "face_checked": face_checked,
+        "main_face": main,
         "top_zone": top,
         "logo_zone": logo,
     }
+
+
+def check_back_cover_layout(art_path: Path | str, faces: list[dict] | None) -> dict:
+    """Back art: faces / figures only in the lower third, clear of the bottom wrap."""
+    failures: list[str] = []
+    face_checked = faces is not None
+    if faces:
+        for face in faces:
+            y0 = float(face.get("y", 0))
+            y1 = y0 + float(face.get("h", 0))
+            if y0 < BACK_FIGURE_Y_MIN:
+                failures.append("back face: figures must stay in the lower third (upper two thirds plain wall)")
+                break
+            if y1 > 1.0 - BACK_BOTTOM_CLEAR_FRAC:
+                failures.append(
+                    "back bottom: figures and the anchor stay at least 20 mm above the trim bottom"
+                )
+                break
+    upper = region_stats(art_path, (0.0, 0.0, 1.0, BACK_FIGURE_Y_MIN))
+    if is_busy(upper) and (faces is None or faces):
+        # Only flag a busy upper third when we also saw a face too high, or couldn't check faces.
+        if faces is None or any(float(f.get("y", 0)) < BACK_FIGURE_Y_MIN for f in faces or []):
+            if "back face" not in " ".join(failures):
+                failures.append("back upper two thirds: must be plain wall with no figures")
+    return {
+        "passed": not failures,
+        "failures": failures,
+        "face_checked": face_checked,
+        "upper_zone": upper,
+    }
+
+
+def rects_overlap(a: tuple[float, float, float, float], b: tuple[float, float, float, float]) -> bool:
+    ax0, ay0, ax1, ay1 = a
+    bx0, by0, bx1, by1 = b
+    return ax0 < bx1 and bx0 < ax1 and ay0 < by1 and by0 < ay1
+
+
+def face_box_norm(face: dict) -> tuple[float, float, float, float]:
+    x, y = float(face.get("x", 0)), float(face.get("y", 0))
+    w, h = float(face.get("w", 0)), float(face.get("h", 0))
+    return (x, y, x + w, y + h)

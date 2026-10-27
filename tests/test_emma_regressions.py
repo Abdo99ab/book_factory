@@ -18,7 +18,7 @@ import pytest
 from pypdf import PdfReader
 
 from emma_data import emma_bundle, persist_emma_job
-from pipeline import constants, illustrate, pdf_build, qa, runner
+from pipeline import constants, imagecheck, illustrate, pdf_build, qa, runner
 from pipeline.catalogue import get_title
 from pipeline.constants import (
     BLEED_MM,
@@ -69,6 +69,30 @@ def emma_build(tmp_path_factory):
     fake = FixedPngImageEdit()
     mp.setattr(illustrate, "image_edit", fake)
     mp.setattr(illustrate, "IMAGE_SIZE", "auto")
+    # Deterministic face / head-cut results so fixture PNGs don't trip Haar / heuristics.
+    mp.setattr(
+        qa,
+        "detect_faces",
+        lambda client, path: [{"x": 0.62, "y": 0.45, "w": 0.12, "h": 0.14}],
+    )
+    mp.setattr(imagecheck, "head_cut_heuristic", lambda path: False)
+    mp.setattr(
+        imagecheck,
+        "check_front_cover_layout",
+        lambda path, faces: {
+            "passed": True,
+            "failures": [],
+            "face_checked": True,
+            "main_face": (faces or [None])[0],
+            "top_zone": {"p10": 0.9, "p90": 0.95, "std": 0.01},
+            "logo_zone": {"p10": 0.9, "p90": 0.95, "std": 0.01},
+        },
+    )
+    mp.setattr(
+        imagecheck,
+        "check_back_cover_layout",
+        lambda path, faces: {"passed": True, "failures": [], "face_checked": True, "upper_zone": {}},
+    )
 
     job_dir = tmp_path_factory.mktemp("emma") / ("f" * 32)
     inputs, story, pages = emma_bundle(job_dir)

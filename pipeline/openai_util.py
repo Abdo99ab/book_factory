@@ -128,8 +128,9 @@ def chat_json_vision(client, system, user_content, description="Vision request",
 # --- Native image size (no upscaler: whatever the model returns is what we print) -------------
 
 # Spread art is ONE wide picture, so "auto" means the largest LANDSCAPE size the model offers.
-# Listed largest first; the first size the model accepts is cached per model (see below).
-LANDSCAPE_SIZES = ("2048x1024", "1792x1024", "1536x1024", "1024x1024")
+# Listed largest first; NEVER includes a square — 1024x1024 was caching as landscape and cropping
+# heads off. Sheets / covers use SQUARE_SIZES separately.
+LANDSCAPE_SIZES = ("2048x1024", "1792x1024", "1536x1024")
 IMAGE_SIZE_FALLBACK = LANDSCAPE_SIZES  # the default ladder
 # Everything that is not spread art (hero / set / anchor sheets, cover panels) is square.
 SQUARE_SIZES = ("2048x2048", "1536x1536", "1024x1024")
@@ -138,10 +139,32 @@ _LADDERS = {"landscape": LANDSCAPE_SIZES, "square": SQUARE_SIZES}
 _VALID_QUALITY = {"low", "medium", "high", "auto"}
 # (model, aspect) -> first size the model accepted in this process
 _WORKING_SIZE: dict[tuple[str, str], str] = {}
+# Step-down / reject notes from the last image call (flushed by illustrate into job events).
+_LAST_SIZE_EVENTS: list[dict] = []
 
 
 def reset_size_cache() -> None:
     _WORKING_SIZE.clear()
+    _LAST_SIZE_EVENTS.clear()
+
+
+def take_size_events() -> list[dict]:
+    """Drain step-down / reject notes from the last ``image_edit`` / ``image_generate`` call."""
+    events = list(_LAST_SIZE_EVENTS)
+    _LAST_SIZE_EVENTS.clear()
+    return events
+
+
+def _is_square_size(size: str) -> bool:
+    value = str(size or "").strip().lower()
+    if value in {"", "auto", "landscape"}:
+        return False
+    if value == "square":
+        return True
+    if "x" not in value:
+        return False
+    w, _, h = value.partition("x")
+    return w.isdigit() and h.isdigit() and int(w) == int(h)
 
 
 def image_quality(requested: str | None = None) -> str:
@@ -164,10 +187,17 @@ def _ladder(value: str, aspect: str) -> tuple[str, ...] | None:
 
 
 def image_size_candidates(requested: str | None = None, aspect: str = "landscape") -> list[str]:
-    """Sizes to try, in order. ``auto`` -> the landscape (or ``aspect``) ladder, largest first."""
+    """Sizes to try, in order. ``auto`` -> the landscape (or ``aspect``) ladder, largest first.
+
+    Landscape never includes a square size (even if the caller passed one explicitly mixed in).
+    """
     value = (requested if requested is not None else IMAGE_SIZE or "auto").strip().lower()
     ladder = _ladder(value, aspect)
-    return list(ladder) if ladder is not None else [value]
+    if ladder is not None:
+        return list(ladder)
+    if aspect == "landscape" and _is_square_size(value):
+        return list(LANDSCAPE_SIZES)
+    return [value]
 
 
 def square_image_size() -> str:
@@ -220,25 +250,45 @@ def _is_size_error(error) -> bool:
 
 
 def _with_size_fallback(call, size, description):
-    """Run ``call(size)``; on an invalid-size error step down the ladder (largest first)."""
-    requested = str(size or IMAGE_SIZE or "auto").strip().lower()
-    aspect = "square" if requested == "square" else "landscape"
-    candidates = image_size_candidates(requested, aspect)
+    """Run ``call(size)``; on an invalid-size error step down the ladder (largest first).
+
+    A square is never cached as the working size for ``aspect="landscape"``. Each step-down is
+    recorded in ``_LAST_SIZE_EVENTS`` (``image_size_stepdown``) so the job log can show why.
+    """
+    requested = str(size if size is not None else IMAGE_SIZE or "auto").strip().lower()
+    aspect = "square" if requested == "square" or _is_square_size(requested) else "landscape"
+    ladder_request = requested if not (aspect == "landscape" and _is_square_size(requested)) else "auto"
+    candidates = image_size_candidates(ladder_request, aspect)
+    if aspect == "landscape":
+        candidates = [c for c in candidates if not _is_square_size(c)] or list(LANDSCAPE_SIZES)
     if len(candidates) > 1:
-        start = largest_image_size(aspect=aspect, requested=requested)
-        candidates = candidates[candidates.index(start) :]
+        start = largest_image_size(aspect=aspect, requested=ladder_request)
+        if start in candidates:
+            candidates = candidates[candidates.index(start) :]
     last_error = None
     for index, candidate in enumerate(candidates):
         try:
             result = with_retries(lambda c=candidate: call(c), f"{description} @{candidate}")
-            if _WORKING_SIZE.get((IMAGE_MODEL, aspect)) != candidate:
-                _WORKING_SIZE[(IMAGE_MODEL, aspect)] = candidate
-                logger.info("Image size for %s (%s): %s accepted", IMAGE_MODEL, aspect, candidate)
+            # Never cache a square as the landscape working size (defence in depth).
+            if not (aspect == "landscape" and _is_square_size(candidate)):
+                if _WORKING_SIZE.get((IMAGE_MODEL, aspect)) != candidate:
+                    _WORKING_SIZE[(IMAGE_MODEL, aspect)] = candidate
+                    logger.info("Image size for %s (%s): %s accepted", IMAGE_MODEL, aspect, candidate)
             return result
         except Exception as error:  # noqa: BLE001
             last_error = error
             if _is_size_error(error) and index + 1 < len(candidates):
+                msg = f"{type(error).__name__}: {error}"
                 logger.warning("%s: size %s rejected, falling back (%s)", description, candidate, error)
+                _LAST_SIZE_EVENTS.append(
+                    {
+                        "type": "image_size_stepdown",
+                        "message": f"{description}: size {candidate} rejected; trying {candidates[index + 1]}.",
+                        "size": candidate,
+                        "next_size": candidates[index + 1],
+                        "error": msg,
+                    }
+                )
                 continue
             raise
     raise last_error  # pragma: no cover

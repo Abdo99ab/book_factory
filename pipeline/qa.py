@@ -127,16 +127,26 @@ def spread_layout_issues(job_dir: Path, spread_numbers=range(1, SPREAD_COUNT + 1
 def cover_layout_issues(job_dir: Path) -> list[dict]:
     cover = read_json(Path(job_dir) / "cover" / "cover.json") or {}
     layout = cover.get("layout") or {}
-    if not layout.get("failures"):
-        return []
-    return [
-        _issue(
-            "cover_layout_warning",
-            "warning",
-            "Front cover art breaks the layout rules (soft plate forced): " + "; ".join(layout["failures"]),
-            failures=layout["failures"],
+    issues: list[dict] = []
+    if layout.get("title_overlap") or cover.get("status") == "cover_title_overlap":
+        issues.append(
+            _issue(
+                "cover_title_overlap",
+                "error",
+                "Front title would print over the child's face; stopped for the operator.",
+            )
         )
-    ]
+    failures = list(layout.get("failures") or []) + list(layout.get("back_failures") or [])
+    if failures:
+        issues.append(
+            _issue(
+                "cover_layout_warning",
+                "warning",
+                "Cover art breaks the layout rules: " + "; ".join(failures),
+                failures=failures,
+            )
+        )
+    return issues
 
 
 _FACE_SYSTEM = (
@@ -147,8 +157,59 @@ _FACE_SYSTEM = (
 )
 
 
-def detect_faces(client, image_path: Path) -> list[dict] | None:
-    """Vision face boxes (same normalised format as ``review_record`` faces); None = could not run."""
+def detect_faces_local(image_path: Path) -> list[dict]:
+    """Always-on OpenCV Haar face boxes (frontal + profile), normalised 0-1 on the full frame.
+
+    Returns ``[]`` when no face is found (never ``None``). Raises only if the image cannot be opened;
+    a missing OpenCV install returns ``[]`` so callers can still treat "no face" as a failure.
+    """
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:  # pragma: no cover - optional until opencv is installed
+        return []
+    path = str(image_path)
+    image = cv2.imread(path)
+    if image is None:
+        from PIL import Image
+        import numpy as np
+
+        with Image.open(image_path) as pil:
+            rgb = np.array(pil.convert("RGB"))
+        image = rgb[:, :, ::-1].copy()  # RGB -> BGR
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    h, w = gray.shape[:2]
+    if w < 1 or h < 1:
+        return []
+    cascades = []
+    for name in ("haarcascade_frontalface_default.xml", "haarcascade_profileface.xml"):
+        cascade_path = cv2.data.haarcascades + name
+        cascade = cv2.CascadeClassifier(cascade_path)
+        if not cascade.empty():
+            cascades.append(cascade)
+    boxes: list[tuple[int, int, int, int]] = []
+    for cascade in cascades:
+        for x, y, bw, bh in cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(24, 24)):
+            boxes.append((int(x), int(y), int(bw), int(bh)))
+    # Deduplicate heavily overlapping boxes (keep the larger).
+    boxes.sort(key=lambda b: b[2] * b[3], reverse=True)
+    kept: list[tuple[int, int, int, int]] = []
+    for box in boxes:
+        x, y, bw, bh = box
+        if any(
+            abs(x - kx) < bw * 0.4 and abs(y - ky) < bh * 0.4
+            for kx, ky, kbw, kbh in kept
+        ):
+            continue
+        kept.append(box)
+    return [
+        {"x": x / w, "y": y / h, "w": bw / w, "h": bh / h}
+        for x, y, bw, bh in kept
+    ]
+
+
+def detect_faces_vision(client, image_path: Path) -> list[dict] | None:
+    """Vision face boxes; ``None`` = could not run. Second opinion only — local Haar is primary."""
     import base64
     import io
     import json
@@ -182,8 +243,42 @@ def detect_faces(client, image_path: Path) -> list[dict] | None:
             for f in faces
             if isinstance(f, dict) and all(k in f for k in ("x", "y", "w", "h"))
         ]
-    except Exception:  # noqa: BLE001 - detection is advisory; never break the build
+    except Exception:  # noqa: BLE001 - vision is advisory
         return None
+
+
+def detect_faces(client, image_path: Path) -> list[dict] | None:
+    """Face boxes for layout checks: local Haar first, vision as a second opinion.
+
+    When OpenCV is available the local result is authoritative (including ``[]`` = no face,
+    which is a FAILURE on a story spread, not a pass). Vision is only used when local found
+    faces (merge extras) or when OpenCV is missing. Returns ``None`` only when both are
+    unavailable.
+    """
+    try:
+        import cv2  # noqa: F401
+
+        has_local = True
+    except ImportError:
+        has_local = False
+    local = detect_faces_local(image_path) if has_local else []
+    vision = detect_faces_vision(client, image_path) if client is not None else None
+    if has_local:
+        if not local:
+            return []  # definitive no-face; do not let vision override into a false pass
+        if vision:
+            # Second opinion: keep local boxes, append vision boxes that don't overlap heavily.
+            merged = list(local)
+            for face in vision:
+                if not any(
+                    abs(float(face.get("x", 0)) - float(m.get("x", 0))) < 0.08
+                    and abs(float(face.get("y", 0)) - float(m.get("y", 0))) < 0.08
+                    for m in merged
+                ):
+                    merged.append(face)
+            return merged
+        return local
+    return vision
 
 
 # --- 1. structure ---------------------------------------------------------------------------------
@@ -272,6 +367,8 @@ def text_guard_report(inputs: dict, story: dict) -> dict:
     title = get_title(inputs["title_id"])
     locked = story.get("locked") or {}
     candidate = {"spreads": story.get("spreads") or [], "locked": locked}
+    from .catalogue import must_include_map
+
     issues = check_spreads(
         candidate,
         candidate,
@@ -279,6 +376,7 @@ def text_guard_report(inputs: dict, story: dict) -> dict:
         child_name=inputs["name"],
         age_band=inputs.get("age_band") or title["age_band"],
         last_line=(title.get("last_line") or "").replace("{name}", inputs["name"]),
+        must_include_by_spread=must_include_map(inputs["title_id"]),
     )
     out = [_issue(i["code"], "error", i["message"], spread=i.get("spread")) for i in issues]
     return {"name": "text_guard", "passed": not out, "issues": out}

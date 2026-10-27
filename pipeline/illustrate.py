@@ -37,14 +37,28 @@ from .constants import (
 )
 from .job_log import append_event, read_json, write_json
 from .memory import format_memory_for_prompt
-from .openai_util import image_edit, image_quality
-from .pages import clear_spread_derivatives, fit_crop_box, spread_art_path, spread_dir
+from .openai_util import image_edit, image_quality, reset_size_cache, take_size_events
+from .pages import (
+    MIN_SPREAD_ASPECT,
+    SpreadCropError,
+    clear_spread_derivatives,
+    fit_crop_box,
+    spread_art_path,
+    spread_dir,
+)
 
 SIDES = ("left", "right")
+NO_FACE_FIX = (
+    "the child's whole head and face fully inside the frame, well below the top edge"
+)
 
 
 class PrintResolutionError(RuntimeError):
     """Raised when native art is below the fail threshold (< PPI_FAIL ppi)."""
+
+
+class SpreadSizeError(RuntimeError):
+    """Raised when every landscape size fails the aspect / crop rules (never build from squares)."""
 
 
 # --- prompt building ---------------------------------------------------------------------------
@@ -146,11 +160,14 @@ def _composition_block(calm_zone: str) -> str:
             f"(a band about {band}% of the picture width, centred on the fold). Nothing important "
             f"within {trim:g} mm of the outer left and right edges. The top and bottom {crop}% of the "
             f"frame may be cropped away: keep heads, faces and the anchor object out of those bands.",
-            f"CALM ZONE: the {calm} half carries the story text. Keep it quiet: a large, plain, "
-            "uncluttered area (soft background only, no faces, no small details) filling the lower two "
-            "thirds of that half, where the text is set in code. "
-            f"The {action} half carries the action: the child's face clearly visible, centred in that "
-            "half, with the hands or the key prop in view. It carries no story text.",
+            f"CALM ZONE: the {calm} half carries the story text. The CENTRE of the {calm} half, a "
+            "block about 60% of its width and 45% of its height, is plain soft background with no "
+            "figure, face or object (that is where the text is centred). "
+            f"The {action} half carries the action: the child's whole head and face fully inside the "
+            "frame and well below the top edge, centred in that half, with the hands or the key prop "
+            "in view. It carries no story text.",
+            "PROPS: only objects named in the beat and the catalogue (anchor, comfort object, carer "
+            "signature). No musical instruments, toys, pets or gadgets that the beat does not name.",
         ]
     )
 
@@ -294,40 +311,84 @@ def _reference_images(job_dir: Path, inputs: dict, spread: dict):
     return paths, labels
 
 
+def _flush_size_events(job_dir: Path, spread: int | None = None) -> None:
+    for event in take_size_events():
+        append_event(
+            job_dir,
+            event.get("type") or "image_size_stepdown",
+            event.get("message") or "",
+            spread=spread,
+            size=event.get("size"),
+            next_size=event.get("next_size"),
+            error=event.get("error"),
+        )
+
+
 def _store_frame(client, job_dir: Path, n: int, data: bytes) -> dict:
     """Write ``art.png`` (the model frame centre-cropped to the spread aspect, never resized).
 
-    Returns the frame facts plus the fold / edge / crop-band failures found by the face detector
-    (``failures`` is empty when no face was found or the detector could not run).
+    Detects faces on the FULL frame before cropping. Empty face list is a ``no_face`` failure
+    (not a pass). ``SpreadCropError`` / aspect < 1.5 are raised to the caller as size rejects.
     """
     art_path = spread_art_path(job_dir, n)
     raw_size = _png_size(data)
-    box = fit_crop_box(raw_size)
+    width, height = raw_size
+    aspect = width / max(1, height)
+    if aspect < MIN_SPREAD_ASPECT:
+        raise SpreadSizeError(
+            f"Spread frame {width}x{height} has aspect {aspect:.3f} < {MIN_SPREAD_ASPECT}"
+        )
+    box = fit_crop_box(raw_size)  # may raise SpreadCropError
     full = box == (0, 0, raw_size[0], raw_size[1])
     frame_path = art_path.with_name("_frame.png")
-    if full:
-        art_path.write_bytes(data)  # native bytes untouched
-        detect_path = art_path
-    else:
-        frame_path.write_bytes(data)
-        with Image.open(io.BytesIO(data)) as frame:
-            frame.crop(box).save(art_path, format="PNG")
-        detect_path = frame_path
+    frame_path.write_bytes(data)
     try:
-        faces = qa.detect_faces(client, detect_path)
+        # Always detect on the full (pre-crop) frame so a cut-off head is still seen.
+        faces = qa.detect_faces(client, frame_path)
+        head_cut = imagecheck.head_cut_heuristic(frame_path)
+        if full:
+            art_path.write_bytes(data)
+        else:
+            with Image.open(io.BytesIO(data)) as frame:
+                frame.crop(box).save(art_path, format="PNG")
     finally:
         frame_path.unlink(missing_ok=True)
-    failures = (
-        imagecheck.spread_layout_failures(faces, raw_size, box) if faces is not None else []
-    )
+
+    failures: list[dict] = []
+    if faces is None:
+        fold_checked = False
+    else:
+        fold_checked = True
+        if not faces:
+            failures.append(
+                {
+                    "zone": "no_face",
+                    "message": (
+                        f"no_face: the child must appear on every spread; {NO_FACE_FIX}"
+                    ),
+                }
+            )
+        else:
+            failures.extend(imagecheck.spread_layout_failures(faces, raw_size, box))
+    if head_cut:
+        failures.append(
+            {
+                "zone": "head_cut",
+                "message": (
+                    "head_cut: figure mass touches the top 3% of the frame; keep the whole head "
+                    "well below the top edge"
+                ),
+            }
+        )
     return {
         "raw_size": raw_size,
         "crop_box": list(box),
         "width": box[2] - box[0],
         "height": box[3] - box[1],
         "faces": faces,
-        "fold_checked": faces is not None,
+        "fold_checked": fold_checked,
         "failures": failures,
+        "head_cut": head_cut,
     }
 
 
@@ -342,9 +403,9 @@ def generate_spread_art(
 ) -> dict:
     """Generate ``art.png`` for one spread: ONE image call, a fold check and a calm-zone check.
 
-    A frame whose faces cross the fold, the outer edge or the top / bottom crop bands is
-    regenerated ONCE with the failing zone named; if it still fails the art is kept and
-    ``fold_warning`` is emitted. A busy calm half only emits ``calm_zone_warning`` (no regen).
+    Landscape-only: a frame with aspect < 1.5 is rejected (``spread_size_rejected``) and retried on
+    the landscape ladder; squares never become the working size. Fold / edge / head_cut / no_face
+    failures regenerate ONCE; a busy calm half only emits ``calm_zone_warning``.
     """
     if not Path(character_path).is_file():
         raise FileNotFoundError(f"Character sheet missing for spread {spread.get('spread')}")
@@ -375,8 +436,11 @@ def generate_spread_art(
     attempts = 0
     frame: dict = {}
     prompt = ""
-    for attempt in (1, 2):
-        attempts = attempt
+    size_rejects = 0
+    layout_retries = 0
+    # Size rejects get their own retries; layout (fold / no_face / head_cut) gets one regen.
+    while True:
+        attempts += 1
         prompt = _spread_prompt(
             working,
             inputs,
@@ -386,27 +450,74 @@ def generate_spread_art(
             fix_zones=fix_zones,
         )
         result = image_edit(client, paths, prompt, size=IMAGE_SIZE, description=f"Spread {n}")
-        frame = _store_frame(client, job_dir, n, _decode(result))
-        if not frame["failures"]:
-            break
-        if attempt == 1:
-            fix_zones = [f["message"] for f in frame["failures"]]
+        _flush_size_events(job_dir, n)
+        data = _decode(result)
+        raw_w, raw_h = _png_size(data)
+        try:
+            frame = _store_frame(client, job_dir, n, data)
+        except (SpreadSizeError, SpreadCropError) as error:
+            size_rejects += 1
+            size_received = f"{raw_w}x{raw_h}"
             append_event(
                 job_dir,
-                "fold_retry",
-                f"Spread {n} fold check failed; regenerating once: " + "; ".join(f["zone"] for f in frame["failures"]),
+                "spread_size_rejected",
+                f"Spread {n}: rejected frame {size_received} ({error}). Retrying landscape ladder.",
                 spread=n,
-                zones=[f["zone"] for f in frame["failures"]],
+                size_received=size_received,
+                error=str(error),
             )
-    if frame["failures"]:
+            # Drop any cached working size so the next call re-probes the landscape ladder.
+            reset_size_cache()
+            if size_rejects >= 3:
+                meta.update({"status": "failed", "size_received": size_received, "error": str(error)})
+                write_json(sdir / "spread.json", meta)
+                raise SpreadSizeError(
+                    f"Spread {n}: every landscape size failed aspect/crop rules "
+                    f"(last frame {size_received}). Not building from a square."
+                ) from error
+            continue
+
+        if not frame["failures"]:
+            break
+        zones = [f["zone"] for f in frame["failures"]]
+        if layout_retries >= 1:
+            break
+        layout_retries += 1
+        fix_zones = [f["message"] for f in frame["failures"]]
+        if "no_face" in zones:
+            fix_zones = [NO_FACE_FIX] + [z for z in fix_zones if "no_face" not in z]
+        event_type = "fold_retry"
         append_event(
             job_dir,
-            "fold_warning",
-            f"Spread {n} still breaks the fold / edge rules after one retry (kept): "
-            + "; ".join(f["message"] for f in frame["failures"]),
+            event_type,
+            f"Spread {n} layout check failed; regenerating once: " + "; ".join(zones),
             spread=n,
-            zones=[f["zone"] for f in frame["failures"]],
+            zones=zones,
         )
+
+    no_face_warning = False
+    if frame.get("failures"):
+        zones = [f["zone"] for f in frame["failures"]]
+        if "no_face" in zones or "head_cut" in zones:
+            no_face_warning = True
+            append_event(
+                job_dir,
+                "no_face_warning",
+                f"Spread {n} still has no clear in-frame face after one retry (kept): "
+                + "; ".join(f["message"] for f in frame["failures"]),
+                spread=n,
+                zones=zones,
+            )
+        fold_zones = [z for z in zones if z not in {"no_face", "head_cut"}]
+        if fold_zones:
+            append_event(
+                job_dir,
+                "fold_warning",
+                f"Spread {n} still breaks the fold / edge rules after one retry (kept): "
+                + "; ".join(f["message"] for f in frame["failures"] if f["zone"] in fold_zones),
+                spread=n,
+                zones=fold_zones,
+            )
 
     art_path = spread_art_path(job_dir, n)
     calm_stats = imagecheck.calm_zone_stats(art_path, calm_zone)
@@ -441,6 +552,7 @@ def generate_spread_art(
             "fold_checked": frame["fold_checked"],
             "fold_failures": [f["zone"] for f in frame["failures"]],
             "faces": frame["faces"],
+            "no_face_warning": no_face_warning,
             "calm_zone_busy": calm_busy,
             "calm_zone_stats": calm_stats,
             "status": "generated",
@@ -451,9 +563,11 @@ def generate_spread_art(
     append_event(
         job_dir,
         "spread_done",
-        f"Spread {n} art saved ({frame['width']}px, {meta['effective_ppi']} ppi).",
+        f"Spread {n} art saved ({frame['width']}px, {meta['effective_ppi']} ppi"
+        f", received {meta['size_received']}).",
         spread=n,
         effective_ppi=meta["effective_ppi"],
+        size_received=meta["size_received"],
     )
     return meta
 
@@ -529,14 +643,14 @@ def _cover_prompt(kind: str, inputs: dict, story: dict, fix_zones: list[str] | N
         body = (
             f"Create the FRONT COVER illustration only for '{story['title']}'.\n"
             "COMPOSITION (binding): the child alone, centred left-to-right, facing the viewer with the "
-            "face fully visible. The child's head and face sit at 50-62% of the picture height, "
-            "measured from the top, with shoulders and upper body below. The child is the largest "
-            "element. The carer is never on the front cover.\n"
+            "face fully visible. The child's head top starts at 38-42% of the picture height, "
+            "measured from the top, with the face in the 38-72% window and shoulders below. The child "
+            "is the largest element. The carer is never on the front cover.\n"
             "BACKGROUND: calm and soft, low contrast, a gentle wash with at most one or two large "
             "simple shapes. No clutter, no pattern, no small details.\n"
-            "KEEP PLAIN: the TOP 30% of the picture is a plain, soft, empty background (a family "
-            "colour band and then the title are printed over it). The BOTTOM 15%, in the centre 40% "
-            "of the width, is plain and empty too (the logo is printed there).\n"
+            "KEEP PLAIN: the TOP 35% of the picture is empty plain wall (a family colour band and "
+            "then the title are printed over it). The BOTTOM 18%, in the centre 40% of the width, is "
+            "plain floor with nothing in it — no hands, no toy (the logo is printed there).\n"
             "NO EDGE CUTS: nothing may be cut off by the left, right or top edge. The whole head, "
             "hair and any prop stay inside the picture with clear margin; no face within 10 mm of "
             "any trim edge."
@@ -548,9 +662,10 @@ def _cover_prompt(kind: str, inputs: dict, story: dict, fix_zones: list[str] | N
             "Same world, palette and cast as the front.\n"
             "KEEP PLAIN: the UPPER TWO THIRDS of the picture is a plain, calm, soft wash with no "
             "figures, objects or detail (the question, blurb and honesty line are printed there). "
-            "A quiet epilogue moment showing the anchor object sits in the LOWER THIRD only.\n"
+            "A quiet epilogue moment showing the anchor object sits in the LOWER THIRD only, and "
+            "every figure and the anchor stay at least 20 mm above the bottom edge of the trim.\n"
             f"QR KEEP-CLEAR: the {corner} corner (about {BACK_QR_SAFE_MM:g} mm square) stays "
-            "completely plain and empty.\n"
+            "completely plain and empty of figures (the printer prints over whatever is beneath).\n"
             "NO EDGE CUTS: nothing important touches or is cut by the edges."
         )
     if fix_zones:
@@ -575,17 +690,43 @@ def _generate_cover_image(client, kind: str, prompt: str, ref_paths: list[Path],
     return data
 
 
+FRONT_LAYOUT_FIX = (
+    "empty plain wall above the child's head for the top 35% of the picture; "
+    "head top at 38-42%"
+)
+
+
+class CoverTitleOverlapError(RuntimeError):
+    """Title box would print over the child's face even after shrink + regen — stop for the operator."""
+
+
 def _front_layout_check(client, path: Path) -> dict:
     faces = qa.detect_faces(client, path)
     return imagecheck.check_front_cover_layout(path, faces)
 
 
+def _back_layout_check(client, path: Path) -> dict:
+    faces = qa.detect_faces(client, path)
+    return imagecheck.check_back_cover_layout(path, faces)
+
+
+def _title_face_overlap(path: Path, faces: list[dict] | None, title_height_frac: float = 0.22) -> bool:
+    """True when the front title block (band + 11 mm, then title height) would hit the face box."""
+    if not faces:
+        return False
+    # Band ~13/216 ≈ 0.06; title starts ~11 mm below (~0.05); title height passed as fraction.
+    title_top = 0.06 + 0.05
+    title_box = (0.08, title_top, 0.92, title_top + title_height_frac)
+    main = max(faces, key=lambda f: float(f.get("w", 0)) * float(f.get("h", 0)))
+    return imagecheck.rects_overlap(title_box, imagecheck.face_box_norm(main))
+
+
 def generate_cover_panels(client, job_dir: Path, inputs: dict, story: dict, character_path: Path):
     """Front and back cover art, text-free, character-locked. Typography is added in pdf_build.
 
-    The front art is layout-checked (face position, calm top band/title zone, calm logo zone). A
-    failing front is regenerated ONCE with the failing zone named; if it still fails the art is kept,
-    the soft plate is forced under the title/logo and ``cover_layout_warning`` is emitted.
+    Front: up to two layout regens with the empty-wall brief; never force a plate over a face —
+    shrink the title to the 44 pt floor, regen once more if needed, then ``cover_title_overlap``.
+    Back: one layout regen, then ``cover_layout_warning``.
     """
     if not Path(character_path).is_file():
         raise FileNotFoundError("Character sheet missing; cannot generate cover panels.")
@@ -601,41 +742,119 @@ def generate_cover_panels(client, job_dir: Path, inputs: dict, story: dict, char
     append_event(job_dir, "cover_start", "Generating cover art (front + back).")
 
     out = {}
-    layout: dict = {}
+    layout: dict = {"force_soft_plate": False, "title_overlap": False, "back_failures": []}
     for kind, prompt, ref_paths in (("front", front_prompt, refs), ("back", back_prompt, back_refs)):
         path = cover_dir / f"{kind}_art.png"
         data = _generate_cover_image(client, kind, prompt, ref_paths, path)
         if kind == "front":
             check = _front_layout_check(client, path)
-            layout = {"first_attempt": check["failures"], "regenerated": False}
-            if not check["passed"]:
+            layout["first_attempt"] = check["failures"]
+            layout["regenerated"] = 0
+            for _regen in range(2):
+                if check["passed"]:
+                    break
                 append_event(
                     job_dir,
                     "cover_layout_retry",
-                    "Front cover layout check failed; regenerating once: " + "; ".join(check["failures"]),
+                    "Front cover layout check failed; regenerating: " + "; ".join(check["failures"]),
                     failures=check["failures"],
                 )
-                front_prompt = _cover_prompt("front", inputs, story, fix_zones=check["failures"])
+                front_prompt = _cover_prompt(
+                    "front",
+                    inputs,
+                    story,
+                    fix_zones=check["failures"] + [FRONT_LAYOUT_FIX],
+                )
                 data = _generate_cover_image(client, kind, front_prompt, ref_paths, path)
                 check = _front_layout_check(client, path)
-                layout["regenerated"] = True
+                layout["regenerated"] += 1
+            faces = qa.detect_faces(client, path) or []
+            overlap = _title_face_overlap(path, faces)
+            title_shrunk = False
+            if overlap:
+                title_shrunk = True
+                append_event(
+                    job_dir,
+                    "cover_title_shrink",
+                    "Front title would overlap the face; shrinking to the 44 pt floor and regenerating once.",
+                )
+                front_prompt = _cover_prompt(
+                    "front",
+                    inputs,
+                    story,
+                    fix_zones=[
+                        "the top 38% of the picture is empty wall, the head top starts below it",
+                        FRONT_LAYOUT_FIX,
+                    ],
+                )
+                data = _generate_cover_image(client, kind, front_prompt, ref_paths, path)
+                faces = qa.detect_faces(client, path) or []
+                check = _front_layout_check(client, path)
+                overlap = _title_face_overlap(path, faces)
+                layout["regenerated"] += 1
             layout.update(
                 {
                     "failures": check["failures"],
                     "face_checked": check["face_checked"],
-                    "force_soft_plate": bool(check["failures"]),
+                    "main_face": check.get("main_face"),
+                    "title_shrunk": title_shrunk,
+                    # Never force a plate over a face; plates only cover the text box + 6 mm.
+                    "force_soft_plate": False,
+                    "title_overlap": overlap,
                 }
             )
+            if overlap:
+                layout["status"] = "cover_title_overlap"
+                write_json(
+                    cover_dir / "cover.json",
+                    {
+                        "title": story["title"],
+                        "front_prompt": front_prompt,
+                        "back_prompt": back_prompt,
+                        "front_art": "front_art.png",
+                        "back_art": "back_art.png",
+                        "layout": layout,
+                        "status": "cover_title_overlap",
+                    },
+                )
+                append_event(
+                    job_dir,
+                    "cover_title_overlap",
+                    "Front title still overlaps the child's face after shrink + regen; stopped for the operator.",
+                )
+                raise CoverTitleOverlapError(
+                    "Front cover title would print over the child's face. Regenerate the cover art."
+                )
             if check["failures"]:
                 append_event(
                     job_dir,
                     "cover_layout_warning",
-                    "Front cover still breaks the layout rules after one retry; keeping the art and "
-                    "forcing the soft plate: " + "; ".join(check["failures"]),
+                    "Front cover still breaks the layout rules after retries (no plate over face): "
+                    + "; ".join(check["failures"]),
+                    failures=check["failures"],
+                )
+        else:
+            check = _back_layout_check(client, path)
+            if not check["passed"]:
+                append_event(
+                    job_dir,
+                    "cover_layout_retry",
+                    "Back cover layout check failed; regenerating once: " + "; ".join(check["failures"]),
+                    failures=check["failures"],
+                )
+                back_prompt = _cover_prompt("back", inputs, story, fix_zones=check["failures"])
+                data = _generate_cover_image(client, kind, back_prompt, ref_paths, path)
+                check = _back_layout_check(client, path)
+            layout["back_failures"] = check["failures"]
+            if check["failures"]:
+                append_event(
+                    job_dir,
+                    "cover_layout_warning",
+                    "Back cover still breaks the layout rules after one retry: "
+                    + "; ".join(check["failures"]),
                     failures=check["failures"],
                 )
         width, height = _png_size(data)
-        # Cover art is scaled to fill the 248 mm cover height (art stays square), never upscaled in pixels.
         info = _record_resolution(job_dir, f"{kind.title()} cover", width, COVER_HEIGHT_MM, cover=kind)
         out[kind] = {"file": path.name, "width": width, "height": height, **info}
 

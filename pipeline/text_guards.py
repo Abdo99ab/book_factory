@@ -198,6 +198,139 @@ def ensure_catalogue_last_line(spreads: list, last_line: str) -> list:
     return out
 
 
+# Simple lemma-ish forms for must_include matching (plurals / -ing / -ed).
+def _token_forms(token: str) -> set[str]:
+    base = re.sub(r"[^a-z0-9'-]+", "", (token or "").lower()).strip("-'")
+    if not base:
+        return set()
+    forms = {base}
+    if base.endswith("ies") and len(base) > 3:
+        forms.add(base[:-3] + "y")
+    if base.endswith("es") and len(base) > 3:
+        forms.add(base[:-2])
+    if base.endswith("s") and not base.endswith("ss") and len(base) > 2:
+        forms.add(base[:-1])
+    if base.endswith("ing") and len(base) > 4:
+        forms.add(base[:-3])
+        forms.add(base[:-3] + "e")
+    if base.endswith("ed") and len(base) > 3:
+        forms.add(base[:-2])
+        forms.add(base[:-1])
+    return forms
+
+
+def _text_has_token(text: str, token: str) -> bool:
+    """Lemma-tolerant: multi-word phrases must appear as a run; single words match forms."""
+    hay = _norm_text(text)
+    needle = (token or "").strip().lower()
+    if not needle or not hay:
+        return False
+    if " " in needle or "-" in needle:
+        # Phrase: collapse hyphens/spaces and require contiguous match.
+        phrase = re.sub(r"[\s-]+", " ", needle)
+        return phrase in re.sub(r"[\s-]+", " ", hay)
+    forms = _token_forms(needle)
+    words = set(re.findall(r"[a-z0-9']+", hay))
+    expanded = set()
+    for word in words:
+        expanded |= _token_forms(word)
+    return bool(forms & (words | expanded))
+
+
+FORBIDDEN_SCENE_PROPS = (
+    "guitar",
+    "piano",
+    "drums",
+    "violin",
+    "trumpet",
+    "ukulele",
+    "saxophone",
+)
+
+
+def must_include_issues(
+    spreads: list,
+    must_include_by_spread: dict[int, list[str]] | None,
+    *,
+    field: str = "text",
+) -> list[dict]:
+    """Fail a spread whose ``field`` misses any catalogue ``must_include`` token."""
+    if not must_include_by_spread:
+        return []
+    issues: list[dict] = []
+    for spread in spreads or []:
+        n = int(spread.get("n") or spread.get("spread") or 0)
+        required = must_include_by_spread.get(n) or []
+        if not required:
+            continue
+        body = spread.get(field) or ""
+        missing = [token for token in required if not _text_has_token(body, token)]
+        if missing:
+            issues.append(
+                {
+                    "code": "must_include",
+                    "spread": n,
+                    "message": (
+                        f"Spread {n} {field} is missing required beat token(s): "
+                        + ", ".join(missing)
+                        + "."
+                    ),
+                }
+            )
+    return issues
+
+
+def forbidden_prop_issues(spreads: list, *, field: str = "scene") -> list[dict]:
+    """Hard fail when a scene invents a musical instrument the beat did not name."""
+    issues: list[dict] = []
+    for spread in spreads or []:
+        n = int(spread.get("n") or spread.get("spread") or 0)
+        body = (spread.get(field) or "").lower()
+        if not body:
+            continue
+        hits = [prop for prop in FORBIDDEN_SCENE_PROPS if re.search(rf"\b{re.escape(prop)}\b", body)]
+        if hits:
+            issues.append(
+                {
+                    "code": "forbidden_prop",
+                    "spread": n,
+                    "message": (
+                        f"Spread {n} {field} invents prop(s) not in the beat: "
+                        + ", ".join(hits)
+                        + "."
+                    ),
+                }
+            )
+    return issues
+
+
+# 2–3½ band: sentences ≤ 9 words so a half-page at 23 pt can carry them.
+YOUNG_SENTENCE_WORD_CAP = 9
+YOUNG_AGE_BANDS = frozenset({"2-3.5", "2-5"})
+
+
+def sentence_length_issues(spreads: list, age_band: str) -> list[dict]:
+    if age_band not in YOUNG_AGE_BANDS:
+        return []
+    issues: list[dict] = []
+    for spread in spreads or []:
+        n = int(spread.get("n") or 0)
+        for sentence in _split_sentences(spread.get("text") or ""):
+            wc = _word_count(sentence)
+            if wc > YOUNG_SENTENCE_WORD_CAP:
+                issues.append(
+                    {
+                        "code": "sentence_too_long",
+                        "spread": n,
+                        "message": (
+                            f"Spread {n}: sentence has {wc} words "
+                            f"(cap {YOUNG_SENTENCE_WORD_CAP} for {age_band}): {sentence}"
+                        ),
+                    }
+                )
+    return issues
+
+
 def scene_halves_issue(spread: dict) -> dict | None:
     """Guard: the single ``scene`` must describe BOTH halves of the picture ("left" and "right")."""
     n = int(spread.get("n") or spread.get("spread") or 0)
@@ -245,6 +378,7 @@ def check_spreads(
     age_band: str,
     last_line: str,
     require_scenes: bool = False,
+    must_include_by_spread: dict[int, list[str]] | None = None,
 ) -> list[dict]:
     """Return guard violations; empty list means pass."""
     issues: list[dict] = []
@@ -383,6 +517,9 @@ def check_spreads(
                 }
             )
     issues.extend(scene_halves_issues(cand_spreads, require=require_scenes))
+    issues.extend(must_include_issues(cand_spreads, must_include_by_spread, field="text"))
+    issues.extend(forbidden_prop_issues(cand_spreads, field="scene"))
+    issues.extend(sentence_length_issues(cand_spreads, age_band))
 
     if last_line:
         # Prefer explicit n=14; fall back to list order.

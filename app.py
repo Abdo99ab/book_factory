@@ -1326,7 +1326,9 @@ def _spread_cards(job_id: str, job_dir: Path, story, pages: list) -> list[dict]:
                 "resolution_status": meta.get("resolution_status"),
                 "size_received": meta.get("size_received"),
                 "fold_failures": meta.get("fold_failures") or [],
+                "no_face_warning": bool(meta.get("no_face_warning")),
                 "calm_zone_busy": bool(meta.get("calm_zone_busy")),
+                "anchor_state_meta": meta.get("anchor_state"),
                 "edit_instruction": meta.get("edit_instruction"),
             }
         )

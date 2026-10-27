@@ -97,13 +97,17 @@ def load_story_beats(title_id: str) -> dict:
             if current:
                 beats.append(current)
             num = int(line.replace("## Spread ", "").strip().split()[0])
-            current = {"n": num, "text": ""}
+            current = {"n": num, "text": "", "must_include": []}
+        elif current is not None and line.lower().startswith("must_include:"):
+            raw = line.split(":", 1)[1].strip()
+            current["must_include"] = [t.strip() for t in raw.split(",") if t.strip()]
         elif current is not None:
             current["text"] += (line + "\n")
     if current:
         beats.append(current)
     for beat in beats:
         beat["text"] = beat["text"].strip()
+        beat.setdefault("must_include", [])
     if len(beats) != 14:
         raise CatalogueError(
             f"title_id={title_id} story file must have 14 spreads, found {len(beats)}"
@@ -133,6 +137,19 @@ def resolve_carer_text(text: str, inputs: dict) -> str:
     carer = (inputs or {}).get("carer") or {}
     label = (carer.get("name") or carer.get("role") or "the carer").strip()
     return (text or "").replace("{carer}", label)
+
+
+def must_include_map(title_id: str) -> dict[int, list[str]]:
+    """``{spread_n: [token, ...]}`` from the story beats file (empty dict when none are set)."""
+    try:
+        beats = load_story_beats(title_id).get("beats") or []
+    except CatalogueError:
+        return {}
+    return {
+        int(beat["n"]): list(beat.get("must_include") or [])
+        for beat in beats
+        if beat.get("must_include")
+    }
 
 
 def _validate_title(title_id: str, entry: dict) -> None:

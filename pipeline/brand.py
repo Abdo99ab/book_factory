@@ -65,7 +65,9 @@ SIZE_SCALE = {
     "morning_light_leading": 1.35,
     "field_guide_story": (16, 18),
     "field_guide_leading": 1.4,
-    "parent_body": 12,
+    "parent_body": 14,
+    "parent_label": 10,
+    "parent_spot_mm": 90,
     "page_furniture": 9,
     "dedication": 12,
     "order_code": 9,
@@ -243,7 +245,9 @@ ROUTE_PRESETS = {
 SHARED_NEGATIVES = (
     "no text, letters, numbers or logos in the art; no helmet visor or mask covering "
     "the face; no unhappy carer face at an accident; no punishment; no fear monsters; "
-    "screens show nothing readable; no child using an AI tool"
+    "screens show nothing readable; no child using an AI tool; no musical instruments "
+    "(guitar, piano, drums, violin) unless the beat names them; no invented toys, pets "
+    "or gadgets the beat does not name"
 )
 
 

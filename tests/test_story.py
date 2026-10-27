@@ -29,10 +29,28 @@ def test_locked_keys_present():
 
 
 def _spread(n: int) -> dict:
+    # Catalogue must_include tokens for spreads 6 and 11 must appear in the mock text/scene.
+    if n == 6:
+        text = "Emma looks at the potty. Not today."
+        scene = (
+            "Spread 6: on the left the potty sits quiet; on the right Emma says Not today."
+        )
+    elif n == 11:
+        text = "Emma wees in the potty. They sing the hand-wash song at the sink."
+        scene = (
+            "Spread 11: on the left the potty and a wee; on the right they wash at the sink "
+            "and sing the hand-wash song."
+        )
+    else:
+        text = "Emma picks a shoe."
+        scene = (
+            f"Spread {n}: on the left the kitchen is wide and quiet; "
+            "on the right Emma's hands hold a shoe."
+        )
     return {
         "n": n,
-        "text": "Emma picks a shoe.",
-        "scene": f"Spread {n}: on the left the kitchen is wide and quiet; on the right Emma's hands hold a shoe.",
+        "text": text,
+        "scene": scene,
         "calm_zone": "left" if n % 2 else "right",
     }
 

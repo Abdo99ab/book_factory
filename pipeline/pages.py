@@ -22,6 +22,15 @@ from .constants import (
 from .job_log import append_event, write_json
 
 SIDES = ("left", "right")
+# Refuse a centre-crop that throws away more than this fraction of the frame height
+# (square frames need ~25 % and that is what cut heads off). 3:2 frames stay under ~12 %.
+MAX_HEIGHT_CROP_FRACTION = 0.15
+# A spread frame must be at least this wide:height; anything below is treated as a square reject.
+MIN_SPREAD_ASPECT = 1.5
+
+
+class SpreadCropError(ValueError):
+    """Raised when fitting a frame to the spread would crop more than MAX_HEIGHT_CROP_FRACTION."""
 
 
 # --- paths -------------------------------------------------------------------------------------
@@ -83,17 +92,26 @@ def clear_spread_art(job_dir: Path, n: int, *, keep_meta: bool = False) -> bool:
 # --- geometry: fit + split ---------------------------------------------------------------------
 
 
-def fit_crop_box(size: tuple[int, int]) -> tuple[int, int, int, int]:
+def fit_crop_box(size: tuple[int, int], *, allow_heavy_crop: bool = False) -> tuple[int, int, int, int]:
     """Centre-crop box (left, top, right, bottom) that gives ``size`` the SPREAD_ASPECT.
 
-    The image models offer landscape frames TALLER than the spread (e.g. 1536x1024 is 1.5:1, the
+    The image models offer landscape frames TALLER than the spread (e.g. 1792x1024 is ~1.75:1, the
     spread is ~1.97:1), so the crop is normally vertical: top and bottom bands are cut equally.
     A frame that is already wider than the spread (e.g. 2048x1024) loses a sliver from the left and
     right instead. Either way the centre (the fold) stays put and nothing is ever resized up.
+
+    Raises ``SpreadCropError`` when the vertical crop would remove more than
+    ``MAX_HEIGHT_CROP_FRACTION`` of the height (unless ``allow_heavy_crop``).
     """
     width, height = size
     target_h = round(width / SPREAD_ASPECT)
     if target_h <= height:
+        crop_frac = (height - target_h) / float(height)
+        if not allow_heavy_crop and crop_frac > MAX_HEIGHT_CROP_FRACTION:
+            raise SpreadCropError(
+                f"Frame {width}x{height} needs {crop_frac:.0%} height crop to reach "
+                f"{SPREAD_ASPECT:.3f}:1 (limit {MAX_HEIGHT_CROP_FRACTION:.0%})."
+            )
         top = (height - target_h) // 2
         return (0, top, width, top + target_h)
     target_w = round(height * SPREAD_ASPECT)

@@ -29,7 +29,10 @@ def test_prompt_is_one_continuous_double_page(bundle):
     assert "426 x 216 mm" in prompt
     assert "centre fold" in prompt and "15 mm" in prompt and "10 mm" in prompt
     assert "CALM ZONE: the LEFT half carries the story text" in prompt
+    assert "CENTRE of the LEFT half" in prompt
+    assert "PROPS: only objects named in the beat" in prompt
     assert "The RIGHT half carries the action" in prompt
+    assert "musical instruments" in prompt
     # the one scene (both halves described together) is in the prompt, once
     assert spread["scene"] in prompt
     # no per-page wording survives
@@ -46,6 +49,7 @@ def test_even_spread_puts_calm_zone_on_the_right(bundle):
     assert spread["calm_zone"] == "right"
     prompt = illustrate._spread_prompt(spread, inputs, story)
     assert "CALM ZONE: the RIGHT half carries the story text" in prompt
+    assert "CENTRE of the RIGHT half" in prompt
     assert "The LEFT half carries the action" in prompt
 
 

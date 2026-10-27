@@ -56,10 +56,11 @@ from .job_log import append_event, read_json, write_json
 from .pages import split_spread, spread_art_path, spread_art_rel
 
 SITE_URL = "raisedready.co.uk"
-CONTRAST_TARGET = 4.5
+CONTRAST_TARGET = 7.0  # story text on art: p10-based navy vs paper must clear 7:1
 PLATE_ALPHA = 0.88
 PLATE_LAYERS = 8
 BAND_DEPTH_MM = float(SIZE_SCALE["band_depth_mm"])
+TITLE_SIZE_FLOOR = float(SIZE_SCALE["front_title_rest"][0])  # 44 pt
 
 INK = COLOURS["ink_navy"]["rgb"]
 PAPER = COLOURS["paper"]["rgb"]
@@ -174,8 +175,10 @@ class _Ctx:
     route: dict
     grade: str | None
     layout_log: list
-    # Front cover art failed the layout check twice: always set title + logo on the soft plate.
+    # Front cover art failed the layout check twice: soft plate under the TITLE BOX only (never a face).
     force_cover_plate: bool = False
+    # Shrink the front title to the 44 pt floor (title would otherwise overlap the face).
+    title_floor_only: bool = False
     # The spread being drawn: {"n", "source", "left", "right"}; one open + one split per spread.
     spread_cache: dict = field(default_factory=dict)
 
@@ -258,28 +261,80 @@ def _decide_ink(ctx: _Ctx, art: _Art | None, box_mm, allow_light_ink: bool = Fal
     return INK, True
 
 
+_SOFT_BREAK = frozenset({",", ";", ":", "—", "–", "and", "or", "but"})
+
+
+def _rebalance_orphan_pair(first: list[str], second: list[str]) -> tuple[list[str], list[str]]:
+    """Never leave a line with fewer than three words when the pair can be rebalanced."""
+    if len(second) >= 3 or len(first) + len(second) < 6:
+        return first, second
+    # Aim for two roughly even lines, each ≥ 3 words.
+    total = first + second
+    best = len(first)
+    for cut in range(3, len(total) - 2):
+        if abs(cut - len(total) / 2) < abs(best - len(total) / 2):
+            best = cut
+    return total[:best], total[best:]
+
+
 def _wrap(text: str, font: str, size: float, width_pt: float) -> list[str]:
+    """Word-wrap; prefer breaks after punctuation / conjunctions; rebalance orphans (<3 words)."""
     lines: list[str] = []
     for paragraph in (text or "").split("\n"):
         words = paragraph.split()
         if not words:
             lines.append("")
             continue
-        current = words[0]
-        for word in words[1:]:
-            trial = f"{current} {word}"
-            if pdfmetrics.stringWidth(trial, font, size) <= width_pt:
-                current = trial
+        current: list[str] = []
+        for word in words:
+            trial = current + [word]
+            if current and pdfmetrics.stringWidth(" ".join(trial), font, size) > width_pt:
+                # Prefer the latest soft-break point inside current.
+                break_at = len(current)
+                for index in range(len(current) - 1, 2, -1):
+                    token = current[index - 1].rstrip(".,;:!?…\"'").lower()
+                    punct = current[index - 1][-1:] in {",", ";", ":", "—", "–"}
+                    if punct or token in _SOFT_BREAK:
+                        if pdfmetrics.stringWidth(" ".join(current[:index]), font, size) <= width_pt:
+                            break_at = index
+                            break
+                first, rest = current[:break_at], current[break_at:]
+                rest = rest + [word]
+                first, rest = _rebalance_orphan_pair(first, rest)
+                # If rest still too wide, flush first and keep rest cooking.
+                if pdfmetrics.stringWidth(" ".join(rest), font, size) <= width_pt or len(first) < 1:
+                    lines.append(" ".join(first))
+                    current = rest
+                else:
+                    lines.append(" ".join(first))
+                    current = rest
             else:
-                lines.append(current)
-                current = word
-        lines.append(current)
+                current = trial
+        if current:
+            if len(current) < 3 and lines:
+                prev = lines[-1].split()
+                first, rest = _rebalance_orphan_pair(prev, current)
+                if len(rest) >= 3 or len(first) + len(rest) < 6:
+                    lines[-1] = " ".join(first)
+                    current = rest
+            lines.append(" ".join(current))
     return lines
 
 
 def _sentences(text: str) -> list[str]:
     parts = re.split(r"(?<=[.!?…])\s+", (text or "").strip())
     return [p for p in parts if p]
+
+
+def fit_lines_for_story(text: str, font: str, size: float, width_pt: float) -> list[str]:
+    """One sentence per line when it fits; otherwise wrap with orphan-aware rebalance."""
+    lines: list[str] = []
+    for sentence in _sentences(text) or [text]:
+        if pdfmetrics.stringWidth(sentence, font, size) <= width_pt:
+            lines.append(sentence)
+        else:
+            lines.extend(_wrap(sentence, font, size, width_pt))
+    return lines
 
 
 def _draw_lines(c, lines, font, size, x_mm, top_mm, leading_pt, rgb, align="left", width_mm=None):
@@ -337,12 +392,18 @@ def split_title(title: str, name: str) -> tuple[str | None, str]:
     return None, title
 
 
-def _title_layout(ctx: _Ctx, title: str, width_mm: float):
-    """Noto Serif title lines: (line1, rest_lines, rest_size) with rest 44-52 pt, max 3 lines."""
+def _title_layout(ctx: _Ctx, title: str, width_mm: float, *, floor_only: bool = False):
+    """Noto Serif title lines: (line1, rest_lines, rest_size) with rest 44-52 pt, max 3 lines.
+
+    ``floor_only`` forces the 44 pt floor (used when the title would otherwise overlap the face).
+    """
     font = reportlab_name("title")
     line1, rest = split_title(title, ctx.name)
     lo, hi = SIZE_SCALE["front_title_rest"]
     width_pt = mm_to_pt(width_mm)
+    if floor_only:
+        size = int(lo)
+        return line1, _wrap(rest, font, size, width_pt), size
     for size in range(hi, lo - 1, -2):
         lines = _wrap(rest, font, size, width_pt)
         if len(lines) <= 3:
@@ -365,7 +426,8 @@ def _draw_title_block(
     ctx, c, art, title, centre_x_mm, top_mm, width_mm, allow_light_ink, label, force_plate=False
 ):
     font = reportlab_name("title")
-    line1, lines, size = _title_layout(ctx, title, width_mm)
+    floor_only = bool(getattr(ctx, "title_floor_only", False))
+    line1, lines, size = _title_layout(ctx, title, width_mm, floor_only=floor_only)
     l1_size = SIZE_SCALE["front_title_and_the"][0]
     l1_pt = l1_size * 1.25
     lead = size * 1.12
@@ -436,15 +498,27 @@ def _fit_story_text(ctx: _Ctx, text: str, width_mm: float, max_height_mm: float)
     sentence_per_line = ctx.inputs.get("route") != "field_guide"
     while True:
         if sentence_per_line:
-            lines = []
-            for sentence in _sentences(text):
-                lines.extend(_wrap(sentence, font, size, mm_to_pt(width_mm)))
+            lines = fit_lines_for_story(text, font, size, mm_to_pt(width_mm))
         else:
             lines = _wrap(text, font, size, mm_to_pt(width_mm))
         height_mm = len(lines) * size * leading * 25.4 / 72
         if height_mm <= max_height_mm or size <= floor:
             return lines, size, leading, height_mm
         size -= 1
+
+
+def story_text_box_mm(side: str, height_mm: float) -> tuple[float, float, float, float]:
+    """Centred text block on the calm page: (left, top, width, height) in page mm.
+
+    Horizontal centre of ``_page_text_box``; vertical centre between the 10 mm top and bottom
+    safe margins. The block never moves because of the art.
+    """
+    left, width = _page_text_box(side)
+    top_safe = BLEED_MM + SAFE_MM["trim"]
+    bottom_safe = PAGE_WITH_BLEED_MM - BLEED_MM - SAFE_MM["trim"]
+    available = bottom_safe - top_safe
+    top = top_safe + max(0.0, (available - height_mm) / 2)
+    return left, top, width, height_mm
 
 
 def _spread_half(ctx: _Ctx, art_path: Path, n: int, side: str) -> Image.Image:
@@ -483,8 +557,9 @@ def _draw_spread_page(ctx: _Ctx, page: dict, art_path: Path, side: str, index: i
     }
     if page.get("calm_zone") == side and (page.get("text") or "").strip():
         left, width = _page_text_box(side)
-        bottom = PAGE_WITH_BLEED_MM - BLEED_MM - SAFE_MM["trim"]
-        max_h = PAGE_WITH_BLEED_MM * 0.48
+        top_safe = BLEED_MM + SAFE_MM["trim"]
+        bottom_safe = PAGE_WITH_BLEED_MM - BLEED_MM - SAFE_MM["trim"]
+        max_h = bottom_safe - top_safe
         lines, size, leading, height_mm = _fit_story_text(ctx, page["text"], width, max_h)
         if size < ctx.route["story_pt"] - 1:
             append_event(
@@ -493,12 +568,24 @@ def _draw_spread_page(ctx: _Ctx, page: dict, art_path: Path, side: str, index: i
                 f"Page {page['number']}: story text set at {size:g} pt (brand {ctx.route['story_pt']} pt).",
                 page=page["number"],
             )
-        top = bottom - height_mm
-        box = (left, top, left + width, bottom)
+        left, top, width, height_mm = story_text_box_mm(side, height_mm)
+        box = (left, top, left + width, top + height_mm)
         ink, plate = _decide_ink(ctx, art, box, label=f"Page {page['number']}")
         if plate:
+            # Soft plate under the text box only (+ 6 mm padding), never a whole panel.
             _soft_plate(c, left - 6, top - 6, width + 12, height_mm + 12)
-        _draw_lines(c, lines, reportlab_name("body"), size, left, top, size * leading, ink)
+        _draw_lines(
+            c,
+            lines,
+            reportlab_name("body"),
+            size,
+            left,
+            top,
+            size * leading,
+            ink,
+            align="center",
+            width_mm=width,
+        )
         record.update(
             {
                 "text": True,
@@ -562,28 +649,39 @@ def _draw_parent_page(ctx: _Ctx, page: dict, side: str) -> None:
     blocks = _parent_blocks(ctx)
     half = (len(blocks) + 1) // 2
     mine = blocks[:half] if side == "left" else blocks[half:]
-    cursor = BLEED_MM + SAFE_MM["trim"] + 4
+    top_safe = BLEED_MM + SAFE_MM["trim"] + 4
+    bottom_safe = PAGE_WITH_BLEED_MM - BLEED_MM - SAFE_MM["trim"]
+    body_size = SIZE_SCALE["parent_body"]
+    label_size = SIZE_SCALE.get("parent_label", 10)
+    # Even vertical spacing of the blocks down the safe column.
+    block_slots = len(mine) + (1 if side == "left" else 0)
+    slot_h = (bottom_safe - top_safe) / max(1, block_slots + 1)
+    cursor = top_safe
     if side == "left":
         heading = "WORDS FOR THE REAL MOMENT"
         size = 24
         lines = _wrap(heading, reportlab_name("title"), size, mm_to_pt(width))
         _draw_lines(c, lines, reportlab_name("title"), size, left, cursor, size * 1.2, INK)
-        cursor += len(lines) * size * 1.2 * 25.4 / 72 + 14
-    else:
-        cursor += 14
-    body_size = SIZE_SCALE["parent_body"]
+        cursor += slot_h
     for label, body in mine:
-        _draw_lines(c, [label], reportlab_name("label"), 9, left, cursor, 12, INK)
-        cursor += 6.5
+        _draw_lines(c, [label], reportlab_name("label"), label_size, left, cursor, label_size * 1.3, INK)
+        cursor += label_size * 1.3 * 25.4 / 72 + 2
         lines = _wrap(body, reportlab_name("body"), body_size, mm_to_pt(width))
         _draw_lines(c, lines, reportlab_name("body"), body_size, left, cursor, body_size * 1.45, INK)
-        cursor += len(lines) * body_size * 1.45 * 25.4 / 72 + 12
+        cursor += slot_h
     if side == "right":
         anchor = ctx.job_dir / "title_page" / "spot.png"
         if anchor.is_file():
             art = _Art(anchor, ctx.work_dir, None, tag="parent-spot")
-            spot = 44.0
-            _place(c, art, PAGE_WITH_BLEED_MM - BLEED_MM - SAFE_MM["trim"] - spot, PAGE_WITH_BLEED_MM - BLEED_MM - SAFE_MM["trim"] - spot, spot, spot)
+            spot = float(SIZE_SCALE.get("parent_spot_mm", 90))
+            _place(
+                c,
+                art,
+                PAGE_WITH_BLEED_MM - BLEED_MM - SAFE_MM["trim"] - spot,
+                PAGE_WITH_BLEED_MM - BLEED_MM - SAFE_MM["trim"] - spot,
+                spot,
+                spot,
+            )
     ctx.layout_log.append({"page": page["number"], "kind": page["kind"], "text": True, "plate": False})
     c.showPage()
 
@@ -593,14 +691,15 @@ def _draw_dedication_page(ctx: _Ctx, page: dict) -> None:
     c.setPageSize((mm_to_pt(PAGE_WITH_BLEED_MM),) * 2)
     _paper_page(ctx)
     left, width = _page_text_box("left")  # last page is a verso: gutter on the right
-    carer = (ctx.inputs.get("carer") or {}).get("name") or ""
-    dedication = (page.get("text") or "").strip() or (
-        f"For {ctx.name}, from {carer}" if carer else f"For {ctx.name}"
-    )
+    # Printed verbatim as typed — no automatic "For {name}" prefix.
+    dedication = (page.get("text") or "").strip()
     size = SIZE_SCALE["dedication"]
     cursor = PAGE_WITH_BLEED_MM * 0.30
-    lines = _wrap(dedication, reportlab_name("body"), size + 2, mm_to_pt(width))
-    _draw_lines(c, lines, reportlab_name("body"), size + 2, left, cursor, (size + 2) * 1.45, INK)
+    if dedication:
+        lines = _wrap(dedication, reportlab_name("body"), size + 2, mm_to_pt(width))
+        _draw_lines(c, lines, reportlab_name("body"), size + 2, left, cursor, (size + 2) * 1.45, INK)
+    else:
+        lines = []
     cursor += len(lines) * (size + 2) * 1.45 * 25.4 / 72 + 12
     note = _wrap(READ_IT_AGAIN_LINE, reportlab_name("body"), size, mm_to_pt(width))
     _draw_lines(c, note, reportlab_name("body"), size, left, cursor, size * 1.45, INK)
@@ -711,11 +810,19 @@ def _draw_back(ctx: _Ctx, c, art: _Art, panel: tuple[float, float], strip, align
         _draw_lines(c, ["Printed in the UK"], reportlab_name("body"), 8, left, cursor - 4, 10, ink)
     _draw_logo(c, "full_colour", left, cursor, logo_w)
 
-    # Keep-clear for the printer's QR / batch code (profile: corner + size).
+    # Keep-clear for the printer's QR / batch code: sample the mean colour of the art under the
+    # box (never a flat paper rectangle). Text stays out of it; the printer prints over whatever is beneath.
     q = BACK_QR_SAFE_MM
     qx = trim_x + trim_w - q if "right" in BACK_QR_SAFE_CORNER else trim_x
     qy = trim_y + trim_w - q if "bottom" in BACK_QR_SAFE_CORNER else trim_y
-    _fill_rect(c, qx, qy, q, q, PAPER)
+    try:
+        stats = art.stats((qx, qy, qx + q, qy + q))
+        # Reconstruct an approximate mid-tone from the sampled luminance band.
+        mid = (stats["p10"] + stats["p90"]) / 2
+        tone = int(max(0, min(255, round(mid * 255))))
+        _fill_rect(c, qx, qy, q, q, (tone, tone, tone))
+    except Exception:  # noqa: BLE001 - leave the art if sampling fails
+        pass
 
 
 def _draw_spine(ctx: _Ctx, c, x_mm: float, y_mm: float, w_mm: float, h_mm: float) -> None:
@@ -900,9 +1007,14 @@ def stitch_spread_previews(job_dir: Path) -> int:
 
 
 def _cover_forces_plate(job_dir: Path) -> bool:
-    """True when cover generation kept art that failed the layout check twice (soft plate forced)."""
+    """True when cover generation asks for a soft plate under the title box (never over a face)."""
     cover = read_json(Path(job_dir) / "cover" / "cover.json") or {}
     return bool((cover.get("layout") or {}).get("force_soft_plate"))
+
+
+def _cover_title_floor(job_dir: Path) -> bool:
+    cover = read_json(Path(job_dir) / "cover" / "cover.json") or {}
+    return bool((cover.get("layout") or {}).get("title_shrunk"))
 
 
 def render_front_preview(job_dir: Path, inputs: dict, story: dict, scale: float = 1.4) -> Path | None:
@@ -942,6 +1054,7 @@ def render_front_preview(job_dir: Path, inputs: dict, story: dict, scale: float 
         grade=None,
         layout_log=[],
         force_cover_plate=_cover_forces_plate(job_dir),
+        title_floor_only=_cover_title_floor(job_dir),
     )
     art = _Art(front_art, work_dir, None, tag="front-preview")
     strip = (0.0, 0.0, PAGE_WITH_BLEED_MM, PAGE_WITH_BLEED_MM)
@@ -1017,6 +1130,7 @@ def build_pdf(job_dir: Path, story: dict, pages: list, inputs: dict) -> Path:
         grade=title.get("post_grade") or None,
         layout_log=[],
         force_cover_plate=_cover_forces_plate(job_dir),
+        title_floor_only=_cover_title_floor(job_dir),
     )
 
     front_fn = back_fn = None

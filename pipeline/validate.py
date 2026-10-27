@@ -346,6 +346,8 @@ def _structural_issues(inputs: dict, story: dict, pages: list) -> list:
     # --- text guards (spec §11.7): the story is its own draft here -----------------------------
     if len(spreads) == SPREAD_COUNT:
         guard_input = {"spreads": spreads, "locked": locked}
+        from .catalogue import must_include_map
+
         for guard in check_spreads(
             guard_input,
             guard_input,
@@ -354,6 +356,7 @@ def _structural_issues(inputs: dict, story: dict, pages: list) -> list:
             age_band=age_band,
             last_line=last_line,
             require_scenes=True,
+            must_include_by_spread=must_include_map(inputs["title_id"]),
         ):
             code = guard.get("code") or "guard"
             spread_n = guard.get("spread")
@@ -444,6 +447,10 @@ def _structural_issues(inputs: dict, story: dict, pages: list) -> list:
     must_not_show = title.get("must_not_show") or []
     schedule = (title.get("anchor") or {}).get("state_schedule")
     context = _context_text(inputs, title)
+    from .catalogue import must_include_map
+    from .text_guards import must_include_issues
+
+    required = must_include_map(inputs["title_id"])
     for page in pages:
         number = page.get("number")
         if page.get("kind") != "spread_half" or page.get("blank"):
@@ -494,6 +501,20 @@ def _structural_issues(inputs: dict, story: dict, pages: list) -> list:
                         f"Spread {spread_n} text mentions {', '.join(missing)} but the scene does not draw it.",
                         page=number,
                         fix_hint="Add it to the scene or remove it from the text.",
+                    )
+                )
+            for guard in must_include_issues(
+                [{"n": spread_n, "scene": scene}],
+                required,
+                field="scene",
+            ):
+                issues.append(
+                    _issue(
+                        "error",
+                        "must_include_scene",
+                        guard["message"],
+                        page=number,
+                        fix_hint="Rewrite the scene so every must_include beat token is visible.",
                     )
                 )
     return issues

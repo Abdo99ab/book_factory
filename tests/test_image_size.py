@@ -30,17 +30,18 @@ def _reset_cache():
 
 
 def test_fallback_order_is_largest_landscape_first():
-    assert openai_util.IMAGE_SIZE_FALLBACK == ("2048x1024", "1792x1024", "1536x1024", "1024x1024")
+    assert openai_util.IMAGE_SIZE_FALLBACK == ("2048x1024", "1792x1024", "1536x1024")
+    assert "1024x1024" not in openai_util.IMAGE_SIZE_FALLBACK  # squares never on the spread ladder
     widths = [int(s.split("x")[0]) for s in openai_util.IMAGE_SIZE_FALLBACK]
     assert widths == sorted(widths, reverse=True)
-    assert all(int(s.split("x")[0]) >= int(s.split("x")[1]) for s in openai_util.IMAGE_SIZE_FALLBACK)  # landscape
+    assert all(int(s.split("x")[0]) > int(s.split("x")[1]) for s in openai_util.IMAGE_SIZE_FALLBACK)  # landscape
     assert openai_util.SQUARE_SIZES[0] == "2048x2048"  # sheets / covers stay square
 
 
 def test_largest_image_size_picks_largest_supported():
     assert openai_util.largest_image_size(requested="auto") == "2048x1024"
-    assert openai_util.largest_image_size(requested="auto", supported={"1024x1024", "1536x1024"}) == "1536x1024"
-    assert openai_util.largest_image_size(requested="auto", supported={"1024x1024"}) == "1024x1024"
+    assert openai_util.largest_image_size(requested="auto", supported={"1536x1024", "1792x1024"}) == "1792x1024"
+    assert openai_util.largest_image_size(requested="auto", supported={"1536x1024"}) == "1536x1024"
     with pytest.raises(ValueError):
         openai_util.largest_image_size(requested="auto", supported={"512x512"})
     assert openai_util.largest_image_size(aspect="square") == "2048x2048"
@@ -122,22 +123,41 @@ def test_effective_ppi_in_216mm_box():
 
 
 def test_fit_to_spread_crops_the_centre_and_never_resizes():
-    frame = Image.new("RGB", (1536, 1024), (200, 200, 200))
+    from pipeline.pages import SpreadCropError
+
+    # 1792x1024 needs ~11 % height crop (under the 15 % cap)
+    frame = Image.new("RGB", (1792, 1024), (200, 200, 200))
     fitted = fit_to_spread(frame)
-    assert fitted.size == (1536, 779)  # 1536 / 1.9722 = 778.8 -> 779 rows, full width kept
+    assert fitted.size[0] == 1792
+    assert fitted.size[1] == round(1792 / SPREAD_ASPECT)
+    # 1536x1024 would need ~24 % — refused
+    with pytest.raises(SpreadCropError):
+        fit_to_spread(Image.new("RGB", (1536, 1024)))
     # a frame that is already the spread aspect (or wider) is not stretched or upscaled
     same = Image.new("RGB", (2840, 1440))
     assert fit_to_spread(same).size == (2840, 1440)
 
 
-def _generate(tmp_path, size, n=1):
+def _generate(tmp_path, size, n=1, monkeypatch=None):
+    from pipeline import imagecheck, qa as qa_mod
+
     job_dir = tmp_path / "job"
     inputs, story, pages = emma_bundle(job_dir)
     character = job_dir / "character" / "character.png"
     character.parent.mkdir(parents=True, exist_ok=True)
     Image.new("RGB", (32, 32)).save(character)
+    if monkeypatch is not None:
+        monkeypatch.setattr(
+            qa_mod, "detect_faces", lambda client, path: [{"x": 0.62, "y": 0.4, "w": 0.08, "h": 0.12}]
+        )
+        monkeypatch.setattr(imagecheck, "head_cut_heuristic", lambda path: False)
+    else:
+        # Module-level patch for fixtures that don't pass monkeypatch.
+        pass
     fake = FakeImageEdit(size=size)
-    with patch("pipeline.illustrate.image_edit", fake):
+    with patch("pipeline.illustrate.image_edit", fake), patch(
+        "pipeline.qa.detect_faces", lambda client, path: [{"x": 0.62, "y": 0.4, "w": 0.08, "h": 0.12}]
+    ), patch("pipeline.imagecheck.head_cut_heuristic", lambda path: False):
         meta = generate_spread_art(
             MagicMock(), job_dir, {**spread_pages(pages)[n], "spread": n}, inputs, story, character
         )

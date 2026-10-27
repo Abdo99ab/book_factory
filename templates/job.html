@@ -477,12 +477,17 @@
         </div>
         <p class="spread-text">{{ sp.text }}</p>
         <ul class="spread-facts">
-          <li>Anchor state: {{ sp.anchor_state if sp.anchor_state is not none else 'n/a' }}</li>
-          {% if sp.effective_ppi is not none %}
-            <li {% if sp.effective_ppi < ppi_warn %}class="warn"{% endif %}>{{ sp.effective_ppi }} ppi{% if sp.size_received %} · {{ sp.size_received }}{% endif %}</li>
+          <li>Anchor state (schedule): {{ sp.anchor_state if sp.anchor_state is not none else 'n/a' }}{% if sp.anchor_state_meta is not none and sp.anchor_state_meta != sp.anchor_state %} · generated as {{ sp.anchor_state_meta }}{% endif %}</li>
+          {% if sp.size_received %}
+            <li>Size received: {{ sp.size_received }}{% if sp.effective_ppi is not none %} · {{ sp.effective_ppi }} ppi{% endif %}</li>
+          {% elif sp.effective_ppi is not none %}
+            <li {% if sp.effective_ppi < ppi_warn %}class="warn"{% endif %}>{{ sp.effective_ppi }} ppi</li>
           {% endif %}
           {% if sp.fold_failures %}
             <li class="warn">Fold warning: {{ sp.fold_failures|join(', ') }}</li>
+          {% endif %}
+          {% if sp.no_face_warning %}
+            <li class="warn">No-face warning: child face not clear in frame after retry</li>
           {% endif %}
           {% if sp.calm_zone_busy %}
             <li class="warn">Calm-zone warning: the {{ sp.calm_zone }} half is busy where the text sits</li>
