@@ -10,6 +10,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+# Load repo-root .env before any pipeline import (constants reads models at import time).
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
 from flask import Flask, abort, flash, redirect, render_template, request, send_file, url_for
 from werkzeug.utils import secure_filename
 
@@ -33,7 +37,6 @@ from pipeline.runner import (
     run_preview,
 )
 
-load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 

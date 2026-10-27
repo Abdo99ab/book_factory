@@ -1,6 +1,9 @@
 """TJ Books printer geometry + OpenAI model flags (v2).
 
 ``brand/chosen_printer_specs.txt`` overrides brand guidelines where they disagree.
+
+``.env`` is loaded here (before any ``os.getenv``) so ``TEXT_MODEL`` / ``IMAGE_MODEL`` etc.
+work even when another entrypoint imports this module before calling ``load_dotenv()``.
 """
 
 from __future__ import annotations
@@ -8,9 +11,14 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from .brand import SAFE_MM as BRAND_SAFE_MM
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+# Does not override variables already set in the process environment.
+load_dotenv(BASE_DIR / ".env")
+
+from .brand import SAFE_MM as BRAND_SAFE_MM  # noqa: E402
+
 ASSET_ROOT = BASE_DIR / "assets"
 FONTS_DIR = ASSET_ROOT / "fonts"
 JOB_ROOT = BASE_DIR / "book_assets" / "jobs"
