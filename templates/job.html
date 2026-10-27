@@ -100,7 +100,7 @@
   <section class="panel">
     <p class="eyebrow">Interior</p>
     <h2>Spreads</h2>
-    <p class="meta">Calm half alternates left / right. Edit text without regenerating art, or regenerate one spread’s picture.</p>
+    <p class="meta">Calm half alternates left / right. Preview shows art with the story text plate; edit text without regenerating art, or regenerate one spread’s picture.</p>
   </section>
 
   <div class="spread-list">
@@ -108,7 +108,10 @@
     <section class="panel spread-card" id="spread-{{ s.n }}">
       <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;align-items:baseline">
         <h3>Spread {{ s.n }}</h3>
-        {% if s.calm_zone %}<span class="status-pill">calm {{ s.calm_zone }}</span>{% endif %}
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+          {% if s.calm_zone %}<span class="status-pill">calm {{ s.calm_zone }}</span>{% endif %}
+          {% if s.has_composed %}<span class="status-pill">text on</span>{% endif %}
+        </div>
       </div>
       <div class="media-frame wide">
         {% if s.has_art %}

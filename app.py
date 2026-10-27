@@ -154,12 +154,16 @@ def create_app() -> Flask:
         spreads = []
         for n in range(1, SPREAD_COUNT + 1):
             art = job_dir / "spreads" / f"spread-{n:02d}" / "art.png"
+            preview = job_dir / "spreads" / f"spread-{n:02d}" / "preview.png"
             meta = read_json(job_dir / "spreads" / f"spread-{n:02d}" / "spread.json") or {}
+            # Prefer composed preview (art + calm-half text) when present.
+            show = preview if preview.is_file() else art
             spreads.append(
                 {
                     "n": n,
-                    "has_art": art.is_file(),
-                    "art_rel": f"spreads/spread-{n:02d}/art.png",
+                    "has_art": art.is_file() or preview.is_file(),
+                    "art_rel": show.relative_to(job_dir).as_posix() if show.is_file() else f"spreads/spread-{n:02d}/art.png",
+                    "has_composed": preview.is_file(),
                     "calm_zone": meta.get("calm_zone"),
                     "text": (next((s for s in story.get("spreads") or [] if int(s["n"]) == n), {}) or {}).get("text"),
                 }

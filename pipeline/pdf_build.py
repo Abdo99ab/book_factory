@@ -1115,6 +1115,133 @@ def render_front_preview(job_dir: Path, inputs: dict, story: dict, scale: float 
     return out
 
 
+def _spread_halves_for_preview(job_dir: Path, story: dict, n: int, pages: list | None) -> list[dict]:
+    """Left then right ``spread_half`` page dicts for composed preview (from pages.json or manuscript)."""
+    n = int(n)
+    if pages is None:
+        pages = (read_json(Path(job_dir) / "story" / "pages.json") or {}).get("pages") or []
+    halves = [
+        p
+        for p in pages
+        if p.get("kind") == "spread_half" and int(p.get("spread") or 0) == n
+    ]
+    if len(halves) == 2:
+        return sorted(halves, key=lambda p: 0 if p.get("side") == "left" else 1)
+    sp = next((s for s in (story.get("spreads") or []) if int(s["n"]) == n), None) or {}
+    calm = sp.get("calm_zone") or ("left" if n % 2 == 1 else "right")
+    text = (sp.get("text") or "").strip()
+    return [
+        {
+            "number": 2 * n,
+            "kind": "spread_half",
+            "spread": n,
+            "side": "left",
+            "calm_zone": calm,
+            "text": text if calm == "left" else "",
+            "scene": sp.get("scene") or "",
+        },
+        {
+            "number": 2 * n + 1,
+            "kind": "spread_half",
+            "spread": n,
+            "side": "right",
+            "calm_zone": calm,
+            "text": text if calm == "right" else "",
+            "scene": sp.get("scene") or "",
+        },
+    ]
+
+
+def render_spread_preview(
+    job_dir: Path,
+    inputs: dict,
+    story: dict,
+    n: int,
+    pages: list | None = None,
+    scale: float = 1.1,
+) -> Path | None:
+    """Compose one spread (art halves + calm-half story text / plate) to ``spreads/spread-NN/preview.png``.
+
+    Same drawing path as the print PDF (``_draw_spread_page``), operator UI only.
+    """
+    try:
+        import pypdfium2 as pdfium
+    except ImportError:  # pragma: no cover
+        append_event(job_dir, "spread_preview_skipped", "pypdfium2 not installed; no composed spread preview.")
+        return None
+    n = int(n)
+    job_dir = Path(job_dir)
+    art_path = spread_art_path(job_dir, n)
+    if not art_path.is_file():
+        return None
+    halves = _spread_halves_for_preview(job_dir, story, n, pages)
+    register_brand_fonts()
+    title = get_title(inputs["title_id"])
+    work_dir = job_dir / "spreads" / f"spread-{n:02d}" / "_preview_work"
+    tmp_pdf = work_dir / "spread_preview.pdf"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    c = canvas.Canvas(
+        str(tmp_pdf),
+        pagesize=(mm_to_pt(PAGE_WITH_BLEED_MM),) * 2,
+        initialFontName=reportlab_name("body"),
+    )
+    ctx = _Ctx(
+        canvas=c,
+        job_dir=job_dir,
+        work_dir=work_dir,
+        inputs=inputs,
+        story=story,
+        title=title,
+        name=inputs["name"],
+        family=title["family"],
+        route=ROUTE_PRESETS[inputs.get("route") or "morning_light"],
+        grade=None,
+        layout_log=[],
+        force_cover_plate=False,
+        title_floor_only=False,
+    )
+    for page in halves:
+        _draw_spread_page(ctx, page, art_path, page["side"], page["number"])
+    c.save()
+
+    pdf = pdfium.PdfDocument(str(tmp_pdf))
+    try:
+        left = pdf[0].render(scale=scale).to_pil().convert("RGB")
+        right = pdf[1].render(scale=scale).to_pil().convert("RGB")
+    finally:
+        pdf.close()
+    overlap = round(left.width * (2 * PAGE_WITH_BLEED_MM - SPREAD_WIDTH_MM) / PAGE_WITH_BLEED_MM)
+    stitched = Image.new("RGB", (left.width + right.width - overlap, left.height))
+    stitched.paste(left, (0, 0))
+    stitched.paste(right.crop((overlap, 0, right.width, right.height)), (left.width, 0))
+    out = job_dir / "spreads" / f"spread-{n:02d}" / "preview.png"
+    stitched.save(out, format="PNG")
+    for leftover in work_dir.iterdir():
+        leftover.unlink(missing_ok=True)
+    work_dir.rmdir()
+    return out
+
+
+def render_preview_spreads(
+    job_dir: Path,
+    inputs: dict,
+    story: dict,
+    numbers: list[int],
+    pages: list | None = None,
+) -> list[Path]:
+    """Compose ``preview.png`` for each listed spread that has art."""
+    done: list[Path] = []
+    for n in numbers:
+        try:
+            path = render_spread_preview(job_dir, inputs, story, n, pages=pages)
+        except Exception as err:  # noqa: BLE001
+            append_event(job_dir, "spread_preview_failed", f"Spread {n}: {err}", spread=int(n))
+            continue
+        if path is not None:
+            done.append(path)
+    return done
+
+
 # --- entry point ----------------------------------------------------------------------------------------
 
 

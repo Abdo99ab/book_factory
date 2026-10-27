@@ -17,7 +17,7 @@ from .illustrate import (
 )
 from .job_log import append_event, read_json, write_json
 from .openai_util import create_client
-from .pdf_build import build_pdf, render_front_preview
+from .pdf_build import build_pdf, render_front_preview, render_preview_spreads, render_spread_preview
 
 logger = logging.getLogger(__name__)
 
@@ -126,17 +126,30 @@ def run_preview(job_id: str, job_dir: Path) -> None:
             character,
             list(range(1, PREVIEW_SPREAD_COUNT + 1)),
         )
+        pages = _load_pages(job_dir)
         try:
             render_front_preview(job_dir, inputs, story)
         except Exception as preview_err:  # noqa: BLE001
             append_event(job_dir, "cover_preview_failed", str(preview_err))
+        composed = render_preview_spreads(
+            job_dir,
+            inputs,
+            story,
+            list(range(1, PREVIEW_SPREAD_COUNT + 1)),
+            pages=pages,
+        )
+        append_event(
+            job_dir,
+            "spread_previews_ready",
+            f"Composed text overlays for {len(composed)} preview spread(s).",
+        )
         _update_job(
             job_dir,
             status="preview_ready",
             preview_ready=True,
             error=None,
         )
-        append_event(job_dir, "preview_ready", "Front cover + spreads 1–2 ready.")
+        append_event(job_dir, "preview_ready", "Front cover + spreads 1–2 ready (art + text).")
     except Exception as error:
         logger.exception("Preview failed %s", job_id)
         _update_job(job_dir, status="failed", error=str(error))
@@ -160,6 +173,13 @@ def run_build(job_id: str, job_dir: Path) -> Path:
         ensure_spreads(client, job_dir, inputs, story, character, list(range(1, SPREAD_COUNT + 1)))
         _update_job(job_dir, status="building_pdf")
         pdf_path = build_pdf(job_dir, story, pages, inputs)
+        render_preview_spreads(
+            job_dir,
+            inputs,
+            story,
+            list(range(1, SPREAD_COUNT + 1)),
+            pages=pages,
+        )
         _update_job(
             job_dir,
             status="complete",
@@ -183,12 +203,16 @@ def run_edit_spread(job_id: str, job_dir: Path, n: int, instruction: str) -> Non
     try:
         character = _ensure_character(client, job_dir, inputs)
         regenerate_spread(client, job_dir, inputs, story, character, int(n), instruction)
+        pages = _load_pages(job_dir)
+        try:
+            render_spread_preview(job_dir, inputs, story, int(n), pages=pages)
+        except Exception as preview_err:  # noqa: BLE001
+            append_event(job_dir, "spread_preview_failed", f"Spread {n}: {preview_err}", spread=int(n))
         # Rebuild PDF if we already had one so the edit is visible immediately.
         if (read_json(job_dir / "job.json") or {}).get("pdf") or all(
             (job_dir / "spreads" / f"spread-{i:02d}" / "art.png").is_file()
             for i in range(1, SPREAD_COUNT + 1)
         ) and (job_dir / "cover" / "back_art.png").is_file():
-            pages = _load_pages(job_dir)
             if len(pages) == 32 and (job_dir / "cover" / "back_art.png").is_file():
                 pdf_path = build_pdf(job_dir, story, pages, inputs)
                 _update_job(job_dir, status="complete", pdf=pdf_path.relative_to(job_dir).as_posix())
@@ -273,6 +297,12 @@ def run_edit_text(job_dir: Path, target: str, text: str) -> None:
     write_json(job_dir / "story" / "pages.json", {"pages": pages})
     append_event(job_dir, "text_edit", f"Updated {target}.")
     inputs = read_json(job_dir / "inputs.json") or {}
+    if target.startswith("spread:"):
+        n = int(target.split(":", 1)[1])
+        try:
+            render_spread_preview(job_dir, inputs, story, n, pages=pages)
+        except Exception as preview_err:  # noqa: BLE001
+            append_event(job_dir, "spread_preview_failed", f"Spread {n}: {preview_err}", spread=n)
     if (job_dir / "cover" / "back_art.png").is_file() and all(
         (job_dir / "spreads" / f"spread-{i:02d}" / "art.png").is_file() for i in range(1, SPREAD_COUNT + 1)
     ):
