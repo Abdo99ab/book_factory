@@ -112,6 +112,26 @@ def test_vague_toys_llm_flag_does_not_fail_validation(bundle):
     assert all(i["severity"] != "error" or i["code"] != "invented" for i in report["issues"])
 
 
+def test_llm_false_pass_flag_with_clean_issues_still_passes(bundle):
+    """Models often return passed=false with a glowing summary and score 100."""
+    job_dir, inputs, story, pages = bundle
+    llm = {
+        "passed": False,
+        "score": 100,
+        "summary": (
+            "All 14 story spreads are suitable for illustration and comply "
+            "with the supplied personalisation and safety constraints."
+        ),
+        "issues": [],
+        "invented_elements": [],
+        "repair": {"needed": False},
+    }
+    with patch.object(validate, "_llm_validate", return_value=llm):
+        report = validate_content(None, job_dir, inputs, story, pages)
+    assert report["passed"] is True
+    assert report["score"] == 100
+
+
 def test_must_not_show_in_scene_is_error(bundle):
     _job, inputs, story, pages = bundle
     pages = clone(pages)

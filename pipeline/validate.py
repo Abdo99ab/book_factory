@@ -571,6 +571,22 @@ def _apply_repair(story: dict, pages: list, repair: dict) -> tuple[dict, list]:
     return story, pages
 
 
+def _coerce_llm_passed(value) -> bool | None:
+    """Parse model passed flag; None if missing/unusable (do not treat string 'false' as True)."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"true", "yes", "1", "pass", "passed"}:
+        return True
+    if text in {"false", "no", "0", "fail", "failed"}:
+        return False
+    return None
+
+
 def _soften_llm_report(llm_report: dict, inputs: dict) -> dict:
     """Downgrade vague toy inventions; comfort_object may be a soft toy."""
     report = dict(llm_report or {})
@@ -578,8 +594,12 @@ def _soften_llm_report(llm_report: dict, inputs: dict) -> dict:
     softened_issues = []
     for raw in report.get("issues") or []:
         issue = dict(raw)
+        severity = str(issue.get("severity") or "warning").strip().lower()
+        if severity not in {"error", "warning"}:
+            severity = "warning"
+        issue["severity"] = severity
         message = str(issue.get("message") or "")
-        if issue.get("severity") == "error" and _VAGUE_INVENTED.search(message):
+        if severity == "error" and _VAGUE_INVENTED.search(message):
             issue["severity"] = "warning"
             issue["code"] = "vague_prop"
         softened_issues.append(issue)
@@ -596,14 +616,12 @@ def _soften_llm_report(llm_report: dict, inputs: dict) -> dict:
             continue  # drop "toys" / "unspecified toys"
         invented.append(label)
 
+    # Final gate is hard issues only. Models often set passed=false with a glowing summary.
     hard = [i for i in softened_issues if i.get("severity") == "error"]
-    if hard:
+    passed = len(hard) == 0 and len(invented) == 0
+    if not passed and not hard and invented:
+        # Named invented elements without a structured issue — still fail.
         passed = False
-    elif not invented:
-        # LLM may have failed only on vague toys — allow pass when nothing hard remains.
-        passed = True
-    else:
-        passed = bool(report.get("passed", False))
 
     report["issues"] = softened_issues
     report["invented_elements"] = invented
@@ -615,18 +633,24 @@ def _soften_llm_report(llm_report: dict, inputs: dict) -> dict:
 
 def _merge_report(structural: list, llm_report: dict) -> dict:
     issues = list(structural) + list(llm_report.get("issues") or [])
-    has_error = any(i.get("severity") == "error" for i in issues)
-    passed = bool(llm_report.get("passed", False)) and not has_error
-    if has_error:
-        passed = False
+    hard = [i for i in issues if str(i.get("severity") or "").lower() == "error"]
+    invented = list(llm_report.get("invented_elements") or [])
+    # Ignore the model's passed bit when it conflicts with hard evidence (common model glitch).
+    passed = len(hard) == 0 and len(invented) == 0
+    if passed:
+        summary = llm_report.get("summary") or "Content validated."
+    else:
+        summary = (hard[0].get("message") if hard else None) or (
+            f"Invented elements: {', '.join(invented)}" if invented else None
+        ) or llm_report.get("summary") or "Content validation failed."
     return {
         "passed": passed,
         "score": llm_report.get("score"),
-        "summary": llm_report.get("summary")
-        or ("Structural checks failed." if not passed else "Content validated."),
+        "summary": summary,
         "issues": issues,
-        "invented_elements": llm_report.get("invented_elements") or [],
+        "invented_elements": invented,
         "repair": llm_report.get("repair") or {"needed": False},
+        "llm_passed": _coerce_llm_passed(llm_report.get("passed")),
     }
 
 
@@ -681,7 +705,15 @@ def validate_content(client, job_dir: Path, inputs: dict, story: dict, pages: li
         report = report2
 
     write_json(job_dir / "story" / "validation_report.json", report)
-    raise ValidationError(
-        report.get("summary") or "Content validation failed.",
-        report=report,
+    hard = [i for i in report.get("issues") or [] if str(i.get("severity") or "").lower() == "error"]
+    fail_msg = (
+        (hard[0].get("message") if hard else None)
+        or (
+            f"Invented elements: {', '.join(report.get('invented_elements') or [])}"
+            if report.get("invented_elements")
+            else None
+        )
+        or report.get("summary")
+        or "Content validation failed."
     )
+    raise ValidationError(fail_msg, report=report)
