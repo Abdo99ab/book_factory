@@ -1,4 +1,4 @@
-"""Raised Ready preview defects: real story beats, two different pictures per spread, front-cover layout.
+"""Raised Ready preview defects: real story beats, one continuous picture per spread, front-cover layout.
 
 Everything here is offline: OpenAI image / vision calls are replaced by fixed PNGs and fake detectors.
 """
@@ -97,7 +97,7 @@ def test_cast_block_carries_carer_signature(tmp_path):
     assert "always wears/carries" not in illustrate._cast_block(inputs, story, include_carer=False)
 
 
-# --- Defect 2: two different pictures per spread --------------------------------------------------------
+# --- Defect 2: one continuous picture per spread (true spreads) --------------------------------------------------------
 
 
 @pytest.fixture
@@ -105,7 +105,7 @@ def bundle(tmp_path):
     return emma_bundle(tmp_path / "job")
 
 
-def test_compile_pages_text_only_on_calm_half_and_scenes_on_both(bundle):
+def test_compile_pages_text_only_on_calm_half_and_one_scene_on_both(bundle):
     _inputs, story, pages = bundle
     for n in range(1, 15):
         halves = pages_mod.spread_halves(pages, n)
@@ -117,10 +117,10 @@ def test_compile_pages_text_only_on_calm_half_and_scenes_on_both(bundle):
         assert with_text[0]["text"] == story["spreads"][n - 1]["text"]
         assert [h["text"] for h in halves if h["side"] != calm] == [""]
         for half in halves:
-            assert half["scene_left"] == story["spreads"][n - 1]["scene_left"]
-            assert half["scene_right"] == story["spreads"][n - 1]["scene_right"]
-            assert half["scene_left"] != half["scene_right"]
-            assert half["scene_left"] != half["scene"] != half["scene_right"]
+            assert half["scene"] == story["spreads"][n - 1]["scene"]
+            assert "left" in half["scene"].lower() and "right" in half["scene"].lower()
+            assert half["art_path"] == f"spreads/spread-{n:02d}/art.png"
+            assert "scene_left" not in half and "scene_right" not in half
 
 
 def test_spread_pages_brief_still_carries_the_spread_text(bundle):
@@ -142,27 +142,13 @@ def _spread(pages, n):
     return {**pages_mod.spread_pages(pages)[n], "spread": n}
 
 
-def test_prompt_uses_this_pages_brief_and_names_the_other(bundle):
+def test_prompt_carries_the_one_scene_for_the_whole_spread(bundle):
     inputs, story, pages = bundle
     spread = _spread(pages, 1)
-    left = illustrate._spread_prompt(spread, "left", inputs, story)
-    right = illustrate._spread_prompt(spread, "right", inputs, story)
-    assert f"This LEFT page shows:\n{spread['scene_left']}" in left
-    assert f"This RIGHT page shows:\n{spread['scene_right']}" in right
-    assert f"The other page of this spread shows: {spread['scene_right']}" in left
-    assert f"The other page of this spread shows: {spread['scene_left']}" in right
-    for prompt in (left, right):
-        assert "Do not repeat that framing" in prompt
-    # the right page's own brief is not asked of the left page
-    assert spread["scene_right"] not in left.split("The other page of this spread shows:")[0]
-
-
-def test_prompt_falls_back_to_shared_scene_for_legacy_spreads(bundle):
-    inputs, story, pages = bundle
-    spread = {**_spread(pages, 1), "scene_left": "", "scene_right": ""}
-    prompt = illustrate._spread_prompt(spread, "right", inputs, story)
-    assert f"Scene:\n{spread['scene']}" in prompt
-    assert "Do not repeat" not in prompt
+    prompt = illustrate._spread_prompt(spread, inputs, story)
+    assert spread["scene"] in prompt
+    assert "ONE scene across the whole frame" in prompt
+    assert "Do not repeat" not in prompt and "The other page of this spread" not in prompt
 
 
 def _write_plain(path: Path, colour=(240, 230, 210), size=256):
@@ -170,57 +156,21 @@ def _write_plain(path: Path, colour=(240, 230, 210), size=256):
     Image.new("RGB", (size, size), colour).save(path)
 
 
-def test_pair_duplicate_flagged_for_two_identical_fixture_pngs(tmp_path):
-    job = tmp_path / "job"
-    (job / "spreads" / "spread-01").mkdir(parents=True)
-    (job / "spreads" / "spread-02").mkdir(parents=True)
-    for side in ("left", "right"):
-        shutil.copy(FIXTURES / "page_light.png", job / "spreads" / "spread-01" / f"art-{side}.png")
-    # spread 2: genuinely different pictures
-    shutil.copy(FIXTURES / "page_light.png", job / "spreads" / "spread-02" / "art-left.png")
-    shutil.copy(FIXTURES / "page_dark_lower.png", job / "spreads" / "spread-02" / "art-right.png")
-
-    found = qa.pair_duplicates(job)
-    assert [d["spread"] for d in found] == [1]
-    assert found[0]["distance"] == 0
-
-    issues = qa.pair_duplicate_issues(job)
-    assert [(i["code"], i["severity"], i["page"]) for i in issues] == [("pair_duplicate", "warning", 3)]
-    actions = qa.pair_duplicate_actions(job)
-    assert [(a["type"], a["page"]) for a in actions] == [("regen_page_art", 3)]  # propose regen of the RIGHT page
+def test_pair_duplicate_check_is_gone():
+    """Halves of one image can't be duplicates of each other: the check and its hashing are removed."""
+    for name in ("pair_duplicates", "pair_duplicate_issues", "pair_duplicate_actions"):
+        assert not hasattr(qa, name)
+    for name in ("pair_distance", "is_duplicate_pair", "grey_hash", "hash_distance"):
+        assert not hasattr(imagecheck, name)
 
 
-def test_pair_distance_is_pillow_only_and_separates_framings():
-    light, dark = FIXTURES / "page_light.png", FIXTURES / "page_dark_lower.png"
-    assert imagecheck.pair_distance(light, light) == 0
-    assert imagecheck.pair_distance(light, dark) > 0.2
-    assert imagecheck.is_duplicate_pair(light, light)[0]
-    assert not imagecheck.is_duplicate_pair(light, dark)[0]
-
-
-def test_qa_structure_report_carries_pair_duplicate_and_self_revise_adds_regen_action(tmp_path):
-    from pipeline.self_revise import _add_pair_duplicate_actions
-
-    job = tmp_path / "job"
-    for n in (1, 2):
-        for side in ("left", "right"):
-            _write_plain(job / "spreads" / f"spread-{n:02d}" / f"art-{side}.png")
-    plan = {"issues": [], "actions": [{"type": "rewrite_page_text", "page": 5, "text": "x"}]}
-    _add_pair_duplicate_actions(job, plan)
-    pages_with_actions = [(a["type"], a["page"]) for a in plan["actions"]]
-    assert ("regen_page_art", 3) in pages_with_actions
-    assert ("rewrite_page_text", 5) in pages_with_actions  # an existing action on page 5 is not replaced
-    assert ("regen_page_art", 5) not in pages_with_actions
-    assert any(i.get("code") == "pair_duplicate" for i in plan["issues"])
-
-
-def test_qa_text_guard_hard_fails_identical_scene_pair(bundle):
+def test_qa_text_guard_hard_fails_a_scene_that_skips_a_half(bundle):
     inputs, story, _pages = bundle
     bad = json.loads(json.dumps(story))
-    bad["spreads"][3]["scene_right"] = bad["spreads"][3]["scene_left"]
+    bad["spreads"][3]["scene"] = "Emma sits by the door with her shoes."  # no left / right
     report = qa.text_guard_report(inputs, bad)
     assert not report["passed"]
-    assert any(i["code"] == "scene_pair" and i["spread"] == 4 for i in report["issues"])
+    assert any(i["code"] == "scene_halves" and i["spread"] == 4 for i in report["issues"])
     assert qa.text_guard_report(inputs, story)["passed"]
 
 

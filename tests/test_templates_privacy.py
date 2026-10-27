@@ -23,7 +23,7 @@ def source_job(tmp_path, monkeypatch):
     (job_dir / "anchor").mkdir(exist_ok=True)
     (job_dir / "anchor" / "anchor.png").write_bytes(b"anchor-bytes")
     (job_dir / "spreads" / "spread-01").mkdir(parents=True, exist_ok=True)
-    (job_dir / "spreads" / "spread-01" / "art-left.png").write_bytes(b"art-bytes")
+    (job_dir / "spreads" / "spread-01" / "art.png").write_bytes(b"art-bytes")
     pdf = job_dir / "print" / "EMMA-TEST-001-final.pdf"
     pdf.parent.mkdir(parents=True, exist_ok=True)
     pdf.write_bytes(b"%PDF")

@@ -115,7 +115,7 @@ def test_images_embedded_at_native_pixels_no_upscale(built):
     reader = PdfReader(str(pdf))
     page = reader.pages[_offset() + 1]
     sizes = [(im.image.width, im.image.height) for im in page.images]
-    assert (1400, 1400) in sizes
+    assert (1440, 1440) in sizes  # one half of the 2840 x 1440 spread, cut not resampled
 
 
 def test_text_plate_used_only_when_contrast_requires(built):

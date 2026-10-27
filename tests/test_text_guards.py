@@ -109,6 +109,61 @@ def test_ensure_catalogue_last_line_appends_locked_line():
     assert "last_line" not in _codes(_run({**cand, "spreads": fixed}))
 
 
+LAST = "I'm the one who decides. And I decided."
+
+
+def test_norm_text_handles_curly_and_surrounding_quotes():
+    from pipeline.text_guards import _norm_text, last_line_present
+
+    assert _norm_text("\u201cI\u2019m the one who decides. And I decided.\u201d") == _norm_text(LAST)
+    assert _norm_text('"I\'m the one who decides. And I decided!"') == _norm_text(LAST)
+    assert _norm_text("I\u2019m  the one who decides.\nAnd I decided...") == _norm_text(LAST)
+    assert "'" in _norm_text(LAST)  # the apostrophe inside "I'm" is kept
+    assert last_line_present("Emma smiles. \u201cI\u2019m the one who decides. And I decided.\u201d", LAST)
+    assert not last_line_present("Emma smiles.", LAST)
+
+
+def test_ensure_replaces_a_near_match_without_duplicating():
+    from pipeline.text_guards import ensure_catalogue_last_line
+
+    for variant in (
+        "\u201cI\u2019m the one who decides. And I decided.\u201d",
+        "I'm the one who decides, and I decided!",
+        "I'm the one who decides. And I decided",
+    ):
+        spreads = [{"n": 13, "text": "Emma ticks."}, {"n": 14, "text": f"Emma holds the pen. {variant}"}]
+        fixed = ensure_catalogue_last_line(spreads, LAST)
+        text = fixed[1]["text"]
+        assert text == f"Emma holds the pen. {LAST}", variant
+        assert text.count("I decided") == 1 and text.count("who decides") == 1  # the line appears once
+        assert fixed[0] == spreads[0]
+
+
+def test_ensure_appends_only_when_nothing_similar_and_is_idempotent():
+    from pipeline.text_guards import ensure_catalogue_last_line
+
+    spreads = [{"n": 14, "text": "Emma smiles at the list."}]
+    once = ensure_catalogue_last_line(spreads, LAST)
+    assert once[0]["text"] == f"Emma smiles at the list. {LAST}"
+    assert ensure_catalogue_last_line(once, LAST) == once
+    assert spreads[0]["text"] == "Emma smiles at the list."  # input is not mutated
+    assert ensure_catalogue_last_line([{"n": 14, "text": ""}], LAST)[0]["text"] == LAST
+
+
+def test_guard_message_names_the_last_line_and_what_was_found():
+    from pipeline.text_guards import last_line_message
+
+    message = last_line_message("Emma goes to play with her bunny in the garden today.", LAST)
+    assert message.startswith('Spread 14 must end with: "I\'m the one who decides. And I decided."')
+    assert 'Found: "Emma goes to play with her bunny in the garden today."' in message
+
+
+def test_calm_zone_must_be_left_or_right():
+    cand = emma_story()
+    cand["spreads"][2]["calm_zone"] = "middle"
+    assert "calm_zone" in _codes(_run(cand))
+
+
 def test_word_cap_for_age_band():
     cand = emma_story()
     cand["spreads"][5]["text"] = " ".join(["Emma sits."] * 30)  # 60 words > cap 45

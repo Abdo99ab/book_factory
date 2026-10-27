@@ -27,6 +27,8 @@ from pipeline.constants import (
     PAGE_PX,
     PAGE_WITH_BLEED_MM,
     PPI_FAIL,
+    SPREAD_ASPECT,
+    SPREAD_WIDTH_MM,
     SPINE_MM,
     WRAP_MM,
     effective_ppi,
@@ -118,39 +120,43 @@ def test_dedication_is_page_32_and_real_not_placeholder(emma_build):
     assert "with love" not in _text(emma_build.pdf, start + 1)
 
 
-# --- 2. 14 spreads as 28 images in pairs (Emma bug 3) --------------------------------------------------------------
+# --- 2. 14 spreads = 14 wide images, one call each (true spreads) -----------------------------------------------------
 
 
-def test_28_images_generated_as_14_left_right_pairs(emma_build):
+def _spread_calls(emma_build):
+    return [c for c in emma_build.fake.calls if c["description"].startswith("Spread ")]
+
+
+def test_14_spread_images_one_call_each(emma_build):
     for n in range(1, 15):
-        for side in ("left", "right"):
-            assert (emma_build.job_dir / "spreads" / f"spread-{n:02d}" / f"art-{side}.png").is_file()
-    spread_calls = [c for c in emma_build.fake.calls if c["description"].startswith("Spread ")]
-    assert len(spread_calls) == 28
-    for index, call in enumerate(spread_calls):
-        n, side = divmod(index, 2)
-        assert call["description"] == f"Spread {n + 1} {'left' if side == 0 else 'right'}"
-        if side == 1:  # right page is drawn with the left page as a reference (style / scene pairing)
-            assert "art-left.png" in call["names"]
-        else:
-            assert "art-left.png" not in call["names"]
+        sdir = emma_build.job_dir / "spreads" / f"spread-{n:02d}"
+        assert (sdir / "art.png").is_file()
+        assert not (sdir / "art-left.png").exists() and not (sdir / "art-right.png").exists()
+    calls = _spread_calls(emma_build)
+    assert [c["description"] for c in calls] == [f"Spread {n}" for n in range(1, 15)]
+    for call in calls:  # no earlier-spread reference: only the sheets
+        assert not any(name.startswith("art") for name in call["names"]), call["names"]
+        assert call["names"][0] == "character.png"
 
 
-def test_two_different_pictures_per_spread_in_the_prompts(emma_build):
-    """Same picture twice (preview defect): each page is drawn from its own brief, not repeating the other."""
-    spread_calls = [c for c in emma_build.fake.calls if c["description"].startswith("Spread ")]
+def test_spread_images_are_about_two_to_one(emma_build):
+    from PIL import Image
+
+    for n in range(1, 15):
+        with Image.open(emma_build.job_dir / "spreads" / f"spread-{n:02d}" / "art.png") as image:
+            width, height = image.size
+        assert width / height == pytest.approx(SPREAD_ASPECT, abs=0.01), (n, width, height)
+
+
+def test_one_scene_per_spread_in_the_prompt(emma_build):
+    """One continuous picture: the single scene (left + right halves) goes in, no pair wording."""
     spreads = emma_build.story["spreads"]
-    for n in range(1, 15):
-        left_call, right_call = spread_calls[2 * (n - 1)], spread_calls[2 * (n - 1) + 1]
+    for n, call in enumerate(_spread_calls(emma_build), start=1):
         spread = spreads[n - 1]
-        assert spread["scene_left"] != spread["scene_right"]
-        assert spread["scene_right"] in right_call["prompt"]
-        assert "Do not repeat" in right_call["prompt"]
-        assert f"The other page of this spread shows: {spread['scene_left']}" in right_call["prompt"]
-        assert spread["scene_left"] in left_call["prompt"]
-        assert f"The other page of this spread shows: {spread['scene_right']}" in left_call["prompt"]
-        assert "DIFFERENT view of the same moment" in right_call["prompt"]
-        assert "The carer always wears/carries: Mum's yellow scarf" in right_call["prompt"]
+        assert spread["scene"] in call["prompt"]
+        assert "ONE continuous double-page" in call["prompt"]
+        assert "LEFT page" not in call["prompt"] and "Do not repeat" not in call["prompt"]
+        assert "The carer always wears/carries: Mum's yellow scarf" in call["prompt"]
 
 
 def test_pages_json_has_text_on_exactly_one_half_per_spread(emma_build):
@@ -162,7 +168,28 @@ def test_pages_json_has_text_on_exactly_one_half_per_spread(emma_build):
         carrying = left if left["text"].strip() else right
         assert carrying["side"] == carrying["calm_zone"]
         assert carrying["text"] == emma_build.story["spreads"][n - 1]["text"]
-        assert left["scene_left"] == right["scene_left"] and left["scene_right"] == right["scene_right"]
+        assert left["scene"] == right["scene"]
+        assert left["art_path"] == right["art_path"] == f"spreads/spread-{n:02d}/art.png"
+        assert "art_path_left" not in left and "scene_left" not in left
+
+
+def test_pdf_halves_are_cut_from_the_same_art_png(emma_build):
+    """Both page halves of a spread are placed from one art.png (recorded as ``source`` in layout.json)."""
+    layout = read_json(emma_build.job_dir / "print" / "layout.json")["pages"]
+    halves = [r for r in layout if r.get("kind") == "spread_half"]
+    assert len(halves) == 28
+    for n in range(1, 15):
+        mine = [r for r in halves if r["spread"] == n]
+        assert [r["side"] for r in mine] == ["left", "right"]
+        assert {r["source"] for r in mine} == {f"spreads/spread-{n:02d}/art.png"}
+    # and the split itself is the documented 216 mm halves of the 426 mm spread
+    from PIL import Image
+    from pipeline.pages import split_spread
+
+    with Image.open(emma_build.job_dir / "spreads" / "spread-01" / "art.png") as art:
+        left, right = split_spread(art)
+        width = art.size[0]
+    assert left.size == right.size == (round(width * 216 / 426), art.size[1])
 
 
 def test_cover_front_prompt_has_no_carer_and_preview_is_saved(emma_build):
@@ -176,13 +203,13 @@ def test_cover_front_prompt_has_no_carer_and_preview_is_saved(emma_build):
 
 def test_anchor_ticks_follow_schedule_and_never_reset(emma_build):
     schedule = get_title("big_kid_list")["anchor"]["state_schedule"]
-    spread_calls = [c for c in emma_build.fake.calls if c["description"].startswith("Spread ")]
+    spread_calls = _spread_calls(emma_build)
     seen = []
     for index, call in enumerate(spread_calls):
         found = re.search(r"exactly (\d+) tick\(s\)", call["prompt"])
         assert found, f"call {index} has no anchor state"
         seen.append(int(found.group(1)))
-    assert seen == [schedule[i // 2] for i in range(28)]
+    assert seen == [schedule[i] for i in range(14)]
     assert all(b >= a for a, b in zip(seen, seen[1:]))
     report = qa.anchor_state_report(emma_build.job_dir, emma_build.inputs, None)
     assert report["passed"]
@@ -288,26 +315,30 @@ def test_no_cream_text_box_and_story_text_is_live(emma_build):
 
 
 def test_effective_ppi_recorded_per_spread_and_never_upscaled(emma_build):
-    expected = effective_ppi(1600, PAGE_WITH_BLEED_MM)
+    # Fixture frames are 3408 x 1920; the fit crop keeps 3408 x 1728 (never resized): 3408 px / 426 mm.
+    expected = effective_ppi(3408, SPREAD_WIDTH_MM)
     assert PPI_FAIL <= expected < constants.PPI_WARN
     for n in range(1, 15):
         meta = read_json(emma_build.job_dir / "spreads" / f"spread-{n:02d}" / "spread.json")
         assert meta["effective_ppi"] == pytest.approx(expected, abs=0.1)
         assert meta["resolution_status"] == constants.resolution_status(expected)
-        for side in ("left", "right"):
-            from PIL import Image
+        assert meta["size_received"] == "3408x1920"
+        assert meta["crop_box"] == [0, 96, 3408, 1824]
+        assert meta["size_requested"] == "auto"
+        from PIL import Image
 
-            with Image.open(emma_build.job_dir / "spreads" / f"spread-{n:02d}" / f"art-{side}.png") as im:
-                assert im.size == (1600, 1600)  # exactly what the model returned
+        with Image.open(emma_build.job_dir / "spreads" / f"spread-{n:02d}" / "art.png") as im:
+            assert im.size == (3408, 1728)  # the model's pixels, cropped, never resampled
     assert illustrate.min_effective_ppi(emma_build.job_dir) == pytest.approx(expected, abs=0.1)
     job = read_json(emma_build.job_dir / "job.json")
     assert job["min_effective_ppi"] == pytest.approx(expected, abs=0.1)
+    assert job["spreads_done"] == 14 and job["spreads_total"] == 14
 
 
 def test_images_embedded_without_resampling(emma_build):
     start = _first_interior(emma_build.pdf)
     page = PdfReader(str(emma_build.pdf)).pages[start + 1]
-    assert (1600, 1600) in [(i.image.width, i.image.height) for i in page.images]
+    assert (1728, 1728) in [(i.image.width, i.image.height) for i in page.images]  # one half of 3408 px
 
 
 def test_below_150_ppi_refuses_to_build_when_enforced(emma_build, tmp_path, monkeypatch):
@@ -317,7 +348,7 @@ def test_below_150_ppi_refuses_to_build_when_enforced(emma_build, tmp_path, monk
 
     copy = tmp_path / "copy"
     shutil.copytree(emma_build.job_dir, copy)
-    Image.new("RGB", (1000, 1000), (240, 230, 210)).save(copy / "spreads" / "spread-05" / "art-right.png")
+    Image.new("RGB", (1000, 507), (240, 230, 210)).save(copy / "spreads" / "spread-05" / "art.png")
     # Default path continues; enforcement on raises.
     pdf_build.build_pdf(copy, emma_build.story, emma_build.pages, emma_build.inputs)
     monkeypatch.setattr("pipeline.constants.ENFORCE_PRINT_PPI", True)

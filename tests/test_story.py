@@ -32,9 +32,8 @@ def _spread(n: int) -> dict:
     return {
         "n": n,
         "text": "Emma picks a shoe.",
-        "scene": "kitchen",
-        "scene_left": f"Wide quiet kitchen, spread {n}.",
-        "scene_right": f"Close on Emma's hands and face, spread {n}.",
+        "scene": f"Spread {n}: on the left the kitchen is wide and quiet; on the right Emma's hands hold a shoe.",
+        "calm_zone": "left" if n % 2 else "right",
     }
 
 
@@ -54,7 +53,7 @@ _INPUTS = {
 
 @patch("pipeline.story.humanize_story_fields", side_effect=lambda _c, _d, s: s)
 @patch("pipeline.story.chat_json")
-def test_payload_has_binding_beats_signature_sets_and_scene_pair_schema(mock_chat, _h, tmp_path):
+def test_payload_has_binding_beats_signature_sets_and_spread_schema(mock_chat, _h, tmp_path):
     from pipeline import story as story_module
 
     mock_chat.return_value = json.dumps({"spreads": [_spread(i) for i in range(1, 15)]})
@@ -70,41 +69,43 @@ def test_payload_has_binding_beats_signature_sets_and_scene_pair_schema(mock_cha
     assert payload["sets"] == ["kitchen", "hallway", "garden", "nursery_door"]
     assert payload["last_line"] == "I'm the one who decides. And I decided."
     schema = payload["output_schema"]["spreads"][0]
-    assert {"n", "text", "scene", "scene_left", "scene_right"} <= set(schema)
+    assert {"n", "text", "scene", "calm_zone"} <= set(schema)
+    assert "scene_left" not in schema and "scene_right" not in schema
     for phrase in ("BEATS ARE BINDING", "SAME events in the SAME order", "Add nothing", "exact"):
         assert phrase in story_module.SYSTEM
-    assert "scene_left" in system and "DIFFERENT pictures" in system and "calm_zone" in system
+    assert "ONE CONTINUOUS PICTURE" in system and "calm_zone" in system
+    assert "scene_left" not in system and "DIFFERENT pictures" not in system
+    assert [sp["calm_zone"] for sp in out["spreads"][:2]] == ["left", "right"]
     assert out["carer_signature"] == "Mum's yellow scarf"
     assert "{name}" not in json.dumps(out["locked"]["parent_spread"])
 
 
 @patch("pipeline.story.humanize_story_fields", side_effect=lambda _c, _d, s: s)
 @patch("pipeline.story.chat_json")
-def test_identical_scene_pair_is_a_hard_fail_and_retried(mock_chat, _h, tmp_path):
+def test_scene_that_skips_a_half_is_a_hard_fail_and_retried(mock_chat, _h, tmp_path):
     bad = [_spread(i) for i in range(1, 15)]
-    bad[2]["scene_right"] = bad[2]["scene_left"]  # same picture twice
+    bad[2]["scene"] = "Emma sits in the kitchen with a shoe."  # never mentions left / right
     good = [_spread(i) for i in range(1, 15)]
     mock_chat.side_effect = [json.dumps({"spreads": bad}), json.dumps({"spreads": good})]
     job_dir = tmp_path / "job"
     (job_dir / "story").mkdir(parents=True)
     out = rebuild_story(MagicMock(), job_dir, dict(_INPUTS))
     assert mock_chat.call_count == 2
-    assert out["spreads"][2]["scene_left"] != out["spreads"][2]["scene_right"]
+    assert "left" in out["spreads"][2]["scene"] and "right" in out["spreads"][2]["scene"]
 
 
-def test_scene_pair_guard_rules():
-    from pipeline.text_guards import scene_pair_issues
+def test_scene_halves_guard_rules():
+    from pipeline.text_guards import scene_halves_issues
 
-    ok = {"n": 1, "scene": "S", "scene_left": "wide", "scene_right": "close"}
-    assert scene_pair_issues([ok], require=True) == []
-    same = {**ok, "scene_right": "WIDE "}
-    assert [i["code"] for i in scene_pair_issues([same])] == ["scene_pair"]
-    copied = {**ok, "scene_left": "S"}
-    assert scene_pair_issues([copied])  # equals the shared scene verbatim
-    missing = {"n": 1, "scene": "S"}
-    assert scene_pair_issues([missing]) == []  # legacy spreads are skipped ...
-    assert scene_pair_issues([missing], require=True)  # ... unless story generation requires them
-    assert scene_pair_issues([{**ok, "scene_right": ""}])  # half a pair
+    ok = {"n": 1, "scene": "On the left, a quiet hall. On the right, Emma reaches up."}
+    assert scene_halves_issues([ok], require=True) == []
+    only_left = {"n": 2, "scene": "A quiet hall on the left."}
+    assert [i["code"] for i in scene_halves_issues([only_left])] == ["scene_halves"]
+    assert "right" in scene_halves_issues([only_left])[0]["message"]
+    empty = {"n": 3, "scene": ""}
+    assert scene_halves_issues([empty]) == []  # legacy spreads are skipped ...
+    assert scene_halves_issues([empty], require=True)  # ... unless story generation requires them
+    assert scene_halves_issues([{"n": 4, "scene": "The leftover bread and a copyright note."}])  # whole words only
 
 
 @patch("pipeline.story.humanize_story_fields", side_effect=lambda _c, _d, s: s)

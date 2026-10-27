@@ -50,16 +50,14 @@ SPREAD_SCENES = [
 ]
 
 
-def scene_pair(n: int) -> dict:
-    """Two different pictures of spread ``n``: wide + quiet on the calm page, close + face on the other."""
+def halves_scene(n: int) -> str:
+    """One scene for the WHOLE double-page picture: what is on its left half and on its right half."""
     scene = SPREAD_SCENES[n - 1]
-    wide = f"Wide, quiet view with a plain empty area for the text. {scene}"
-    close = f"Close view of Emma's face and hands, small detail in focus. {scene}"
     calm = "left" if n % 2 == 1 else "right"
+    action = "right" if calm == "left" else "left"
     return (
-        {"scene_left": wide, "scene_right": close}
-        if calm == "left"
-        else {"scene_left": close, "scene_right": wide}
+        f"{scene} On the {calm} side of the picture there is a wide, quiet, plain area; "
+        f"on the {action} side Emma is close with her face and hands clear."
     )
 
 
@@ -88,7 +86,12 @@ def emma_story(inputs: dict | None = None) -> dict:
     title = get_title(inputs["title_id"])
     locked = _build_locked(title, inputs)
     spreads = [
-        {"n": i + 1, "text": SPREAD_TEXTS[i], "scene": SPREAD_SCENES[i], **scene_pair(i + 1)}
+        {
+            "n": i + 1,
+            "text": SPREAD_TEXTS[i],
+            "scene": halves_scene(i + 1),
+            "calm_zone": "left" if i % 2 == 0 else "right",
+        }
         for i in range(14)
     ]
     return {
@@ -122,45 +125,53 @@ def clone(obj):
     return copy.deepcopy(obj)
 
 
-def _art(path: Path, size: int, tone: tuple, dark: bool = False, alt_view: bool = False) -> None:
-    """Flat-ish test art: light calm tone with a darker lower-left blob so text areas are testable.
+# Test spread art: 2840 x 1440 px (the 426 x 216 mm aspect). Each page half is exactly 1440 x 1440 px,
+# and the picture is 2840 px across 426 mm = ~169 ppi (above the 150 fail line, under the 300 target).
+SPREAD_W_PX = 2840
+SPREAD_H_PX = 1440
+HALF_PX = 1440
 
-    ``alt_view`` adds a big upper-left shape so the two pages of a spread are visibly different pictures.
+
+def _art(path: Path, width: int, height: int, tone: tuple, dark: bool = False) -> None:
+    """Flat-ish test art: a light calm tone, a mid-tone blob on each half, optional dark lower band.
+
+    The fold (x = width / 2) is left clear on purpose.
     """
     from PIL import Image, ImageDraw
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    image = Image.new("RGB", (size, size), tone)
+    image = Image.new("RGB", (width, height), tone)
     draw = ImageDraw.Draw(image)
-    draw.ellipse((size * 0.55, size * 0.1, size * 0.95, size * 0.45), fill=(150, 120, 90))
-    if alt_view:
-        draw.ellipse((size * 0.05, size * 0.05, size * 0.5, size * 0.5), fill=(110, 140, 170))
+    draw.ellipse((width * 0.30, height * 0.1, width * 0.45, height * 0.45), fill=(150, 120, 90))
+    draw.ellipse((width * 0.60, height * 0.1, width * 0.80, height * 0.45), fill=(110, 140, 170))
     if dark:
-        draw.rectangle((0, size // 2, size, size), fill=(30, 40, 60))
+        draw.rectangle((0, height // 2, width, height), fill=(30, 40, 60))
     image.save(path, format="PNG", compress_level=1)
 
 
-def write_emma_art(job_dir: Path, size: int = 1400, dark_spreads: tuple = ()) -> None:
-    """Spread art (28 pages), cover art and title spot, as the fixed mocked-OpenAI PNGs would be."""
+def write_emma_art(
+    job_dir: Path, width: int = SPREAD_W_PX, dark_spreads: tuple = (), cover_size: int = 1400
+) -> None:
+    """14 spread images (one wide ``art.png`` each), cover art and the title spot."""
+    height = round(width * SPREAD_H_PX / SPREAD_W_PX)
     for n in range(1, 15):
-        for side in ("left", "right"):
-            tone = (236 + (n % 3) * 4, 228 + (n % 4) * 3, 205 + (n % 5) * 4)
-            _art(
-                job_dir / "spreads" / f"spread-{n:02d}" / f"art-{side}.png",
-                size,
-                tone,
-                dark=n in dark_spreads,
-                alt_view=(side == "right"),
-            )
-    _art(job_dir / "cover" / "front_art.png", size, (240, 224, 196))
-    _art(job_dir / "cover" / "back_art.png", size, (244, 234, 214))
-    _art(job_dir / "title_page" / "spot.png", 512, (250, 246, 239))
+        tone = (236 + (n % 3) * 4, 228 + (n % 4) * 3, 205 + (n % 5) * 4)
+        _art(
+            job_dir / "spreads" / f"spread-{n:02d}" / "art.png",
+            width,
+            height,
+            tone,
+            dark=n in dark_spreads,
+        )
+    _art(job_dir / "cover" / "front_art.png", cover_size, cover_size, (240, 224, 196))
+    _art(job_dir / "cover" / "back_art.png", cover_size, cover_size, (244, 234, 214))
+    _art(job_dir / "title_page" / "spot.png", 512, 512, (250, 246, 239))
 
 
-def build_emma_job(job_dir: Path, size: int = 1400, dark_spreads: tuple = ()):
+def build_emma_job(job_dir: Path, width: int = SPREAD_W_PX, dark_spreads: tuple = ()):
     """(inputs, story, pages) with all art written; ready for build_pdf."""
     inputs, story, pages = emma_bundle(job_dir)
-    write_emma_art(job_dir, size, dark_spreads)
+    write_emma_art(job_dir, width, dark_spreads)
     return inputs, story, pages
 
 def persist_emma_job(job_dir: Path, inputs: dict, story: dict, pages: list, pdf_path: Path) -> None:
