@@ -147,6 +147,131 @@ def test_validate_auto_appends_missing_catalogue_last_line(bundle):
     assert "I'm the one who decides. And I decided." in saved["spreads"][-1]["text"]
 
 
+LAST_LINE = "I'm the one who decides. And I decided."
+
+
+def test_llm_moral_flag_on_last_line_does_not_block_or_strip_it(bundle):
+    """Catalogue last_line often sounds like a moral — never fail or rewrite it away."""
+    job_dir, inputs, story, pages = bundle
+    llm = {
+        "passed": False,
+        "score": 70,
+        "summary": "Spread 14 ends with a stated moral.",
+        "issues": [
+            {
+                "severity": "error",
+                "code": "stated_moral",
+                "message": (
+                    f'Spread 14 states a moral: "{LAST_LINE}" — remove the lesson sentence.'
+                ),
+                "page": 28,
+                "fix_hint": "Rewrite without the moral.",
+            }
+        ],
+        "invented_elements": [],
+        "repair": {
+            "needed": True,
+            "page_fixes": [
+                {
+                    "number": 28,
+                    "text": "Emma holds the pen and looks at the list.",
+                }
+            ],
+        },
+    }
+    with patch.object(validate, "_llm_validate", return_value=llm):
+        report = validate_content(None, job_dir, inputs, story, pages)
+    assert report["passed"] is True
+    assert all(i["code"] != "stated_moral" or i["severity"] == "warning" for i in report["issues"])
+    assert story["spreads"][-1]["text"].rstrip().endswith(LAST_LINE)
+    # Scrub dropped the text rewrite that would have removed the last_line.
+    assert report["repair"].get("needed") is False or not any(
+        f.get("text") for f in report["repair"].get("page_fixes") or []
+    )
+
+
+def test_repair_rewrite_of_spread_14_restores_last_line(bundle):
+    job_dir, inputs, story, pages = bundle
+    story = clone(story)
+    pages = clone(pages)
+    # Soften would normally scrub a last_line-removing text fix; exercise the post-repair
+    # restore path with a repair that still rewrites spread 14 (scene + text), then force.
+    repair = {
+        "needed": True,
+        "page_fixes": [
+            {
+                "number": 28,
+                "scene": "Left: quiet fridge. Right: Emma with the pen.",
+                "text": "Emma holds the pen. The list is finished.",
+            }
+        ],
+    }
+    story, pages = validate._apply_repair(story, pages, repair)
+    assert LAST_LINE not in story["spreads"][-1]["text"]
+    story, pages, restored = validate._force_catalogue_last_line(inputs, story, pages)
+    assert restored is True
+    assert story["spreads"][-1]["text"].rstrip().endswith(LAST_LINE)
+    with patch.object(validate, "_llm_validate", return_value=_llm_pass()):
+        report = validate_content(None, job_dir, inputs, story, pages)
+    assert report["passed"] is True
+    assert story["spreads"][-1]["text"].rstrip().endswith(LAST_LINE)
+
+
+def test_stated_moral_elsewhere_still_hard_error(bundle):
+    job_dir, inputs, story, pages = bundle
+    llm = {
+        "passed": False,
+        "score": 60,
+        "summary": "Spread 9 states a moral.",
+        "issues": [
+            {
+                "severity": "error",
+                "code": "stated_moral",
+                "message": 'Spread 9: "And that\'s why we always share." is a stated moral.',
+                "page": 18,
+                "fix_hint": "Remove the lesson sentence.",
+            }
+        ],
+        "invented_elements": [],
+        "repair": {"needed": False},
+    }
+    with patch.object(validate, "_llm_validate", return_value=llm):
+        with pytest.raises(ValidationError) as caught:
+            validate_content(None, job_dir, inputs, story, pages)
+    assert any(
+        i.get("code") == "stated_moral" and i.get("severity") == "error"
+        for i in caught.value.report["issues"]
+    )
+
+
+def test_last_line_apostrophe_variants_treated_as_same(bundle):
+    curly = "I\u2019m the one who decides. And I decided."
+    assert validate._refers_to_last_line(
+        f'Spread 14 moral: "{curly}"',
+        LAST_LINE,
+    )
+    soft = validate._soften_llm_report(
+        {
+            "passed": False,
+            "issues": [
+                {
+                    "severity": "error",
+                    "code": "stated_moral",
+                    "message": f"Remove the lesson: {curly}",
+                    "page": 28,
+                }
+            ],
+            "invented_elements": [],
+            "repair": {"needed": False},
+        },
+        bundle[1],
+        bundle[3],
+    )
+    assert soft["passed"] is True
+    assert soft["issues"][0]["severity"] == "warning"
+    assert soft["issues"][0]["code"] == "locked_last_line_ok"
+
+
 def test_must_not_show_in_scene_is_error(bundle):
     _job, inputs, story, pages = bundle
     pages = clone(pages)

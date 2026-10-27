@@ -19,8 +19,10 @@ from .openai_util import chat_json
 from .pages import compile_pages, set_spread_text, spread_text
 from .text_guards import (
     SOFT_GUARD_CODES,
+    _norm_text,
     check_spreads,
     ensure_catalogue_last_line,
+    last_line_present,
 )
 
 CALM_ZONES = {"left", "right"}
@@ -68,17 +70,20 @@ Hard errors (must set passed=false):
 - Anything listed under must_not_show appearing in a scene
 - Scenes that demand painted letters/titles/captions in the illustration
 - Outcome claims, timelines, deficit words about the child, or a stated moral
+  (EXCEPT the locked catalogue last_line on spread 14 — see locked_last_line in the user JSON)
 - Unsafe / age-inappropriate content
 
 Allowed without error:
 - The comfort_object from the order (including soft toys / plush / bunny / blanket)
 - Ordinary household props already implied by the beats (fridge, list, shoes, coat, cup, potty, door)
+- The locked_last_line on spread 14 (approved brand copy — never a moral / outcome / deficit flag)
 
 Warnings only (passed can still be true):
 - Vague "toys" with no new named character
 - Minor pacing; text that mentions something the scene does not draw
 
 Never edit the locked block (title, front band, back question, parent spread, dedication).
+Never edit or remove locked_last_line from spread 14 text in repair; you may edit the rest of that spread.
 repair.page_fixes may only touch story spread pages (2-29).
 """
 
@@ -494,7 +499,57 @@ def _structural_issues(inputs: dict, story: dict, pages: list) -> list:
     return issues
 
 
+def _resolved_last_line(inputs: dict) -> str:
+    try:
+        title = get_title(inputs["title_id"])
+    except Exception:
+        return ""
+    return (title.get("last_line") or "").replace("{name}", str(inputs.get("name") or ""))
+
+
+def _refers_to_last_line(message: str, last_line: str) -> bool:
+    """True when an LLM issue quotes or paraphrases the locked catalogue last_line."""
+    if not last_line or not message:
+        return False
+    msg = _norm_text(message)
+    line = _norm_text(last_line)
+    if not line:
+        return False
+    if line in msg:
+        return True
+    # Significant chunks (handles partial quotes of a two-sentence last_line).
+    for chunk in re.split(r"[.!?]+", line):
+        chunk = chunk.strip()
+        if len(chunk.split()) >= 4 and chunk in msg:
+            return True
+    return False
+
+
+def _scrub_repair_preserving_last_line(repair: dict, last_line: str, pages: list) -> dict:
+    """Drop spread-14 text rewrites that would remove the locked last_line; keep scene edits."""
+    if not repair or not last_line:
+        return repair or {"needed": False}
+    out = copy.deepcopy(repair)
+    by_number = {int(p.get("number") or 0): p for p in pages or []}
+    cleaned = []
+    for raw in out.get("page_fixes") or []:
+        fix = dict(raw)
+        num = int(fix.get("number") or 0)
+        page = by_number.get(num) or {}
+        is_spread_14 = int(page.get("spread") or 0) == 14 or num in {28, 29}
+        if is_spread_14 and fix.get("text") is not None:
+            if not last_line_present(str(fix.get("text") or ""), last_line):
+                fix.pop("text", None)
+        if fix.get("scene") or fix.get("text") is not None or fix.get("calm_zone"):
+            cleaned.append(fix)
+    out["page_fixes"] = cleaned
+    if not cleaned and not out.get("supporting_characters") and not out.get("recurring_outfit"):
+        out["needed"] = False
+    return out
+
+
 def _llm_validate(client, inputs: dict, story: dict, pages: list) -> dict:
+    last_line = _resolved_last_line(inputs)
     spread_pages = [
         {
             "number": p.get("number"),
@@ -516,6 +571,14 @@ def _llm_validate(client, inputs: dict, story: dict, pages: list) -> dict:
         "comfort_object": inputs.get("comfort_object"),
         "slots": inputs.get("slots"),
         "must_not_show": story.get("must_not_show") or [],
+        "locked_last_line": last_line,
+        "locked_last_line_rule": (
+            "Spread 14 must end with this exact sentence. It is approved brand copy: "
+            "never flag it as a moral, outcome claim or deficit, and never edit or remove "
+            "it in repair. You may still edit the rest of spread 14."
+            if last_line
+            else ""
+        ),
         "story": {
             "title": story.get("title"),
             "recurring_outfit": story.get("recurring_outfit"),
@@ -593,10 +656,11 @@ def _coerce_llm_passed(value) -> bool | None:
     return None
 
 
-def _soften_llm_report(llm_report: dict, inputs: dict) -> dict:
-    """Downgrade vague toy inventions; comfort_object may be a soft toy."""
+def _soften_llm_report(llm_report: dict, inputs: dict, pages: list | None = None) -> dict:
+    """Downgrade vague toys and locked last_line false positives; scrub bad repairs."""
     report = dict(llm_report or {})
     comfort = str(inputs.get("comfort_object") or "").strip().lower()
+    last_line = _resolved_last_line(inputs)
     softened_issues = []
     for raw in report.get("issues") or []:
         issue = dict(raw)
@@ -608,6 +672,10 @@ def _soften_llm_report(llm_report: dict, inputs: dict) -> dict:
         if severity == "error" and _VAGUE_INVENTED.search(message):
             issue["severity"] = "warning"
             issue["code"] = "vague_prop"
+        elif severity == "error" and _refers_to_last_line(message, last_line):
+            # Catalogue last_line often sounds like a moral; never block on it.
+            issue["severity"] = "warning"
+            issue["code"] = "locked_last_line_ok"
         softened_issues.append(issue)
 
     invented = []
@@ -620,7 +688,15 @@ def _soften_llm_report(llm_report: dict, inputs: dict) -> dict:
             continue
         if _VAGUE_INVENTED.search(label) and len(label.split()) <= 4:
             continue  # drop "toys" / "unspecified toys"
+        if last_line and _refers_to_last_line(label, last_line):
+            continue
         invented.append(label)
+
+    repair = _scrub_repair_preserving_last_line(
+        report.get("repair") or {"needed": False},
+        last_line,
+        pages or [],
+    )
 
     # Final gate is hard issues only. Models often set passed=false with a glowing summary.
     hard = [i for i in softened_issues if i.get("severity") == "error"]
@@ -631,6 +707,7 @@ def _soften_llm_report(llm_report: dict, inputs: dict) -> dict:
 
     report["issues"] = softened_issues
     report["invented_elements"] = invented
+    report["repair"] = repair
     report["passed"] = passed
     if passed and "toy" in str(report.get("summary") or "").lower():
         report["summary"] = "Content validated (vague prop flags softened)."
@@ -708,7 +785,9 @@ def validate_content(client, job_dir: Path, inputs: dict, story: dict, pages: li
         )
 
     structural = _structural_issues(inputs, story, pages)
-    llm_report = _soften_llm_report(_llm_validate(client, inputs, story, pages), inputs)
+    llm_report = _soften_llm_report(
+        _llm_validate(client, inputs, story, pages), inputs, pages
+    )
     report = _merge_report(structural, llm_report)
     report["attempt"] = 1
     write_json(job_dir / "story" / "validation_report.json", report)
@@ -731,11 +810,21 @@ def validate_content(client, job_dir: Path, inputs: dict, story: dict, pages: li
         story, pages = _apply_repair(story, pages, repair)
         if not repair.get("page_fixes") and report.get("invented_elements"):
             pages = compile_pages(client, job_dir, inputs, story)
+        # Repair must never strip the locked catalogue last_line from spread 14.
+        story, pages, restored = _force_catalogue_last_line(inputs, story, pages)
+        if restored:
+            append_event(
+                job_dir,
+                "validation_last_line_restored",
+                "Re-applied catalogue last_line after LLM repair.",
+            )
         write_json(job_dir / "story" / "rebuilt_story.json", story)
         write_json(job_dir / "story" / "pages.json", {"pages": pages})
 
         structural2 = _structural_issues(inputs, story, pages)
-        llm_report2 = _soften_llm_report(_llm_validate(client, inputs, story, pages), inputs)
+        llm_report2 = _soften_llm_report(
+            _llm_validate(client, inputs, story, pages), inputs, pages
+        )
         report2 = _merge_report(structural2, llm_report2)
         report2["attempt"] = 2
         report2["repaired_from"] = report
