@@ -8,7 +8,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from .constants import BASE_DIR
+# Resolved locally (not imported from constants) so constants.py can read SAFE_MM from here
+# without a circular import.
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 BRAND_DIR = BASE_DIR / "brand"
 ASSETS_BRAND = BASE_DIR / "assets" / "brand"

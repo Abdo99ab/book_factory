@@ -3,15 +3,15 @@ from pathlib import Path
 
 from .brand import ROUTE_PRESETS, SHARED_NEGATIVES
 from .catalogue import get_title, load_story_beats
-from .constants import CHARACTER_IDENTITY, IMAGE_QUALITY, IMAGE_SIZE, pronouns_for
+from .constants import CHARACTER_IDENTITY, pronouns_for
 from .job_log import append_event, write_json
 from .memory import format_memory_for_prompt
-from .openai_util import image_edit
+from .openai_util import image_edit, square_image_size
 
 
 def _image_size() -> str:
-    """IMAGE_SIZE (default auto: largest square the model accepts; see openai_util)."""
-    return IMAGE_SIZE
+    """Sheets are square; spread art is the only landscape image (openai_util.square_image_size)."""
+    return square_image_size()
 
 
 def _character_prompt(inputs: dict, title: dict, route_key: str) -> str:
@@ -45,13 +45,11 @@ def generate_character(client, job_dir: Path, reference_path: Path, inputs: dict
     out_dir.mkdir(parents=True, exist_ok=True)
     append_event(job_dir, "character_start", "Generating hero character sheet from photo.")
 
-    quality = IMAGE_QUALITY if IMAGE_QUALITY in {"low", "medium", "high", "auto"} else "high"
     result = image_edit(
         client,
         reference_path,
         prompt,
         size=_image_size(),
-        quality=quality,
         description="Character sheet",
     )
     character_path = out_dir / "character.png"
@@ -98,7 +96,6 @@ def generate_set_sheets(client, job_dir: Path, inputs: dict) -> list[Path]:
             job_dir / "character" / "character.png",
             prompt,
             size=_image_size(),
-            quality=IMAGE_QUALITY,
             description=f"Set sheet {set_id}",
         )
         path = out_dir / f"{set_id}.png"
@@ -131,7 +128,6 @@ def generate_anchor_sheet(client, job_dir: Path, inputs: dict) -> Path | None:
         job_dir / "character" / "character.png",
         prompt,
         size=_image_size(),
-        quality=IMAGE_QUALITY,
         description="Anchor sheet",
     )
     path = out_dir / "anchor.png"

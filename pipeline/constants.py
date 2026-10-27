@@ -41,7 +41,10 @@ def _env_bool(name: str, default: str = "0") -> bool:
 PRINTED_IN_UK_LINE = _env_bool("PRINTED_IN_UK_LINE", "0")  # OPEN: after UK printer contract
 TEXT_PLATE = os.getenv("TEXT_PLATE", "auto").strip().lower()  # RECOMMENDED auto; Taoufik
 OUTFIT_CONSTANT = _env_bool("OUTFIT_CONSTANT", "1")  # RECOMMENDED constant outfit
+# Read from the environment (openai_util.image_quality re-reads IMAGE_QUALITY at call time); "high" is
+# only the default when the variable is unset.
 IMAGE_QUALITY = os.getenv("IMAGE_QUALITY", "high").strip().lower()
+# auto = the largest LANDSCAPE size the image model offers (spread art; openai_util.largest_image_size).
 IMAGE_SIZE = os.getenv("IMAGE_SIZE", "auto").strip().lower()
 # RECOMMENDED off — learned prefs must not override brand (Taoufik confirms)
 MEMORY_SCOPE = os.getenv("MEMORY_SCOPE", "off").strip().lower()
@@ -104,9 +107,40 @@ BACK_QR_SAFE_CORNER = PRINTER["qr_corner"]
 PAGE_PX = mm_to_px(PAGE_WITH_BLEED_MM)  # 2551 under tj_books
 PAGE_PIXEL_WIDTH = PAGE_PX
 PAGE_PIXEL_HEIGHT = PAGE_PX
-# Spread art is two page images; recorded width if ever composited:
-SPREAD_PX_W = PAGE_PX * 2
-SPREAD_PX_H = PAGE_PX
+
+# --- True spreads: ONE wide picture per spread, split into two pages at PDF time -----------------
+# The interior art is a single continuous double-page image (spreads/spread-NN/art.png). It is NOT
+# generated as two pages. The PDF builder (and the operator UI) cut it into a left and a right page
+# with pages.split_spread().
+#
+# Geometry (all from the active printer profile; tj_books: trim 210, bleed 3):
+#   spread width  = 2 x trim + 2 x bleed = 426 mm   (outer bleed 3 + page 210 + page 210 + outer bleed 3)
+#   spread height = trim + 2 x bleed     = 216 mm
+#   fold          = the centre line, x = 213 mm
+#
+# SPLIT RULE. Every printed page is a 216 mm box (trim + both bleeds):
+#   left  page = spread x in [0, 216] mm    = 3 mm outer bleed + 210 mm trim + 3 mm taken from the right
+#                                             half as INNER bleed
+#   right page = spread x in [210, 426] mm  = 3 mm taken from the left half as INNER bleed + 210 mm
+#                                             trim + 3 mm outer bleed
+# The two pages therefore OVERLAP by 6 mm (x in [210, 216]). That 6 mm is exactly what binding and
+# trimming consume at the fold, so a continuous picture still reads as one scene across the page turn.
+SPREAD_WIDTH_MM = 2 * TRIM_MM + 2 * BLEED_MM  # 426 under tj_books
+SPREAD_HEIGHT_MM = PAGE_WITH_BLEED_MM  # 216 under tj_books
+SPREAD_ASPECT = SPREAD_WIDTH_MM / SPREAD_HEIGHT_MM  # ~1.972
+FOLD_X_MM = SPREAD_WIDTH_MM / 2  # 213 under tj_books
+SPREAD_PX_W = mm_to_px(SPREAD_WIDTH_MM)  # print-native width of a spread at 300 ppi
+SPREAD_PX_H = mm_to_px(SPREAD_HEIGHT_MM)
+
+from .brand import SAFE_MM as _BRAND_SAFE_MM  # noqa: E402  (brand does not import constants)
+
+GUTTER_BAND_MM = float(_BRAND_SAFE_MM["gutter"])  # 15 mm each side of the fold: no faces / hands / props
+# Nothing important within the brand trim-safe distance of an outer edge; the outer bleed is already
+# part of the image, so measured from the image edge it is bleed + trim-safe (13 mm under tj_books).
+EDGE_BAND_MM = BLEED_MM + float(_BRAND_SAFE_MM["trim"])
+# The image model's landscape frame is taller than SPREAD_ASPECT, so the top and bottom are cropped
+# (pages.fit_to_spread). Heads / the anchor object stay out of these bands (fraction of the height).
+CROP_BAND_FRACTION = 0.12
 
 PAGE_WIDTH_PT = mm_to_pt(PAGE_WITH_BLEED_MM)
 PAGE_HEIGHT_PT = mm_to_pt(PAGE_WITH_BLEED_MM)
@@ -121,10 +155,7 @@ SPINE_WIDTH_PT = mm_to_pt(SPINE_MM)
 COVER_WIDTH_PT = mm_to_pt(COVER_WIDTH_MM)
 COVER_HEIGHT_PT = mm_to_pt(COVER_HEIGHT_MM)
 
-# Deprecated hint (Magical-era). Image size now comes from IMAGE_SIZE / openai_util.largest_image_size.
-PAGE_IMAGE_SIZE = os.getenv("PAGE_IMAGE_SIZE", "1024x1024")
-
-# --- Print resolution (no upscaler): native model pixels placed in the 216 mm box ---
+# --- Print resolution (no upscaler): native model pixels placed in the page / spread box ---
 PPI_WARN = 300  # below this: print_resolution_warning
 PPI_FAIL = 150  # below this: print_resolution_fail when ENFORCE_PRINT_PPI is on
 # WORKING: off while proving the image path; set ENFORCE_PRINT_PPI=1 to refuse <150 ppi again.

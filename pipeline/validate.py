@@ -21,7 +21,6 @@ from .text_guards import (
     SOFT_GUARD_CODES,
     check_spreads,
     ensure_catalogue_last_line,
-    last_line_present,
 )
 
 CALM_ZONES = {"left", "right"}
@@ -349,6 +348,7 @@ def _structural_issues(inputs: dict, story: dict, pages: list) -> list:
             child_name=name,
             age_band=age_band,
             last_line=last_line,
+            require_scenes=True,
         ):
             code = guard.get("code") or "guard"
             spread_n = guard.get("spread")
@@ -500,8 +500,6 @@ def _llm_validate(client, inputs: dict, story: dict, pages: list) -> dict:
             "number": p.get("number"),
             "spread": p.get("spread"),
             "scene": p.get("scene"),
-            "scene_left": p.get("scene_left"),
-            "scene_right": p.get("scene_right"),
             "text": spread_text(pages, p.get("spread")),
             "calm_zone": p.get("calm_zone"),
             "anchor_state": p.get("anchor_state"),
@@ -686,15 +684,11 @@ def _force_catalogue_last_line(inputs: dict, story: dict, pages: list) -> tuple[
     if not last_line.strip():
         return story, pages, False
     before = story.get("spreads") or []
-    already = False
-    for spread in before:
-        if int(spread.get("n") or 0) == 14 and last_line_present(spread.get("text") or "", last_line):
-            already = True
-            break
-    if already:
+    ensured = ensure_catalogue_last_line(before, last_line)
+    if [s.get("text") for s in ensured] == [s.get("text") for s in before]:
         return story, pages, False
     story = dict(story)
-    story["spreads"] = ensure_catalogue_last_line(before, last_line)
+    story["spreads"] = ensured
     pages = _sync_spread_text_onto_pages(list(pages or []), story["spreads"])
     return story, pages, True
 

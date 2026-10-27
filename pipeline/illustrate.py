@@ -1,9 +1,10 @@
-"""Native-resolution page-pair illustration (spec §8.3).
+"""Native-resolution true-spread illustration (spec §8.3).
 
-One spread = two square page images (``art-left.png`` then ``art-right.png``). The right
-page is generated with the left page as a reference so the room, light and anchor match
-across the page turn. Nothing here ever resizes up: the model's native pixels are placed
-in the 216 mm box later, and ``effective_ppi`` is recorded so QA can warn / fail.
+One spread = ONE continuous landscape picture (``spreads/spread-NN/art.png``, about 2:1). It is cut
+into the left and right pages only at PDF time, so the room, light and anchor are the same picture
+by construction (no pair-matching, no duplicate-pair check). The model's frame is centre-cropped to
+``SPREAD_ASPECT`` (``pages.fit_to_spread``) and NEVER resized up; ``effective_ppi`` over the 426 mm
+spread is recorded so QA can warn / fail.
 """
 
 from __future__ import annotations
@@ -21,19 +22,23 @@ from .constants import (
     BACK_QR_SAFE_CORNER,
     BACK_QR_SAFE_MM,
     COVER_HEIGHT_MM,
+    CROP_BAND_FRACTION,
+    GUTTER_BAND_MM,
     IMAGE_QUALITY,
     IMAGE_SIZE,
     NO_TEXT_RULE,
-    PAGE_WITH_BLEED_MM,
     PPI_FAIL,
     PPI_WARN,
+    SPREAD_ASPECT,
+    SPREAD_HEIGHT_MM,
+    SPREAD_WIDTH_MM,
     effective_ppi,
     resolution_status,
 )
 from .job_log import append_event, read_json, write_json
 from .memory import format_memory_for_prompt
-from .openai_util import image_edit
-from .pages import spread_art_path, spread_dir
+from .openai_util import image_edit, image_quality
+from .pages import clear_spread_derivatives, fit_crop_box, spread_art_path, spread_dir
 
 SIDES = ("left", "right")
 
@@ -122,41 +127,43 @@ def _anchor_block(title: dict, anchor_state) -> str:
     return "\n".join(lines)
 
 
-def _composition_block(side: str, calm_zone: str) -> str:
-    gutter_edge = "RIGHT" if side == "left" else "LEFT"
+def _composition_block(calm_zone: str) -> str:
+    """Brief for ONE continuous double-page picture: fold safety, crop bands and the calm half."""
+    calm = calm_zone.upper()
+    action = ("RIGHT" if calm_zone == "left" else "LEFT")
     trim = SAFE_MM["trim"]
-    gutter = SAFE_MM["gutter"]
-    base = (
-        f"Composition: ONE square 1:1 page, full-bleed ({PAGE_WITH_BLEED_MM:g} mm including bleed). "
-        f"This is the {side.upper()} page of a facing-page spread. "
-        f"Its {gutter_edge} edge is the gutter: no face, hands or key props within "
-        f"{gutter} mm of the {gutter_edge} edge, and nothing important within {trim} mm "
-        "of the other edges. No face may cross the gutter."
+    gutter = f"{GUTTER_BAND_MM:g}"
+    band = round(100 * 2 * GUTTER_BAND_MM / SPREAD_WIDTH_MM)
+    crop = round(100 * CROP_BAND_FRACTION)
+    return "\n".join(
+        [
+            f"COMPOSITION (binding): ONE continuous double-page illustration: a single wide picture, "
+            f"about 2:1 landscape ({SPREAD_WIDTH_MM:g} x {SPREAD_HEIGHT_MM:g} mm including bleed), "
+            "NOT two separate pictures. A vertical fold runs down the exact centre of the frame; the "
+            "picture is cut there at print time, so it must read as one room and one moment, with the "
+            "floor, wall and light running straight across the fold.",
+            f"FOLD AND EDGE SAFETY: no face, hands or key prop within {gutter} mm of the centre fold "
+            f"(a band about {band}% of the picture width, centred on the fold). Nothing important "
+            f"within {trim:g} mm of the outer left and right edges. The top and bottom {crop}% of the "
+            f"frame may be cropped away: keep heads, faces and the anchor object out of those bands.",
+            f"CALM ZONE: the {calm} half carries the story text. Keep it quiet: a large, plain, "
+            "uncluttered area (soft background only, no faces, no small details) filling the lower two "
+            "thirds of that half, where the text is set in code. "
+            f"The {action} half carries the action: the child's face clearly visible, centred in that "
+            "half, with the hands or the key prop in view. It carries no story text.",
+        ]
     )
-    if side == calm_zone:
-        zone = (
-            f"Calm zone: the {calm_zone.upper()} page carries the story text. This is the quieter, "
-            "wider picture: keep a large, quiet, uncluttered area (soft background only, no faces, "
-            "no small details) in the lower half of this page where the text will be set in code."
-        )
-    else:
-        zone = (
-            f"Calm zone: the {calm_zone.upper()} page carries the text, so this {side.upper()} page "
-            "carries the main action and the child's face, clearly visible: a closer picture "
-            "than the calm page. It carries no story text."
-        )
-    return f"{base}\n{zone}"
 
 
 def _spread_prompt(
     spread: dict,
-    side: str,
     inputs: dict,
     story: dict,
     edit_instruction: str | None = None,
     references: list[str] | None = None,
+    fix_zones: list[str] | None = None,
 ) -> str:
-    """Prompt for one page of a spread. Brand route + catalogue only: no Theme/Purpose lines."""
+    """Prompt for ONE spread (one wide image). Brand route + catalogue only: no Theme/Purpose lines."""
     title = get_title(inputs["title_id"])
     preset = _route_preset(inputs)
     n = spread.get("spread") or spread.get("n")
@@ -165,31 +172,21 @@ def _spread_prompt(
 
     parts = [
         preset["preamble"],
-        f"Illustration for spread {n} of 14, {side.upper()} page.",
+        f"Illustration for spread {n} of 14 (pages {2 * int(n)}-{2 * int(n) + 1}), one double-page picture.",
+        _composition_block(calm_zone),
         f"Hero: {inputs['name']} (age {inputs['age']}).",
         _cast_block(inputs, story),
     ]
     anchor = _anchor_block(title, spread.get("anchor_state"))
     if anchor:
         parts.append(anchor)
-    shared_scene = spread.get("scene") or ""
-    side_brief = (spread.get(f"scene_{side}") or "").strip()
-    other_side = "right" if side == "left" else "left"
-    other_brief = (spread.get(f"scene_{other_side}") or "").strip()
-    if side_brief:
-        parts.append(f"The moment (shared by both pages of this spread):\n{shared_scene}")
-        parts.append(f"This {side.upper()} page shows:\n{side_brief}")
-        if other_brief:
-            parts.append(
-                f"The other page of this spread shows: {other_brief}. "
-                "Do not repeat that framing: this page must be a clearly different picture "
-                "(different camera distance, angle and subject placement)."
-            )
-    else:  # legacy jobs without a scene pair
-        parts.append(f"Scene:\n{shared_scene}")
+    scene = (spread.get("scene") or "").strip()
+    parts.append(
+        "The moment (ONE scene across the whole frame; what is on its left half and its right half "
+        f"is described together):\n{scene}"
+    )
     if references:
         parts.append("Reference images, in order:\n" + "\n".join(f"{i + 1}. {r}" for i, r in enumerate(references)))
-    parts.append(_composition_block(side, calm_zone))
     if must_not_show:
         parts.append("MUST NOT SHOW (binding): " + "; ".join(must_not_show) + ".")
     parts.append(f"Style negatives: {preset['negatives']}. {SHARED_NEGATIVES}.")
@@ -201,6 +198,12 @@ def _spread_prompt(
             "OPERATOR CHANGE REQUEST (must be clearly visible in the illustration):\n"
             f"{directive}\n"
             "Apply this even if the locked outfit or character reference omits it."
+        )
+    if fix_zones:
+        parts.append(
+            "RETRY: the previous attempt failed the layout check. Fix exactly these: "
+            + "; ".join(fix_zones)
+            + "."
         )
     memory = format_memory_for_prompt()
     if memory:
@@ -251,43 +254,33 @@ def read_spread_meta(job_dir: Path, n: int) -> dict | None:
 
 
 def spread_art_exists(job_dir: Path, n: int) -> bool:
-    return all(spread_art_path(job_dir, n, side).is_file() for side in SIDES)
+    return spread_art_path(job_dir, n).is_file()
 
 
 def min_effective_ppi(job_dir: Path, spread_numbers=range(1, 15)) -> float | None:
-    """Lowest effective ppi over the page art: measured from the files, and the recorded value."""
-    from PIL import Image
-
+    """Lowest effective ppi over the spread art (measured from the files, and the recorded value)."""
     values = []
     for n in spread_numbers:
         meta = read_spread_meta(job_dir, n)
         if meta and meta.get("effective_ppi") is not None:
             values.append(float(meta["effective_ppi"]))
-        for side in SIDES:
-            path = spread_art_path(job_dir, n, side)
-            if path.is_file():
-                with Image.open(path) as image:
-                    values.append(float(effective_ppi(image.size[0], PAGE_WITH_BLEED_MM)))
+        path = spread_art_path(job_dir, n)
+        if path.is_file():
+            with Image.open(path) as image:
+                values.append(float(effective_ppi(image.size[0], SPREAD_WIDTH_MM)))
     return min(values) if values else None
 
 
 # --- spreads -------------------------------------------------------------------------------------
 
 
-def _reference_images(job_dir: Path, inputs: dict, spread: dict, side: str, left_path: Path | None):
-    """(paths, labels) for images.edit: hero sheet, [left page], anchor, set sheet."""
+def _reference_images(job_dir: Path, inputs: dict, spread: dict):
+    """(paths, labels) for images.edit: hero sheet, anchor sheet, set sheet. Nothing else."""
     paths: list[Path] = []
     labels: list[str] = []
     character = job_dir / "character" / "character.png"
     paths.append(character)
     labels.append("hero character sheet (face, hair, skin, outfit — identical on every page)")
-    if side == "right" and left_path is not None and left_path.is_file():
-        paths.append(left_path)
-        labels.append(
-            "the LEFT page of this same spread, already drawn. Keep the same room, light, "
-            "palette and anchor object, but this is a DIFFERENT view of the same moment, "
-            "NOT a copy: change the framing, camera distance and angle"
-        )
     anchor = job_dir / "anchor" / "anchor.png"
     if anchor.is_file():
         paths.append(anchor)
@@ -301,6 +294,43 @@ def _reference_images(job_dir: Path, inputs: dict, spread: dict, side: str, left
     return paths, labels
 
 
+def _store_frame(client, job_dir: Path, n: int, data: bytes) -> dict:
+    """Write ``art.png`` (the model frame centre-cropped to the spread aspect, never resized).
+
+    Returns the frame facts plus the fold / edge / crop-band failures found by the face detector
+    (``failures`` is empty when no face was found or the detector could not run).
+    """
+    art_path = spread_art_path(job_dir, n)
+    raw_size = _png_size(data)
+    box = fit_crop_box(raw_size)
+    full = box == (0, 0, raw_size[0], raw_size[1])
+    frame_path = art_path.with_name("_frame.png")
+    if full:
+        art_path.write_bytes(data)  # native bytes untouched
+        detect_path = art_path
+    else:
+        frame_path.write_bytes(data)
+        with Image.open(io.BytesIO(data)) as frame:
+            frame.crop(box).save(art_path, format="PNG")
+        detect_path = frame_path
+    try:
+        faces = qa.detect_faces(client, detect_path)
+    finally:
+        frame_path.unlink(missing_ok=True)
+    failures = (
+        imagecheck.spread_layout_failures(faces, raw_size, box) if faces is not None else []
+    )
+    return {
+        "raw_size": raw_size,
+        "crop_box": list(box),
+        "width": box[2] - box[0],
+        "height": box[3] - box[1],
+        "faces": faces,
+        "fold_checked": faces is not None,
+        "failures": failures,
+    }
+
+
 def generate_spread_art(
     client,
     job_dir: Path,
@@ -310,86 +340,118 @@ def generate_spread_art(
     character_path: Path,
     edit_instruction: str | None = None,
 ) -> dict:
-    """Generate ``art-left`` then ``art-right`` (left as reference). Returns the spread meta."""
+    """Generate ``art.png`` for one spread: ONE image call, a fold check and a calm-zone check.
+
+    A frame whose faces cross the fold, the outer edge or the top / bottom crop bands is
+    regenerated ONCE with the failing zone named; if it still fails the art is kept and
+    ``fold_warning`` is emitted. A busy calm half only emits ``calm_zone_warning`` (no regen).
+    """
     if not Path(character_path).is_file():
         raise FileNotFoundError(f"Character sheet missing for spread {spread.get('spread')}")
     n = int(spread.get("spread") or spread.get("n"))
     calm_zone = spread.get("calm_zone") or ("left" if n % 2 == 1 else "right")
     sdir = spread_dir(job_dir, n)
     sdir.mkdir(parents=True, exist_ok=True)
+    clear_spread_derivatives(job_dir, n)  # cached UI halves belong to the OLD picture
 
     meta = {
         "spread": n,
         "calm_zone": calm_zone,
         "anchor_state": spread.get("anchor_state"),
         "scene": spread.get("scene"),
-        "scene_left": spread.get("scene_left"),
-        "scene_right": spread.get("scene_right"),
         "text": spread.get("text"),
         "edit_instruction": edit_instruction,
-        "image_size_requested": IMAGE_SIZE,
-        "image_quality": IMAGE_QUALITY,
+        "size_requested": IMAGE_SIZE,
+        "image_quality": image_quality(),
         "status": "generating",
-        "pages": {},
+        "file": "art.png",
     }
     write_json(sdir / "spread.json", meta)
     append_event(job_dir, "spread_start", f"Illustrating spread {n} (pages {2 * n}–{2 * n + 1}).", spread=n)
 
-    left_path: Path | None = None
-    for side in SIDES:
-        page_number = 2 * n + (0 if side == "left" else 1)
-        paths, labels = _reference_images(job_dir, inputs, spread, side, left_path)
+    paths, labels = _reference_images(job_dir, inputs, spread)
+    working = {**spread, "spread": n, "calm_zone": calm_zone}
+    fix_zones: list[str] | None = None
+    attempts = 0
+    frame: dict = {}
+    prompt = ""
+    for attempt in (1, 2):
+        attempts = attempt
         prompt = _spread_prompt(
-            {**spread, "spread": n, "calm_zone": calm_zone},
-            side,
+            working,
             inputs,
             story,
             edit_instruction=edit_instruction,
             references=labels,
+            fix_zones=fix_zones,
         )
-        append_event(job_dir, "page_start", f"Illustrating page {page_number} ({side}).", page=page_number)
-        result = image_edit(
-            client,
-            paths,
-            prompt,
-            size=IMAGE_SIZE,
-            description=f"Spread {n} {side}",
-        )
-        data = _decode(result)
-        width, height = _png_size(data)
-        art_path = spread_art_path(job_dir, n, side)
-        art_path.write_bytes(data)  # native pixels, never resized
-        info = _record_resolution(
+        result = image_edit(client, paths, prompt, size=IMAGE_SIZE, description=f"Spread {n}")
+        frame = _store_frame(client, job_dir, n, _decode(result))
+        if not frame["failures"]:
+            break
+        if attempt == 1:
+            fix_zones = [f["message"] for f in frame["failures"]]
+            append_event(
+                job_dir,
+                "fold_retry",
+                f"Spread {n} fold check failed; regenerating once: " + "; ".join(f["zone"] for f in frame["failures"]),
+                spread=n,
+                zones=[f["zone"] for f in frame["failures"]],
+            )
+    if frame["failures"]:
+        append_event(
             job_dir,
-            f"Page {page_number}",
-            width,
-            PAGE_WITH_BLEED_MM,
-            page=page_number,
+            "fold_warning",
+            f"Spread {n} still breaks the fold / edge rules after one retry (kept): "
+            + "; ".join(f["message"] for f in frame["failures"]),
+            spread=n,
+            zones=[f["zone"] for f in frame["failures"]],
+        )
+
+    art_path = spread_art_path(job_dir, n)
+    calm_stats = imagecheck.calm_zone_stats(art_path, calm_zone)
+    calm_busy = imagecheck.is_busy(calm_stats)
+    if calm_busy:
+        append_event(
+            job_dir,
+            "calm_zone_warning",
+            f"Spread {n}: the {calm_zone} half is busy where the text will sit "
+            f"(std {calm_stats['std']:.2f}, p10 {calm_stats['p10']:.2f}).",
             spread=n,
         )
-        meta["pages"][side] = {
-            "number": page_number,
-            "file": art_path.name,
-            "width": width,
-            "height": height,
+
+    info = _record_resolution(
+        job_dir,
+        f"Spread {n}",
+        frame["width"],
+        SPREAD_WIDTH_MM,
+        spread=n,
+    )
+    meta.update(
+        {
+            "size_received": f"{frame['raw_size'][0]}x{frame['raw_size'][1]}",
+            "crop_box": frame["crop_box"],
+            "width": frame["width"],
+            "height": frame["height"],
+            "aspect": round(frame["width"] / frame["height"], 4),
+            "target_aspect": round(SPREAD_ASPECT, 4),
             "references": [p.name for p in paths],
             "prompt": prompt,
+            "attempts": attempts,
+            "fold_checked": frame["fold_checked"],
+            "fold_failures": [f["zone"] for f in frame["failures"]],
+            "faces": frame["faces"],
+            "calm_zone_busy": calm_busy,
+            "calm_zone_stats": calm_stats,
+            "status": "generated",
             **info,
         }
-        append_event(job_dir, "page_done", f"Page {page_number} art saved ({width}px, {info['effective_ppi']} ppi).", page=page_number)
-        if side == "left":
-            left_path = art_path
-        write_json(sdir / "spread.json", meta)
-
-    ppis = [p["effective_ppi"] for p in meta["pages"].values()]
-    meta["effective_ppi"] = min(ppis)
-    meta["resolution_status"] = resolution_status(meta["effective_ppi"])
-    meta["status"] = "generated"
+    )
     write_json(sdir / "spread.json", meta)
     append_event(
         job_dir,
         "spread_done",
-        f"Spread {n} art saved (min {meta['effective_ppi']} ppi).",
+        f"Spread {n} art saved ({frame['width']}px, {meta['effective_ppi']} ppi).",
         spread=n,
         effective_ppi=meta["effective_ppi"],
     )
@@ -407,7 +469,7 @@ def assert_print_resolution(job_dir: Path, spread_numbers=range(1, 15)) -> float
         and lowest < PPI_FAIL
     ):
         raise PrintResolutionError(
-            f"Interior art is {lowest} ppi (< {PPI_FAIL}) in the {PAGE_WITH_BLEED_MM:g} mm box. "
+            f"Interior art is {lowest} ppi (< {PPI_FAIL}) across the {SPREAD_WIDTH_MM:g} mm spread. "
             "The image model returned too few pixels; there is no upscaler. "
             "Raise IMAGE_SIZE / use a model with larger output and regenerate."
         )
@@ -506,7 +568,7 @@ def _cover_prompt(kind: str, inputs: dict, story: dict, fix_zones: list[str] | N
 
 def _generate_cover_image(client, kind: str, prompt: str, ref_paths: list[Path], path: Path):
     result = image_edit(
-        client, ref_paths, prompt, size=IMAGE_SIZE, description=f"{kind.title()} cover art"
+        client, ref_paths, prompt, size="square", description=f"{kind.title()} cover art"
     )
     data = _decode(result)
     path.write_bytes(data)

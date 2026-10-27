@@ -11,8 +11,9 @@ from .humanize import humanize_story_fields
 from .job_log import append_event, read_json, write_json
 from .memory import format_memory_for_prompt
 from .openai_util import chat_json
-from .pages import compile_pages, spread_art_path
-from .text_guards import check_spreads
+from .pages import clear_spread_art, compile_pages
+from .story import with_calm_zones
+from .text_guards import check_spreads, ensure_catalogue_last_line
 
 STORY_CAST_SYSTEM = """You rewrite the 14 spreads of a Raised Ready personalised picture book (UK English)
 to match an APPROVED cast. The operator locked who may appear.
@@ -23,10 +24,11 @@ Hard rules:
 - Keep the same 14 spreads (n = 1..14) and the same plot beats; do not touch the locked copy.
 - The final spread must still end with the supplied last_line.
 - No readable text in scenes.
-- Each spread keeps TWO different pictures of the same moment: scene_left and scene_right (never
-  identical, never equal to scene). Remove removed cast members from them too.
-Return strict JSON: {"spreads": [{"n": 1, "text": "...", "scene": "...", "scene_left": "...",
-"scene_right": "..."}, ... 14 items]}
+- Each spread is ONE continuous picture. Its "scene" is one paragraph describing the left half and the
+  right half of the same moment (use the words "left" and "right"); remove removed cast members from
+  it too. Keep each spread's "calm_zone" ("left" or "right") unless the rewrite needs it swapped.
+Return strict JSON: {"spreads": [{"n": 1, "text": "...", "scene": "...", "calm_zone": "left"},
+... 14 items]}
 """
 
 # Guard codes that cannot apply when the operator deliberately changes the cast.
@@ -34,17 +36,13 @@ _CAST_TOLERATED = {"readability", "name_frequency", "word_increase", "new_proper
 
 
 def _clear_all_page_art(job_dir: Path, pages: list | None = None) -> list[int]:
+    """Delete every spread's art (+ cached halves, spread.json). Returns the page numbers it covered."""
     cleared = []
     for n in range(1, 15):
-        removed = False
-        for side in ("left", "right"):
-            art = spread_art_path(job_dir, n, side)
-            if art.is_file():
-                art.unlink()
-                removed = True
-        if removed:
+        if clear_spread_art(job_dir, n):
             cleared.extend([2 * n, 2 * n + 1])
-        (job_dir / "spreads" / f"spread-{n:02d}" / "spread.json").unlink(missing_ok=True)
+        else:
+            clear_spread_art(job_dir, n)  # still drop a stale spread.json / halves
     return cleared
 
 
@@ -74,8 +72,7 @@ def rebuild_story_for_cast(
                 "n": s["n"],
                 "text": s.get("text"),
                 "scene": s.get("scene"),
-                "scene_left": s.get("scene_left"),
-                "scene_right": s.get("scene_right"),
+                "calm_zone": s.get("calm_zone"),
             }
             for s in current.get("spreads") or []
         ],
@@ -98,9 +95,10 @@ def rebuild_story_for_cast(
     previous = {int(s.get("n") or 0): s for s in current.get("spreads") or []}
     for spread in spreads:
         old = previous.get(int(spread.get("n") or 0)) or {}
-        for key in ("scene_left", "scene_right"):
-            if not (spread.get(key) or "").strip() and old.get(key):
-                spread[key] = old[key]
+        if not str(spread.get("calm_zone") or "").strip() and old.get("calm_zone"):
+            spread["calm_zone"] = old["calm_zone"]
+    # Same defaults + exact last line as a fresh story (the model may drop or re-quote it).
+    spreads = ensure_catalogue_last_line(with_calm_zones(spreads), last_line)
     story = copy.deepcopy(current)
     story["spreads"] = spreads
     story["supporting_characters"] = approved_characters
@@ -124,7 +122,11 @@ def rebuild_story_for_cast(
         "cast_rebuild_story_done",
         f"Spreads rewritten for approved cast: {[c.get('name') for c in approved_characters]}",
     )
-    return humanize_story_fields(client, job_dir, story)
+    story = humanize_story_fields(client, job_dir, story)
+    # Humanize may re-word the closing line: force the exact catalogue string back on spread 14.
+    story["spreads"] = ensure_catalogue_last_line(story.get("spreads") or [], last_line)
+    write_json(job_dir / "story" / "rebuilt_story.json", story)
+    return story
 
 
 def rebuild_pages_for_cast(client, job_dir: Path, inputs: dict, story: dict, removed_names: list[str]) -> list:
@@ -166,7 +168,7 @@ def rebuild_content_for_cast(
             "preview_ready": False,
             "validation_passed": None,
             "error": None,
-            "current_page": 0,
+            "spreads_done": 0,
         }
     )
     write_json(job_dir / "job.json", job)

@@ -123,12 +123,21 @@ def chat_json_vision(client, system, user_content, description="Vision request",
     return result.choices[0].message.content
 
 
+
+
 # --- Native image size (no upscaler: whatever the model returns is what we print) -------------
 
-# Square sizes, largest first. Page art is square (216 mm box), so we only try squares.
-IMAGE_SIZE_FALLBACK = ("4096x4096", "3072x3072", "2048x2048", "1536x1536", "1024x1024")
+# Spread art is ONE wide picture, so "auto" means the largest LANDSCAPE size the model offers.
+# Listed largest first; the first size the model accepts is cached per model (see below).
+LANDSCAPE_SIZES = ("2048x1024", "1792x1024", "1536x1024", "1024x1024")
+IMAGE_SIZE_FALLBACK = LANDSCAPE_SIZES  # the default ladder
+# Everything that is not spread art (hero / set / anchor sheets, cover panels) is square.
+SQUARE_SIZES = ("2048x2048", "1536x1536", "1024x1024")
+_LADDERS = {"landscape": LANDSCAPE_SIZES, "square": SQUARE_SIZES}
+
 _VALID_QUALITY = {"low", "medium", "high", "auto"}
-_WORKING_SIZE: dict[str, str] = {}
+# (model, aspect) -> first size the model accepted in this process
+_WORKING_SIZE: dict[tuple[str, str], str] = {}
 
 
 def reset_size_cache() -> None:
@@ -136,34 +145,65 @@ def reset_size_cache() -> None:
 
 
 def image_quality(requested: str | None = None) -> str:
-    """IMAGE_QUALITY from constants (default high); never silently 'low'."""
-    value = (requested or IMAGE_QUALITY or "high").strip().lower()
+    """Quality from the IMAGE_QUALITY env var at call time (default high when unset).
+
+    Never hard-coded at the call sites: an explicit ``requested`` wins, then the environment, then
+    the constants default. Unknown values fall back to high rather than silently going low.
+    """
+    value = (requested or os.getenv("IMAGE_QUALITY") or IMAGE_QUALITY or "high").strip().lower()
     return value if value in _VALID_QUALITY else "high"
 
 
-def image_size_candidates(requested: str | None = None) -> list[str]:
-    """Sizes to try, in order. IMAGE_SIZE=auto -> largest-first fallback list."""
-    value = (requested if requested is not None else IMAGE_SIZE or "auto").strip().lower()
+def _ladder(value: str, aspect: str) -> tuple[str, ...] | None:
+    """The size ladder for an 'auto' style request, or None for an explicit WxH size."""
     if value in {"", "auto"}:
-        return list(IMAGE_SIZE_FALLBACK)
-    return [value]
+        return _LADDERS.get(aspect, LANDSCAPE_SIZES)
+    if value in _LADDERS:
+        return _LADDERS[value]
+    return None
 
 
-def largest_image_size(requested: str | None = None, supported=None) -> str:
-    """Largest square size to ask for.
+def image_size_candidates(requested: str | None = None, aspect: str = "landscape") -> list[str]:
+    """Sizes to try, in order. ``auto`` -> the landscape (or ``aspect``) ladder, largest first."""
+    value = (requested if requested is not None else IMAGE_SIZE or "auto").strip().lower()
+    ladder = _ladder(value, aspect)
+    return list(ladder) if ladder is not None else [value]
 
-    ``requested`` defaults to IMAGE_SIZE. An explicit size is returned as-is. With
-    ``auto`` the first entry of IMAGE_SIZE_FALLBACK that is in ``supported`` wins (all
-    candidates are allowed when ``supported`` is None). A size that already worked in
-    this process is preferred, so we do not re-probe on every page.
+
+def square_image_size() -> str:
+    """Size request for square art (sheets, covers): IMAGE_SIZE when it is an explicit square, else 'square'."""
+    value = (IMAGE_SIZE or "auto").strip().lower()
+    if "x" in value:
+        w, _, h = value.partition("x")
+        if w.isdigit() and w == h:
+            return value
+    return "square"
+
+
+def largest_image_size(
+    client=None,
+    aspect: str = "landscape",
+    *,
+    requested: str | None = None,
+    supported=None,
+) -> str:
+    """The size to ask for next: the largest ``aspect`` size the model offers.
+
+    Tries 2048x1024, 1792x1024, 1536x1024, 1024x1024 (landscape; squares for ``aspect="square"``).
+    The first size the model accepts is cached per model by the real request (``_with_size_fallback``
+    steps down on an invalid-size error), so this returns the cached size once one is known, else
+    the largest candidate. ``requested`` defaults to IMAGE_SIZE; an explicit WxH wins as-is.
+    ``supported`` restricts the ladder (tests / models with a known list). ``client`` is accepted so
+    a caller may pass the live client; no image is generated just to probe a size.
     """
-    candidates = image_size_candidates(requested)
+    del client
+    candidates = image_size_candidates(requested, aspect)
     if supported is not None:
         supported = {str(s).lower() for s in supported}
         candidates = [c for c in candidates if c in supported]
     if not candidates:
         raise ValueError("No supported image size among the fallback list.")
-    cached = _WORKING_SIZE.get(IMAGE_MODEL)
+    cached = _WORKING_SIZE.get((IMAGE_MODEL, aspect))
     if cached and cached in candidates and len(candidates) > 1:
         return cached
     return candidates[0]
@@ -180,17 +220,20 @@ def _is_size_error(error) -> bool:
 
 
 def _with_size_fallback(call, size, description):
-    """Run ``call(size)``; on an invalid-size error step down the fallback list."""
+    """Run ``call(size)``; on an invalid-size error step down the ladder (largest first)."""
     requested = str(size or IMAGE_SIZE or "auto").strip().lower()
-    candidates = image_size_candidates(requested)
-    if requested == "auto":
-        start = largest_image_size("auto")
+    aspect = "square" if requested == "square" else "landscape"
+    candidates = image_size_candidates(requested, aspect)
+    if len(candidates) > 1:
+        start = largest_image_size(aspect=aspect, requested=requested)
         candidates = candidates[candidates.index(start) :]
     last_error = None
     for index, candidate in enumerate(candidates):
         try:
             result = with_retries(lambda c=candidate: call(c), f"{description} @{candidate}")
-            _WORKING_SIZE[IMAGE_MODEL] = candidate
+            if _WORKING_SIZE.get((IMAGE_MODEL, aspect)) != candidate:
+                _WORKING_SIZE[(IMAGE_MODEL, aspect)] = candidate
+                logger.info("Image size for %s (%s): %s accepted", IMAGE_MODEL, aspect, candidate)
             return result
         except Exception as error:  # noqa: BLE001
             last_error = error

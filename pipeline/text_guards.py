@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import re
 from collections import Counter
 
@@ -95,16 +96,87 @@ def _norm_ws(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").strip())
 
 
+# Curly / typographic quotes -> straight ones; an ellipsis character -> "..." so it can be trimmed.
+_QUOTE_MAP = str.maketrans(
+    {
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201a": "'",
+        "\u201b": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u201e": '"',
+        "\u00ab": '"',
+        "\u00bb": '"',
+        "\u2026": "...",
+    }
+)
+
+
+def _norm_text(text: str) -> str:
+    """Comparison form used by every last-line check.
+
+    Lower-case, curly quotes -> straight, whitespace collapsed, quotes / brackets stripped (an
+    apostrophe inside a word, as in "I'm", is kept), trailing ``.`` / ``...`` / ``!`` removed.
+    """
+    value = (text or "").translate(_QUOTE_MAP)
+    value = re.sub(r"[\"()\[\]{}]", "", value)
+    value = re.sub(r"(?<![A-Za-z0-9])'|'(?![A-Za-z0-9])", "", value)
+    value = _norm_ws(value).lower()
+    return value.rstrip(" .!")
+
+
 def last_line_present(text: str, last_line: str) -> bool:
-    """True if catalogue last_line appears in the spread (whitespace-tolerant)."""
-    needle = _norm_ws(last_line)
+    """True if the catalogue last_line appears in the spread (quote / case / punctuation tolerant)."""
+    needle = _norm_text(last_line)
     if not needle:
         return True
-    return needle in _norm_ws(text)
+    return needle in _norm_text(text)
+
+
+def last_line_message(text: str, last_line: str) -> str:
+    """Guard message for a missing last line, quoting the last 12 words actually found."""
+    found = " ".join((text or "").split()[-12:])
+    return f'Spread 14 must end with: "{last_line}". Found: "{found}".'
+
+
+_SENTENCE_SPLIT = re.compile("([.!?\u2026]+[\"'\u201d\u2019)\\]]*)\\s+")
+NEAR_MATCH_RATIO = 0.9
+
+
+def _split_sentences(text: str) -> list[str]:
+    parts = _SENTENCE_SPLIT.split((text or "").strip())
+    sentences = []
+    for index in range(0, len(parts), 2):
+        piece = parts[index] + (parts[index + 1] if index + 1 < len(parts) else "")
+        if piece.strip():
+            sentences.append(piece.strip())
+    return sentences
+
+
+def _best_last_line_window(sentences: list[str], last_line: str) -> tuple[int, int, float] | None:
+    """(start, size, ratio) of the run of sentences most like ``last_line`` (later windows win ties)."""
+    target = _norm_text(last_line)
+    base = max(1, len(_split_sentences(last_line)))
+    best: tuple[int, int, float] | None = None
+    for size in sorted({base, max(1, base - 1), base + 1}):
+        for start in range(0, len(sentences) - size + 1):
+            window = " ".join(sentences[start : start + size])
+            candidate = _norm_text(window)
+            ratio = 1.0 if candidate == target else difflib.SequenceMatcher(None, candidate, target).ratio()
+            if best is None or ratio >= best[2]:
+                best = (start, size, ratio)
+    return best
 
 
 def ensure_catalogue_last_line(spreads: list, last_line: str) -> list:
-    """Force the locked catalogue last_line onto spread 14 (spec §11 — not LLM luck)."""
+    """Force the exact catalogue last_line onto spread 14 (spec section 11 - not LLM luck).
+
+    * a near match (same after ``_norm_text``, or difflib ratio >= 0.9: curly quotes, wrapping quotes,
+      "!" for ".", a comma for a full stop) is REPLACED by the exact catalogue string;
+    * the line is APPENDED only when nothing similar is there at all;
+    * it is never duplicated, so calling this repeatedly is a no-op.
+    """
     target = _norm_ws(last_line)
     if not target or not spreads:
         return spreads
@@ -113,61 +185,54 @@ def ensure_catalogue_last_line(spreads: list, last_line: str) -> list:
         item = dict(spread)
         if int(item.get("n") or 0) == 14:
             text = (item.get("text") or "").strip()
-            if not last_line_present(text, target):
+            sentences = _split_sentences(text)
+            best = _best_last_line_window(sentences, target) if sentences else None
+            if best is not None and best[2] >= NEAR_MATCH_RATIO:
+                start, size, _ratio = best
+                item["text"] = " ".join(sentences[:start] + [target] + sentences[start + size :])
+            elif text and last_line_present(text, target):
+                pass  # embedded in a longer sentence: leave it, never duplicate
+            else:
                 item["text"] = f"{text} {target}".strip() if text else target
         out.append(item)
     return out
 
 
-def scene_pair_issues(spreads: list, *, require: bool = False) -> list[dict]:
-    """Hard guard: every spread needs two DIFFERENT pictures (scene_left / scene_right).
+def scene_halves_issue(spread: dict) -> dict | None:
+    """Guard: the single ``scene`` must describe BOTH halves of the picture ("left" and "right")."""
+    n = int(spread.get("n") or spread.get("spread") or 0)
+    lowered = (spread.get("scene") or "").lower()
+    missing = [word for word in ("left", "right") if not re.search(rf"\b{word}\b", lowered)]
+    if not missing:
+        return None
+    return {
+        "code": "scene_halves",
+        "spread": n,
+        "message": (
+            f"Spread {n}: the scene must describe both the left half and the right half of the "
+            f"double-page picture (it never mentions: {', '.join(missing)})."
+        ),
+    }
 
-    Neither may equal the shared ``scene`` verbatim, and left may not equal right. Spreads that
-    carry neither key are skipped unless ``require`` is set (story generation sets it; QA of older
-    jobs does not).
-    """
+
+def scene_halves_issues(spreads: list, *, require: bool = False) -> list[dict]:
+    """``scene_halves_issue`` over every spread. An empty scene only fails when ``require`` is set."""
     issues: list[dict] = []
     for spread in spreads or []:
-        n = int(spread.get("n") or 0)
-        left = _norm_ws(spread.get("scene_left") or "")
-        right = _norm_ws(spread.get("scene_right") or "")
-        scene = _norm_ws(spread.get("scene") or "")
-        if not left and not right:
+        if not (spread.get("scene") or "").strip():
             if require:
+                n = int(spread.get("n") or 0)
                 issues.append(
                     {
-                        "code": "scene_pair",
+                        "code": "scene_halves",
                         "spread": n,
-                        "message": f"Spread {n} needs both scene_left and scene_right (two different pictures).",
+                        "message": f"Spread {n} needs a scene describing its left half and its right half.",
                     }
                 )
             continue
-        if not left or not right:
-            issues.append(
-                {
-                    "code": "scene_pair",
-                    "spread": n,
-                    "message": f"Spread {n} needs both scene_left and scene_right.",
-                }
-            )
-            continue
-        if left.lower() == right.lower():
-            issues.append(
-                {
-                    "code": "scene_pair",
-                    "spread": n,
-                    "message": f"Spread {n}: scene_left and scene_right are identical; they must be two different pictures.",
-                }
-            )
-        for label, value in (("scene_left", left), ("scene_right", right)):
-            if scene and value.lower() == scene.lower():
-                issues.append(
-                    {
-                        "code": "scene_pair",
-                        "spread": n,
-                        "message": f"Spread {n}: {label} repeats the shared scene verbatim; give it its own framing.",
-                    }
-                )
+        issue = scene_halves_issue(spread)
+        if issue:
+            issues.append(issue)
     return issues
 
 
@@ -307,7 +372,17 @@ def check_spreads(
             }
         )
 
-    issues.extend(scene_pair_issues(cand_spreads, require=require_scenes))
+    for spread in cand_spreads:
+        zone = spread.get("calm_zone")
+        if zone is not None and zone not in ("left", "right"):
+            issues.append(
+                {
+                    "code": "calm_zone",
+                    "spread": int(spread.get("n") or 0),
+                    "message": f"Spread {spread.get('n')}: calm_zone must be 'left' or 'right', got {zone!r}.",
+                }
+            )
+    issues.extend(scene_halves_issues(cand_spreads, require=require_scenes))
 
     if last_line:
         # Prefer explicit n=14; fall back to list order.
@@ -317,7 +392,7 @@ def check_spreads(
                 {
                     "code": "last_line",
                     "spread": 14,
-                    "message": "Final spread must end with the catalogue last_line.",
+                    "message": last_line_message(final.get("text") or "", last_line),
                 }
             )
 

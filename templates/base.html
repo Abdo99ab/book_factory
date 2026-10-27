@@ -27,5 +27,8 @@
     {% endwith %}
     {% block content %}{% endblock %}
   </main>
+  <footer class="site-footer">
+    <span id="build-info">{{ build_info.label if build_info else 'Build unknown' }}</span>
+  </footer>
 </body>
 </html>

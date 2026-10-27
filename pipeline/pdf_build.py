@@ -1,7 +1,8 @@
 """Raised Ready print PDF: native-resolution art + live vector text (ReportLab).
 
-Text is never drawn into an image. Page images are placed at their native pixels in the
-216 mm (trim + bleed) box; nothing is resampled up. Fonts are the four brand TTFs only.
+Text is never drawn into an image. Each spread is ONE wide image (``spreads/spread-NN/art.png``)
+that is opened once, split into a left and a right half (``pages.split_spread``) and placed at the
+half's native pixels in the 216 mm (trim + bleed) box; nothing is resampled up. Fonts are the four brand TTFs only.
 
 Packaging comes from the printer profile (constants.PRINTER_PROFILES):
   * ``single_pdf_cover_flat_first``      — TJ Books: cover flat, [endpaper], p1-32, [endpaper]
@@ -11,7 +12,7 @@ Packaging comes from the printer profile (constants.PRINTER_PROFILES):
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from PIL import Image
@@ -44,6 +45,7 @@ from .constants import (
     PRINTER_PROFILE_NAME,
     SPINE_MM,
     SPREAD_COUNT,
+    SPREAD_WIDTH_MM,
     TEXT_PLATE,
     WRAP_MM,
     mm_to_pt,
@@ -51,7 +53,7 @@ from .constants import (
 from .fonts import normalize_font_id, register_brand_fonts, reportlab_name
 from .illustrate import assert_print_resolution
 from .job_log import append_event, read_json, write_json
-from .pages import spread_art_path
+from .pages import split_spread, spread_art_path, spread_art_rel
 
 SITE_URL = "raisedready.co.uk"
 CONTRAST_TARGET = 4.5
@@ -116,13 +118,19 @@ def apply_post_grade(image: Image.Image, grade: str | None) -> Image.Image:
 class _Art:
     """One page/cover image: embedded at native pixels, sampled (small copy) for contrast."""
 
-    def __init__(self, path: Path, work_dir: Path, grade: str | None = None, tag: str = ""):
-        with Image.open(path) as source:
-            rgb = source.convert("RGB")
+    def __init__(self, path, work_dir: Path, grade: str | None = None, tag: str = ""):
+        # ``path`` is a file, or an already-open PIL image (a half cut from a spread).
+        if isinstance(path, Image.Image):
+            rgb = path.convert("RGB")
+            stem = "image"
+        else:
+            with Image.open(path) as source:
+                rgb = source.convert("RGB")
+            stem = Path(path).stem
         self.width_px, self.height_px = rgb.size
         graded = apply_post_grade(rgb, grade)
         work_dir.mkdir(parents=True, exist_ok=True)
-        self.embed_path = work_dir / f"{tag or path.stem}.jpg"
+        self.embed_path = work_dir / f"{tag or stem}.jpg"
         # Same pixel dimensions as the model output; JPEG only keeps the PDF a sane size.
         graded.save(self.embed_path, format="JPEG", quality=95, subsampling=0)
         small = graded.copy()
@@ -168,6 +176,8 @@ class _Ctx:
     layout_log: list
     # Front cover art failed the layout check twice: always set title + logo on the soft plate.
     force_cover_plate: bool = False
+    # The spread being drawn: {"n", "source", "left", "right"}; one open + one split per spread.
+    spread_cache: dict = field(default_factory=dict)
 
 
 def _y(c: canvas.Canvas, y_mm: float) -> float:
@@ -437,12 +447,40 @@ def _fit_story_text(ctx: _Ctx, text: str, width_mm: float, max_height_mm: float)
         size -= 1
 
 
+def _spread_half(ctx: _Ctx, art_path: Path, n: int, side: str) -> Image.Image:
+    """The ``side`` half of spread ``n``. The spread is opened and split ONCE; both halves come from it."""
+    cache = ctx.spread_cache
+    source = str(art_path)
+    if cache.get("n") != n:
+        left, right = split_spread(art_path)
+        cache.clear()
+        cache.update({"n": n, "source": source, "left": left, "right": right})
+    if cache["source"] != source:
+        raise AssertionError(
+            f"Spread {n}: the two halves must come from the same art file "
+            f"({cache['source']} vs {source})."
+        )
+    return cache[side]
+
+
 def _draw_spread_page(ctx: _Ctx, page: dict, art_path: Path, side: str, index: int) -> None:
     c = ctx.canvas
     c.setPageSize((mm_to_pt(PAGE_WITH_BLEED_MM),) * 2)
-    art = _Art(art_path, ctx.work_dir, ctx.grade, tag=f"page-{page['number']:02d}")
+    n = int(page["spread"])
+    if page.get("art_path") not in (None, spread_art_rel(n)):
+        raise AssertionError(f"Page {page['number']}: art_path {page.get('art_path')!r} is not spread {n}'s art.")
+    half = _spread_half(ctx, art_path, n, side)
+    art = _Art(half, ctx.work_dir, ctx.grade, tag=f"page-{page['number']:02d}")
     _place(c, art, 0, 0, PAGE_WITH_BLEED_MM, PAGE_WITH_BLEED_MM)
-    record = {"page": page["number"], "kind": "spread_half", "side": side, "text": False, "plate": False}
+    record = {
+        "page": page["number"],
+        "kind": "spread_half",
+        "spread": n,
+        "side": side,
+        "source": spread_art_rel(n),
+        "text": False,
+        "plate": False,
+    }
     if page.get("calm_zone") == side and (page.get("text") or "").strip():
         left, width = _page_text_box(side)
         bottom = PAGE_WITH_BLEED_MM - BLEED_MM - SAFE_MM["trim"]
@@ -830,9 +868,35 @@ def render_previews(pdf_path: Path, job_dir: Path, packaging: str, endpapers: bo
             image = pdf[first_interior + i].render(scale=1.1).to_pil().convert("RGB")
             image.save(pages_dir / f"page-{i + 1:02d}.jpg", quality=86)
             count += 1
+        stitch_spread_previews(job_dir)
         return count
     finally:
         pdf.close()
+
+
+def stitch_spread_previews(job_dir: Path) -> int:
+    """``print/spreads/spread-NN.jpg``: composed left + right page joined into one wide spread.
+
+    The pages overlap by the 6 mm that binding and trim consume (210 -> 216 mm), so the right page's
+    first 6 mm is dropped when it is butted against the left one. Operator UI only.
+    """
+    pages_dir = job_dir / "print" / "pages"
+    out_dir = job_dir / "print" / "spreads"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    done = 0
+    for n in range(1, SPREAD_COUNT + 1):
+        left_path = pages_dir / f"page-{2 * n:02d}.jpg"
+        right_path = pages_dir / f"page-{2 * n + 1:02d}.jpg"
+        if not (left_path.is_file() and right_path.is_file()):
+            continue
+        with Image.open(left_path) as left, Image.open(right_path) as right:
+            overlap = round(left.width * (2 * PAGE_WITH_BLEED_MM - SPREAD_WIDTH_MM) / PAGE_WITH_BLEED_MM)
+            stitched = Image.new("RGB", (left.width + right.width - overlap, left.height))
+            stitched.paste(left.convert("RGB"), (0, 0))
+            stitched.paste(right.convert("RGB").crop((overlap, 0, right.width, right.height)), (left.width, 0))
+            stitched.save(out_dir / f"spread-{n:02d}.jpg", quality=86)
+        done += 1
+    return done
 
 
 def _cover_forces_plate(job_dir: Path) -> bool:
@@ -908,13 +972,12 @@ def build_pdf(job_dir: Path, story: dict, pages: list, inputs: dict) -> Path:
     endpapers = bool(PRINTER.get("endpapers_in_pdf"))
 
     missing = [
-        str(spread_art_path(job_dir, n, side))
+        str(spread_art_path(job_dir, n))
         for n in range(1, SPREAD_COUNT + 1)
-        for side in ("left", "right")
-        if not spread_art_path(job_dir, n, side).is_file()
+        if not spread_art_path(job_dir, n).is_file()
     ]
     if missing:
-        raise FileNotFoundError(f"Missing page art ({len(missing)}): {missing[0]} …")
+        raise FileNotFoundError(f"Missing spread art ({len(missing)}): {missing[0]} …")
     front_art = job_dir / "cover" / "front_art.png"
     back_art = job_dir / "cover" / "back_art.png"
     if not (front_art.is_file() and back_art.is_file()):
@@ -927,7 +990,7 @@ def build_pdf(job_dir: Path, story: dict, pages: list, inputs: dict) -> Path:
     append_event(
         job_dir,
         "pdf_start",
-        f"Building {PRINTER_PROFILE_NAME} PDF: live vector text, native art in "
+        f"Building {PRINTER_PROFILE_NAME} PDF: live vector text, native spread art cut into "
         f"{PAGE_WITH_BLEED_MM:g} mm pages, packaging={packaging}.",
         packaging=packaging,
         printer_profile=PRINTER_PROFILE_NAME,
@@ -973,7 +1036,7 @@ def build_pdf(job_dir: Path, story: dict, pages: list, inputs: dict) -> Path:
             _draw_title_page(ctx, page)
         elif kind == "spread_half":
             n, side = page["spread"], page["side"]
-            _draw_spread_page(ctx, page, spread_art_path(job_dir, n, side), side, page["number"])
+            _draw_spread_page(ctx, page, spread_art_path(job_dir, n), side, page["number"])
         elif kind == "parent_left":
             _draw_parent_page(ctx, page, "left")
         elif kind == "parent_right":

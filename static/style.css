@@ -435,6 +435,51 @@ small { color: var(--muted); font-weight: 400; }
   justify-content: center;
   min-height: 180px;
 }
+/* True spreads: one wide card per spread (~2:1 art, text, facts, actions). */
+.spread-list { display: flex; flex-direction: column; gap: 20px; margin-bottom: 28px; }
+.spread-card { padding: 16px; }
+.spread-head { align-items: center; display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; margin-bottom: 10px; }
+.spread-head h2 { font-size: 1.05rem; margin: 0; }
+.guides-toggle { align-items: center; color: var(--muted); display: inline-flex; font-size: 0.8rem; gap: 6px; }
+.spread-art {
+  --fold-gutter: 3.52%;
+  aspect-ratio: 426 / 216;
+  background: var(--sky);
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+}
+.spread-art img { display: block; height: 100%; object-fit: cover; width: 100%; }
+.spread-art .blank-page { min-height: 0; }
+.fold-guides { display: none; inset: 0; pointer-events: none; position: absolute; }
+.spread-art.show-guides .fold-guides { display: block; }
+.fold-guides::before {
+  background: rgba(220, 40, 40, 0.16);
+  bottom: 0;
+  content: "";
+  left: calc(50% - var(--fold-gutter));
+  position: absolute;
+  top: 0;
+  width: calc(2 * var(--fold-gutter));
+}
+.fold-guides::after {
+  border-left: 2px dotted rgba(220, 40, 40, 0.9);
+  bottom: 0;
+  content: "";
+  left: 50%;
+  position: absolute;
+  top: 0;
+}
+.spread-facts { color: var(--muted); display: flex; flex-wrap: wrap; font-size: 0.8rem; gap: 6px 16px; list-style: none; margin: 10px 0 0; padding: 0; }
+.spread-facts .warn { color: #b45309; font-weight: 700; }
+.spread-text { font-size: 0.95rem; margin: 10px 0 0; white-space: pre-line; }
+.spread-actions { align-items: flex-start; display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.spread-edit { flex: 1 1 100%; }
+.spread-edit form { display: grid; gap: 10px; margin-top: 8px; }
+.locked-block { margin: 0 0 10px; }
+.locked-block strong { display: block; font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; }
+.site-footer { color: var(--muted); font-size: 0.75rem; padding: 18px 24px 28px; text-align: center; }
 .page-info { padding: 14px; }
 .page-info > span {
   color: var(--accent);

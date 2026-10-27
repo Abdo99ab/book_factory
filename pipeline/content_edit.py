@@ -10,10 +10,94 @@ from pathlib import Path
 
 from .catalogue import get_title
 from .job_log import append_event, read_json, write_json
-from .pages import compile_pages, spread_art_path
-from .text_guards import check_spreads
+from .pages import clear_spread_art, compile_pages
+from .text_guards import check_spreads, ensure_catalogue_last_line
 
 CALM_ZONES = {"left", "right"}
+
+
+def _catalogue_last_line(inputs: dict) -> str:
+    if not inputs.get("title_id"):
+        return ""
+    title = get_title(inputs["title_id"])
+    return (title.get("last_line") or "").replace("{name}", inputs.get("name", ""))
+
+
+def insert_last_line(job_dir: Path) -> dict:
+    """One-click fix: put the exact catalogue last_line at the end of spread 14 (replace a near match)."""
+    story_path = job_dir / "story" / "rebuilt_story.json"
+    story = read_json(story_path)
+    inputs = read_json(job_dir / "inputs.json") or {}
+    last_line = _catalogue_last_line(inputs)
+    if not story or not last_line:
+        raise FileNotFoundError("Story is not ready, or the title has no last line.")
+    before = [s.get("text") for s in story.get("spreads") or []]
+    story["spreads"] = ensure_catalogue_last_line(story.get("spreads") or [], last_line)
+    changed = [s.get("text") for s in story["spreads"]] != before
+    write_json(story_path, story)
+    if changed:
+        compile_pages(None, job_dir, inputs, story)
+        clear_spread_art(job_dir, 14)
+        job = read_json(job_dir / "job.json") or {}
+        job["validation_passed"] = None
+        write_json(job_dir / "job.json", job)
+        validation_path = job_dir / "story" / "validation_report.json"
+        if validation_path.is_file():
+            validation_path.unlink()
+    append_event(
+        job_dir, "last_line_inserted", "Catalogue last line set on spread 14.", changed=changed
+    )
+    return {"changed": changed, "last_line": last_line}
+
+
+def edit_spread(job_dir: Path, n: int, *, text=None, scene=None, calm_zone=None) -> dict:
+    """Inline edit of ONE spread (text / scene / calm zone). Clears its art when the picture brief changes."""
+    story_path = job_dir / "story" / "rebuilt_story.json"
+    story = read_json(story_path)
+    inputs = read_json(job_dir / "inputs.json") or {}
+    if not story:
+        raise FileNotFoundError("Story is not ready to edit yet.")
+    spread = next((s for s in story.get("spreads") or [] if int(s.get("n") or 0) == int(n)), None)
+    if spread is None:
+        raise ValueError(f"Unknown spread {n}.")
+    before = copy.deepcopy(story)
+    picture_changed = False
+    if text is not None and text.strip():
+        spread["text"] = text.strip()
+    if scene is not None and scene.strip() and scene.strip() != spread.get("scene"):
+        spread["scene"] = scene.strip()
+        picture_changed = True
+    zone = (calm_zone or "").strip().lower()
+    if zone in CALM_ZONES and zone != spread.get("calm_zone"):
+        spread["calm_zone"] = zone
+        picture_changed = True
+    last_line = _catalogue_last_line(inputs)
+    if last_line:
+        story["spreads"] = ensure_catalogue_last_line(story["spreads"], last_line)
+        title = get_title(inputs["title_id"])
+        issues = check_spreads(
+            {"spreads": before.get("spreads") or [], "locked": before.get("locked") or {}},
+            story,
+            before.get("locked") or {},
+            child_name=inputs.get("name", ""),
+            age_band=inputs.get("age_band") or title["age_band"],
+            last_line=last_line,
+        )
+        blocking = [i for i in issues if i["code"] not in {"readability"}]
+        if blocking:
+            raise ValueError("Edit rejected by text guards: " + "; ".join(i["message"] for i in blocking))
+    write_json(story_path, story)
+    pages = compile_pages(None, job_dir, inputs, story) if inputs.get("title_id") else []
+    if picture_changed:
+        clear_spread_art(job_dir, int(n))
+    append_event(
+        job_dir,
+        "spread_edited",
+        f"Spread {n} edited.",
+        spread=int(n),
+        picture_changed=picture_changed,
+    )
+    return {"story": story, "pages": pages, "picture_changed": picture_changed}
 
 
 def _parse_supporting_characters(form) -> list:
@@ -27,19 +111,6 @@ def _parse_supporting_characters(form) -> list:
             continue
         characters.append({"name": name, "description": description or name})
     return characters
-
-
-def _clear_spread_art(job_dir: Path, spread_number: int) -> bool:
-    """Remove both page images of a spread (a spread is always regenerated as a pair)."""
-    removed = False
-    for side in ("left", "right"):
-        art = spread_art_path(job_dir, spread_number, side)
-        if art.is_file():
-            art.unlink()
-            removed = True
-    meta = job_dir / "spreads" / f"spread-{spread_number:02d}" / "spread.json"
-    meta.unlink(missing_ok=True)
-    return removed
 
 
 def apply_content_edits(job_dir: Path, form) -> dict:
@@ -77,14 +148,7 @@ def apply_content_edits(job_dir: Path, form) -> dict:
         if not scene:
             raise ValueError(f"Spread {n} scene cannot be empty.")
         calm = (form.get(f"spread_{n}_calm_zone") or "").strip().lower()
-        prior_calm = next(
-            (
-                p.get("calm_zone")
-                for p in pages_payload.get("pages") or []
-                if p.get("spread") == n and p.get("side") == "left"
-            ),
-            None,
-        )
+        prior_calm = spread.get("calm_zone")
         calm = calm if calm in CALM_ZONES else prior_calm
         changed = (
             spread.get("text") != text
@@ -96,11 +160,15 @@ def apply_content_edits(job_dir: Path, form) -> dict:
         spread["scene"] = scene
         if calm:
             spread["calm_zone"] = calm
-        if changed and _clear_spread_art(job_dir, n):
+        if changed and clear_spread_art(job_dir, n):
             invalidated.append(n)
 
     story["recurring_outfit"] = outfit
     story["supporting_characters"] = approved_characters
+    if inputs.get("title_id"):
+        story["spreads"] = ensure_catalogue_last_line(
+            story.get("spreads") or [], _catalogue_last_line(inputs)
+        )
 
     # Operator edits go through the same deterministic text guards as generated copy.
     if inputs.get("title_id"):

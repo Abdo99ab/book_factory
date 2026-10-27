@@ -25,18 +25,33 @@ SAME events in the SAME order. Add nothing: no new events, props, characters, pl
 You are giving the beat its final wording, not rewriting the story. The last spread (14) must end
 with the exact "last_line" given, word for word.
 
-TWO PICTURES PER SPREAD. Every spread is shown as two facing pages, so for each spread return:
-- "scene": one short line naming the moment (shared context).
-- "scene_left": the brief for the LEFT page picture.
-- "scene_right": the brief for the RIGHT page picture.
-scene_left and scene_right are two DIFFERENT pictures of the SAME moment. The "calm_zone" page
-(left on odd spreads, right on even spreads) is the quieter, wider picture: a wide or medium-wide
-shot with a plain, uncluttered area where the text will sit, and no face close-up. The other page
-is the close action picture: the child's face clear, with the hands or the key prop in view. They
-must differ in framing (wide vs close, different angle or subject placement). Never give the same
-framing twice, and never copy "scene" into either one. Briefs describe pictures only: no readable
-text in the art.
+ONE CONTINUOUS PICTURE PER SPREAD. Every spread is ONE wide picture printed across two facing pages
+(it is cut down the middle at print time, so it must read as a single scene). For each spread return:
+- "scene": ONE paragraph describing the left half and the right half of the same room and the same
+  moment. Say what is on the left of the picture and what is on the right, using the words "left"
+  and "right". The child and the key prop sit well away from the centre fold.
+- "calm_zone": "left" or "right". The calm-zone half is the quieter half: a large plain,
+  uncluttered area where the text will sit, no face close-up. By default the calm zone is the left
+  half on odd spreads and the right half on even spreads; you may swap it when the beat reads better
+  that way. The other half carries the action: the child's face clear, centred in that half.
+The scene describes the picture only: no readable text in the art.
 Return strict JSON only."""
+
+
+def with_calm_zones(spreads: list) -> list:
+    """Default calm_zone alternates (odd = left, even = right); a model-chosen left/right is kept.
+
+    Anything else is left untouched so the text guard (which only requires left|right) reports it.
+    """
+    out = []
+    for spread in spreads or []:
+        item = dict(spread)
+        zone = str(item.get("calm_zone") or "").strip().lower()
+        if not zone:
+            zone = "left" if int(item.get("n") or 0) % 2 == 1 else "right"
+        item["calm_zone"] = zone
+        out.append(item)
+    return out
 
 
 def _format_beats(beats: list, name: str, inputs: dict | None = None) -> list[dict]:
@@ -112,9 +127,12 @@ def rebuild_story(client, job_dir: Path, inputs: dict) -> dict:
                 {
                     "n": "1..14",
                     "text": "story text for this spread",
-                    "scene": "one-line shared description of the moment, no readable text in art",
-                    "scene_left": "brief for the LEFT page picture (differs in framing from scene_right)",
-                    "scene_right": "brief for the RIGHT page picture (differs in framing from scene_left)",
+                    "scene": (
+                        "ONE paragraph: what is on the LEFT half and what is on the RIGHT half of "
+                        "the same moment in one continuous picture (use the words left and right); "
+                        "no readable text in art"
+                    ),
+                    "calm_zone": "left or right (default: left on odd spreads, right on even spreads)",
                 }
             ],
             "blurb_draft": "optional ≤45 words",
@@ -142,7 +160,9 @@ def rebuild_story(client, job_dir: Path, inputs: dict) -> dict:
     catalogue_last_line = title.get("last_line", "").replace("{name}", inputs["name"])
 
     draft_payload = _generate()
-    spreads = ensure_catalogue_last_line(draft_payload.get("spreads") or [], catalogue_last_line)
+    spreads = ensure_catalogue_last_line(
+        with_calm_zones(draft_payload.get("spreads") or []), catalogue_last_line
+    )
     story_body = {
         "title_id": title_id,
         "title": locked["title"],
@@ -181,7 +201,7 @@ def rebuild_story(client, job_dir: Path, inputs: dict) -> dict:
             "Fix these guard violations and return JSON again:\n" + fix_note
         )
         story_body["spreads"] = ensure_catalogue_last_line(
-            retry_payload.get("spreads") or spreads, catalogue_last_line
+            with_calm_zones(retry_payload.get("spreads") or spreads), catalogue_last_line
         )
         # Baseline draft = retry output so word-growth only applies to humanize later
         post_retry_draft = {

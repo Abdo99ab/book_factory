@@ -39,9 +39,12 @@ from pipeline.catalogue import get_title, list_titles, resolve_route
 from pipeline.constants import (
     ARCHIVE_ROOT,
     CONTENT_PAGE_COUNT,
+    GUTTER_BAND_MM,
     JOB_ROOT,
     PPI_FAIL,
     PPI_WARN,
+    SPREAD_COUNT,
+    SPREAD_WIDTH_MM,
     TEMPLATE_ROOT,
     pronouns_for,
 )
@@ -51,10 +54,26 @@ from pipeline.fonts import normalize_font_id
 from pipeline.job_log import append_event, read_events, read_json, write_json
 from pipeline.memory import format_memory_for_prompt, load_memory
 from pipeline.openai_util import create_client
-from pipeline.pages import page_art_path
+from pipeline.build_info import get_build_info
+from pipeline.content_edit import edit_spread, insert_last_line
+from pipeline.pages import (
+    ensure_spread_halves,
+    page_spread_side,
+    spread_art_path,
+    spread_page_path,
+    spread_pages,
+    spread_text,
+)
 from pipeline.pdf_build import build_pdf
 from pipeline import qa as qa_checks
-from pipeline.runner import PREVIEW_PAGE_COUNT, run_job
+from pipeline.runner import (
+    PREVIEW_PAGE_COUNT,
+    PREVIEW_SPREAD_COUNT,
+    count_completed_spreads,
+    run_job,
+    run_regenerate_spread,
+)
+from pipeline.text_guards import last_line_message, last_line_present
 from pipeline.self_revise import apply_self_revise_plan, parse_actions_from_form, run_self_revise
 
 logging.basicConfig(
@@ -78,6 +97,13 @@ def create_app():
     JOB_ROOT.mkdir(parents=True, exist_ok=True)
     ARCHIVE_ROOT.mkdir(parents=True, exist_ok=True)
     TEMPLATE_ROOT.mkdir(parents=True, exist_ok=True)
+
+    build_info = get_build_info(BASE_DIR)
+    app.config["BUILD_INFO"] = build_info
+
+    @app.context_processor
+    def inject_build_info():
+        return {"build_info": build_info}
 
     @app.get("/")
     def index():
@@ -228,8 +254,8 @@ def create_app():
                 "age_band": age_band,
                 "age_warning": age_warning,
                 "page_count": CONTENT_PAGE_COUNT,
-                "current_page": 0,
-                "total_pages": CONTENT_PAGE_COUNT,
+                "spreads_done": 0,
+                "spreads_total": SPREAD_COUNT,
                 "preview_requested": False,
                 "preview_ready": False,
                 "pdf": None,
@@ -395,11 +421,11 @@ def create_app():
             job["status"] = "content_ready"
             write_json(job_dir / "job.json", job)
 
-        invalidated = result.get("invalidated_pages") or []
+        invalidated = result.get("invalidated_spreads") or []
         parts = ["Content saved."]
         if invalidated:
             parts.append(
-                f"Cleared art for pages {', '.join(map(str, invalidated))} — run Preview again."
+                f"Cleared art for spreads {', '.join(map(str, invalidated))} — run Preview again."
             )
         else:
             parts.append("Review content, then Preview or Validate & build.")
@@ -416,7 +442,7 @@ def create_app():
             flash("Preview is available after content is ready, or from a stopped job.", "error")
             return redirect(url_for("job_page", job_id=job_id))
         if job.get("preview_ready") and job.get("status") != "failed":
-            flash("Preview pages already exist. Use Validate & build to continue.", "error")
+            flash("Preview spreads already exist. Use Validate & build to continue.", "error")
             return redirect(url_for("job_page", job_id=job_id))
 
         load_dotenv(BASE_DIR / ".env", override=True)
@@ -434,11 +460,11 @@ def create_app():
         append_event(
             job_dir,
             "preview_requested",
-            f"Operator requested {PREVIEW_PAGE_COUNT} content-page preview (no cover).",
+            f"Operator requested the first {PREVIEW_SPREAD_COUNT} spreads (pages 2\u2013{PREVIEW_PAGE_COUNT + 1}, no cover).",
         )
         job_executor.submit(_safe_run_job, job_id, job_dir, "preview")
         flash(
-            f"Preview started: first {PREVIEW_PAGE_COUNT} content pages (not the cover).",
+            f"Preview started: first {PREVIEW_SPREAD_COUNT} spreads (pages 2\u2013{PREVIEW_PAGE_COUNT + 1}, not the cover).",
             "success",
         )
         return redirect(url_for("job_page", job_id=job_id))
@@ -478,11 +504,11 @@ def create_app():
         append_event(
             job_dir,
             "validate_build_requested",
-            "Operator chose validate & build. Existing preview pages will not be regenerated.",
+            "Operator chose validate & build. Existing preview spreads will not be regenerated.",
         )
         job_executor.submit(_safe_run_job, job_id, job_dir, "full")
         flash(
-            "Validate & build started. Already generated content pages are kept.",
+            "Validate & build started. Already generated spreads are kept.",
             "success",
         )
         return redirect(url_for("job_page", job_id=job_id))
@@ -498,21 +524,8 @@ def create_app():
         pages_payload = read_json(job_dir / "story" / "pages.json")
         pages = (pages_payload or {}).get("pages") or []
         events = list(reversed(read_events(job_dir, limit=80)))
-        page_cards = []
-        for page in pages:
-            art = page_art_path(job_dir, page["number"])
-            composed = job_dir / "print" / "pages" / f"page-{page['number']:02d}.jpg"
-            page_cards.append(
-                {
-                    **page,
-                    "art_exists": bool(art and art.is_file()),
-                    "composed_exists": composed.is_file(),
-                    "art_url": url_for("page_art", job_id=job_id, page_number=page["number"]),
-                    "composed_url": url_for(
-                        "page_composed", job_id=job_id, page_number=page["number"]
-                    ),
-                }
-            )
+        spread_cards = _spread_cards(job_id, job_dir, story, pages)
+        last_line_problem = _last_line_problem(inputs, story)
         cover_front = job_dir / "cover" / "front_art.png"
         cover_print = job_dir / "print" / "cover.jpg"
         cover_preview = job_dir / "cover" / "front_preview.png"
@@ -535,7 +548,12 @@ def create_app():
             job=job,
             inputs=inputs,
             story=story,
-            pages=page_cards,
+            pages=pages,
+            spreads=spread_cards,
+            last_line_problem=last_line_problem,
+            read_aloud_spreads=READ_ALOUD_SPREADS,
+            gutter_mm=GUTTER_BAND_MM,
+            spread_width_mm=SPREAD_WIDTH_MM,
             events=events,
             validation=validation,
             change_progress=job.get("change_progress"),
@@ -544,10 +562,16 @@ def create_app():
             cover_print_exists=cover_print.is_file(),
             cover_front_url=url_for("cover_front", job_id=job_id),
             cover_print_url=url_for("cover_print", job_id=job_id),
+            cover_back_exists=(job_dir / "cover" / "back_art.png").is_file(),
+            cover_back_url=url_for("cover_back", job_id=job_id),
+            spread_edit_enabled=job.get("status") in SPREAD_EDITABLE_STATUSES,
             cover_preview_exists=cover_preview.is_file(),
             cover_preview_url=url_for("cover_front_preview", job_id=job_id),
             cover_layout_failures=cover_layout.get("failures") or [],
             preview_page_count=PREVIEW_PAGE_COUNT,
+            preview_spread_count=PREVIEW_SPREAD_COUNT,
+            spreads_done=count_completed_spreads(job_dir),
+            spreads_total=SPREAD_COUNT,
             content_editable=content_editable and job.get("status") != "rebuilding_content",
             preferred_next=job.get("preferred_next") or inputs.get("start_mode") or "preview",
             # Preview only when content exists and we have not already previewed
@@ -745,8 +769,8 @@ def create_app():
                 "order_id": inputs["order_id"],
                 "age_band": inputs["age_band"],
                 "page_count": CONTENT_PAGE_COUNT,
-                "current_page": 0,
-                "total_pages": len(pages),
+                "spreads_done": 0,
+                "spreads_total": SPREAD_COUNT,
                 "preview_requested": False,
                 "preview_ready": False,
                 "validation_passed": True,
@@ -832,10 +856,12 @@ def create_app():
 
     @app.get("/api/jobs/<job_id>")
     def job_status(job_id):
-        job = read_json(_job_dir(job_id) / "job.json")
+        job_dir = _job_dir(job_id)
+        job = read_json(job_dir / "job.json")
         if not job:
             abort(404)
-        return job
+        # Live count from disk: the job file lags while spreads are being drawn in parallel.
+        return {**job, **_spread_progress(job_dir)}
 
     @app.get("/api/jobs/<job_id>/events")
     def job_events(job_id):
@@ -879,19 +905,131 @@ def create_app():
             flash("Change started. Progress updates live below.", "success")
         return redirect(url_for("job_page", job_id=job_id))
 
-    @app.get("/jobs/<job_id>/pages/<int:page_number>/art")
-    def page_art(job_id, page_number):
-        path = page_art_path(_job_dir(job_id), page_number)
-        if path is None or not path.is_file():
+    @app.get("/jobs/<job_id>/spreads/<int:n>/art")
+    def spread_art(job_id, n):
+        if not 1 <= n <= SPREAD_COUNT:
+            abort(404)
+        path = spread_art_path(_job_dir(job_id), n)
+        if not path.is_file():
             abort(404)
         return send_file(path, mimetype="image/png")
 
+    @app.get("/jobs/<job_id>/spreads/<int:n>/composed")
+    def spread_composed(job_id, n):
+        """Composed spread (art + live text), stitched from the PDF page previews; raw art until a PDF exists."""
+        if not 1 <= n <= SPREAD_COUNT:
+            abort(404)
+        job_dir = _job_dir(job_id)
+        path = job_dir / "print" / "spreads" / f"spread-{n:02d}.jpg"
+        if not path.is_file():
+            from pipeline.pdf_build import stitch_spread_previews
+
+            stitch_spread_previews(job_dir)
+        if path.is_file():
+            return send_file(path, mimetype="image/jpeg")
+        art = spread_art_path(job_dir, n)
+        if art.is_file():
+            return send_file(art, mimetype="image/png")
+        abort(404)
+
+    @app.get("/jobs/<job_id>/spreads/<int:n>/page/<side>")
+    def spread_half_image(job_id, n, side):
+        """One derived half (page-left.png / page-right.png), cut from art.png on first use."""
+        if not 1 <= n <= SPREAD_COUNT or side not in {"left", "right"}:
+            abort(404)
+        job_dir = _job_dir(job_id)
+        if not ensure_spread_halves(job_dir, n):
+            abort(404)
+        return send_file(spread_page_path(job_dir, n, side), mimetype="image/png")
+
+    @app.post("/jobs/<job_id>/spreads/<int:n>/regenerate")
+    def spread_regenerate(job_id, n):
+        job_dir = _job_dir(job_id)
+        job = read_json(job_dir / "job.json")
+        if not job or not 1 <= n <= SPREAD_COUNT:
+            abort(404)
+        if job.get("status") not in SPREAD_EDITABLE_STATUSES:
+            flash("Wait until the current run finishes before regenerating a spread.", "error")
+            return redirect(url_for("job_page", job_id=job_id) + f"#spread-{n}")
+        if not (job_dir / "story" / "pages.json").is_file():
+            flash("Pages are not ready yet.", "error")
+            return redirect(url_for("job_page", job_id=job_id))
+        load_dotenv(BASE_DIR / ".env", override=True)
+        instruction = (request.form.get("edit_instruction") or "").strip() or None
+        write_json(
+            job_dir / "job.json",
+            {**job, "status": "regenerating_spread", "error": None, "updated_at": time.time()},
+        )
+        job_executor.submit(_safe_regenerate_spread, job_id, job_dir, n, instruction)
+        flash(f"Regenerating spread {n} (pages {2 * n}\u2013{2 * n + 1}).", "success")
+        return redirect(url_for("job_page", job_id=job_id) + f"#spread-{n}")
+
+    @app.post("/jobs/<job_id>/spreads/<int:n>/edit")
+    def spread_edit(job_id, n):
+        job_dir = _job_dir(job_id)
+        job = read_json(job_dir / "job.json")
+        if not job or not 1 <= n <= SPREAD_COUNT:
+            abort(404)
+        if job.get("status") not in SPREAD_EDITABLE_STATUSES:
+            flash("Spreads can be edited once the content is ready and nothing is running.", "error")
+            return redirect(url_for("job_page", job_id=job_id) + f"#spread-{n}")
+        try:
+            result = edit_spread(
+                job_dir,
+                n,
+                text=request.form.get("text"),
+                scene=request.form.get("scene"),
+                calm_zone=request.form.get("calm_zone"),
+            )
+        except (FileNotFoundError, ValueError) as error:
+            flash(str(error), "error")
+            return redirect(url_for("job_page", job_id=job_id) + f"#spread-{n}")
+        job = read_json(job_dir / "job.json") or {}
+        job["validation_passed"] = None
+        if result.get("picture_changed") and job.get("preview_ready"):
+            job["preview_ready"] = False
+            if job.get("status") == "preview_ready":
+                job["status"] = "content_ready"
+        job.update(_spread_progress(job_dir))
+        write_json(job_dir / "job.json", job)
+        flash(
+            f"Spread {n} saved. Its picture was cleared: regenerate it or run Preview again."
+            if result.get("picture_changed")
+            else f"Spread {n} saved.",
+            "success",
+        )
+        return redirect(url_for("job_page", job_id=job_id) + f"#spread-{n}")
+
+    @app.post("/jobs/<job_id>/last-line")
+    def spread_insert_last_line(job_id):
+        job_dir = _job_dir(job_id)
+        if not read_json(job_dir / "job.json"):
+            abort(404)
+        try:
+            result = insert_last_line(job_dir)
+        except (FileNotFoundError, ValueError) as error:
+            flash(str(error), "error")
+            return redirect(url_for("job_page", job_id=job_id) + "#spread-14")
+        flash(
+            "Last line set on spread 14." if result["changed"] else "Spread 14 already ends with the last line.",
+            "success",
+        )
+        return redirect(url_for("job_page", job_id=job_id) + "#spread-14")
+
+    # Deprecated: per-page image routes. A page is half of a spread, so they redirect to the spread.
+    @app.get("/jobs/<job_id>/pages/<int:page_number>/art")
+    def page_art(job_id, page_number):
+        located = page_spread_side(page_number)
+        if located is None:
+            abort(404)
+        return redirect(url_for("spread_art", job_id=job_id, n=located[0]), code=302)
+
     @app.get("/jobs/<job_id>/pages/<int:page_number>/composed")
     def page_composed(job_id, page_number):
-        path = _job_dir(job_id) / "print" / "pages" / f"page-{page_number:02d}.jpg"
-        if not path.is_file():
+        located = page_spread_side(page_number)
+        if located is None:
             abort(404)
-        return send_file(path, mimetype="image/jpeg")
+        return redirect(url_for("spread_composed", job_id=job_id, n=located[0]), code=302)
 
     @app.get("/jobs/<job_id>/cover/front")
     def cover_front(job_id):
@@ -899,6 +1037,31 @@ def create_app():
         if not path.is_file():
             abort(404)
         return send_file(path, mimetype="image/png")
+
+    @app.get("/jobs/<job_id>/cover/back")
+    def cover_back(job_id):
+        path = _job_dir(job_id) / "cover" / "back_art.png"
+        if not path.is_file():
+            abort(404)
+        return send_file(path, mimetype="image/png")
+
+    @app.post("/jobs/<job_id>/cover/regenerate")
+    def cover_regenerate(job_id):
+        job_dir = _job_dir(job_id)
+        job = read_json(job_dir / "job.json")
+        if not job:
+            abort(404)
+        if job.get("status") not in SPREAD_EDITABLE_STATUSES:
+            flash("Wait until the current run finishes before regenerating the cover.", "error")
+            return redirect(url_for("job_page", job_id=job_id) + "#cover-card")
+        load_dotenv(BASE_DIR / ".env", override=True)
+        write_json(
+            job_dir / "job.json",
+            {**job, "status": "generating_cover", "error": None, "updated_at": time.time()},
+        )
+        job_executor.submit(_safe_regenerate_cover, job_id, job_dir, job.get("status"))
+        flash("Regenerating the front and back cover art.", "success")
+        return redirect(url_for("job_page", job_id=job_id) + "#cover-card")
 
     @app.get("/jobs/<job_id>/cover/front-preview")
     def cover_front_preview(job_id):
@@ -933,14 +1096,8 @@ def create_app():
         write_json(job_dir / "inputs.json", inputs)
 
         pages = pages_payload.get("pages") or []
-        has_page_art = any(
-            page_art_path(job_dir, p["number"]) is not None
-            and page_art_path(job_dir, p["number"]).is_file()
-            for p in pages
-            if p.get("kind") == "spread_half"
-        )
-        if not has_page_art:
-            flash("No page art yet - finish preview or build first.", "error")
+        if not count_completed_spreads(job_dir):
+            flash("No spread art yet - finish preview or build first.", "error")
             return redirect(url_for("job_page", job_id=job_id))
 
         try:
@@ -1087,7 +1244,108 @@ BUSY_JOB_STATUSES = {
     "applying_changes",
     "rebuilding_content",
     "self_revising",
+    "regenerating_spread",
 }
+
+
+READ_ALOUD_SPREADS = (1, 7, 14)  # the human reads these aloud; every spread still gets a row
+SPREAD_EDITABLE_STATUSES = {
+    "content_ready",
+    "preview_ready",
+    "validation_failed",
+    "failed",
+    "complete",
+    "self_revise_ready",
+}
+
+
+def _spread_progress(job_dir: Path) -> dict:
+    return {"spreads_done": count_completed_spreads(job_dir), "spreads_total": SPREAD_COUNT}
+
+
+def _safe_regenerate_spread(job_id, job_dir, n, instruction):
+    try:
+        run_regenerate_spread(job_id, job_dir, n, instruction)
+    except Exception:
+        logger.exception("Spread %s regenerate failed for %s", n, job_id)
+
+
+def _safe_regenerate_cover(job_id, job_dir, previous_status):
+    """Redraw front + back cover art (and the PDF when one was built), then restore the job status."""
+    try:
+        from pipeline.illustrate import generate_cover_panels
+
+        inputs = read_json(job_dir / "inputs.json") or {}
+        story = read_json(job_dir / "story" / "rebuilt_story.json") or {}
+        character_path = job_dir / "character" / "character.png"
+        for name in ("front_art.png", "back_art.png"):
+            (job_dir / "cover" / name).unlink(missing_ok=True)
+        generate_cover_panels(create_client(), job_dir, inputs, story, character_path)
+        job = read_json(job_dir / "job.json") or {}
+        updates = {"status": previous_status or "complete", "error": None}
+        if job.get("pdf") and count_completed_spreads(job_dir) == SPREAD_COUNT:
+            pages = (read_json(job_dir / "story" / "pages.json") or {}).get("pages") or []
+            updates["pdf"] = build_pdf(job_dir, story, pages, inputs).relative_to(job_dir).as_posix()
+        job.update(updates)
+        write_json(job_dir / "job.json", job)
+    except Exception as error:
+        logger.exception("Cover regenerate failed for %s", job_id)
+        job = read_json(job_dir / "job.json") or {}
+        job.update({"status": "failed", "error": f"Cover regenerate failed: {error}"})
+        write_json(job_dir / "job.json", job)
+        append_event(job_dir, "job_failed", str(error))
+
+
+def _spread_cards(job_id: str, job_dir: Path, story, pages: list) -> list[dict]:
+    """One card per spread (14): art, text, brief, anchor, ppi and fold / calm-zone warnings."""
+    briefs = spread_pages(pages)
+    story_spreads = {int(s.get("n") or 0): s for s in (story or {}).get("spreads") or []}
+    cards = []
+    for n in range(1, SPREAD_COUNT + 1):
+        brief = briefs.get(n)
+        if brief is None:
+            continue
+        meta = read_json(job_dir / "spreads" / f"spread-{n:02d}" / "spread.json") or {}
+        spread = story_spreads.get(n) or {}
+        art = spread_art_path(job_dir, n)
+        composed = job_dir / "print" / "spreads" / f"spread-{n:02d}.jpg"
+        zone = brief.get("calm_zone") or ("left" if n % 2 == 1 else "right")
+        cards.append(
+            {
+                "n": n,
+                "pages": (2 * n, 2 * n + 1),
+                "text": spread_text(pages, n),
+                "scene": spread.get("scene") or brief.get("scene") or "",
+                "calm_zone": zone,
+                "anchor_state": brief.get("anchor_state"),
+                "art_exists": art.is_file(),
+                "composed_exists": composed.is_file(),
+                "art_url": url_for("spread_art", job_id=job_id, n=n),
+                "composed_url": url_for("spread_composed", job_id=job_id, n=n),
+                "effective_ppi": meta.get("effective_ppi"),
+                "resolution_status": meta.get("resolution_status"),
+                "size_received": meta.get("size_received"),
+                "fold_failures": meta.get("fold_failures") or [],
+                "calm_zone_busy": bool(meta.get("calm_zone_busy")),
+                "edit_instruction": meta.get("edit_instruction"),
+            }
+        )
+    return cards
+
+
+def _last_line_problem(inputs: dict, story) -> str | None:
+    """Guard message when spread 14 does not carry the catalogue last line; None when fine."""
+    if not story or not inputs.get("title_id"):
+        return None
+    try:
+        last_line = (get_title(inputs["title_id"]).get("last_line") or "").replace("{name}", inputs.get("name", ""))
+    except Exception:  # noqa: BLE001
+        return None
+    final = next((s for s in story.get("spreads") or [] if int(s.get("n") or 0) == 14), None)
+    if not last_line or final is None:
+        return None
+    text = final.get("text") or ""
+    return None if last_line_present(text, last_line) else last_line_message(text, last_line)
 
 
 def _job_is_busy(job: dict) -> bool:

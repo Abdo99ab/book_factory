@@ -1,19 +1,50 @@
+"""True spreads: one wide picture per spread, the 32-page map, and the spread -> page split.
+
+Interior art is ONE continuous double-page image per spread, ``spreads/spread-NN/art.png``. It is
+cut into a left and a right page only at PDF time (and, lazily, for the operator UI) by
+``split_spread``; the halves are derived files, never the source of truth.
+"""
+
+from __future__ import annotations
+
 from pathlib import Path
 
+from PIL import Image
+
 from .catalogue import get_title
-from .constants import CONTENT_PAGE_COUNT, SPREAD_COUNT
+from .constants import (
+    CONTENT_PAGE_COUNT,
+    PAGE_WITH_BLEED_MM,
+    SPREAD_ASPECT,
+    SPREAD_COUNT,
+    SPREAD_WIDTH_MM,
+)
 from .job_log import append_event, write_json
+
+SIDES = ("left", "right")
+
+
+# --- paths -------------------------------------------------------------------------------------
 
 
 def spread_dir(job_dir: Path, n: int) -> Path:
     return job_dir / "spreads" / f"spread-{int(n):02d}"
 
 
-def spread_art_path(job_dir: Path, n: int, side: str) -> Path:
-    """spreads/spread-NN/art-left.png | art-right.png (one square image per printed page)."""
-    if side not in {"left", "right"}:
+def spread_art_path(job_dir: Path, n: int) -> Path:
+    """``spreads/spread-NN/art.png``: the single continuous double-page picture."""
+    return spread_dir(job_dir, n) / "art.png"
+
+
+def spread_page_path(job_dir: Path, n: int, side: str) -> Path:
+    """Derived half (``page-left.png`` / ``page-right.png``); a UI cache, never the source."""
+    if side not in SIDES:
         raise ValueError(f"side must be left/right, got {side!r}")
-    return spread_dir(job_dir, n) / f"art-{side}.png"
+    return spread_dir(job_dir, n) / f"page-{side}.png"
+
+
+def spread_art_rel(n: int) -> str:
+    return f"spreads/spread-{int(n):02d}/art.png"
 
 
 def page_spread_side(page_number: int) -> tuple[int, str] | None:
@@ -25,10 +56,111 @@ def page_spread_side(page_number: int) -> tuple[int, str] | None:
 
 
 def page_art_path(job_dir: Path, page_number: int) -> Path | None:
+    """Spread art that a content page is cut from (both halves share one file)."""
     located = page_spread_side(page_number)
     if located is None:
         return None
-    return spread_art_path(job_dir, located[0], located[1])
+    return spread_art_path(job_dir, located[0])
+
+
+def clear_spread_derivatives(job_dir: Path, n: int) -> None:
+    """Delete the cached UI halves (and nothing else). Always done when the art is regenerated."""
+    for side in SIDES:
+        spread_page_path(job_dir, n, side).unlink(missing_ok=True)
+
+
+def clear_spread_art(job_dir: Path, n: int, *, keep_meta: bool = False) -> bool:
+    """Remove a spread's art, its cached halves and (unless ``keep_meta``) its spread.json."""
+    art = spread_art_path(job_dir, n)
+    removed = art.is_file()
+    art.unlink(missing_ok=True)
+    clear_spread_derivatives(job_dir, n)
+    if not keep_meta:
+        (spread_dir(job_dir, n) / "spread.json").unlink(missing_ok=True)
+    return removed
+
+
+# --- geometry: fit + split ---------------------------------------------------------------------
+
+
+def fit_crop_box(size: tuple[int, int]) -> tuple[int, int, int, int]:
+    """Centre-crop box (left, top, right, bottom) that gives ``size`` the SPREAD_ASPECT.
+
+    The image models offer landscape frames TALLER than the spread (e.g. 1536x1024 is 1.5:1, the
+    spread is ~1.97:1), so the crop is normally vertical: top and bottom bands are cut equally.
+    A frame that is already wider than the spread (e.g. 2048x1024) loses a sliver from the left and
+    right instead. Either way the centre (the fold) stays put and nothing is ever resized up.
+    """
+    width, height = size
+    target_h = round(width / SPREAD_ASPECT)
+    if target_h <= height:
+        top = (height - target_h) // 2
+        return (0, top, width, top + target_h)
+    target_w = round(height * SPREAD_ASPECT)
+    left = (width - target_w) // 2
+    return (left, 0, left + target_w, height)
+
+
+def fit_to_spread(image: Image.Image) -> Image.Image:
+    """Centre-crop ``image`` to SPREAD_ASPECT (never resizes). See ``fit_crop_box``."""
+    box = fit_crop_box(image.size)
+    if box == (0, 0, image.size[0], image.size[1]):
+        return image
+    cropped = image.crop(box)
+    cropped.load()
+    return cropped
+
+
+def _open(image) -> tuple[Image.Image, bool]:
+    if isinstance(image, Image.Image):
+        return image, False
+    return Image.open(image), True
+
+
+def split_box_px(width: int) -> int:
+    """Pixel width of one page half for a spread image ``width`` px wide (216 of 426 mm)."""
+    return max(1, round(width * PAGE_WITH_BLEED_MM / SPREAD_WIDTH_MM))
+
+
+def split_spread(image) -> tuple[Image.Image, Image.Image]:
+    """Cut a spread image into (left_page, right_page) using mm -> px ratios on its ACTUAL width.
+
+    Left page  = x in [0, 216] mm (outer bleed + trim + 3 mm inner bleed).
+    Right page = x in [210, 426] mm (3 mm inner bleed + trim + outer bleed).
+    The halves overlap by 6 mm (what binding / trim consume). Both halves are exactly
+    ``split_box_px(width)`` px wide, so 1972 px -> left [0, 1000), right [972, 1972).
+    """
+    source, opened = _open(image)
+    try:
+        width, height = source.size
+        half = split_box_px(width)
+        left = source.crop((0, 0, half, height))
+        right = source.crop((width - half, 0, width, height))
+        left.load()
+        right.load()
+        return left, right
+    finally:
+        if opened:
+            source.close()
+
+
+def ensure_spread_halves(job_dir: Path, n: int) -> dict[str, Path]:
+    """Lazily write ``page-left.png`` / ``page-right.png`` from ``art.png`` (UI cache). {} if no art."""
+    art = spread_art_path(job_dir, n)
+    if not art.is_file():
+        return {}
+    paths = {side: spread_page_path(job_dir, n, side) for side in SIDES}
+    fresh = all(
+        p.is_file() and p.stat().st_mtime >= art.stat().st_mtime for p in paths.values()
+    )
+    if not fresh:
+        left, right = split_spread(art)
+        left.save(paths["left"], format="PNG", compress_level=1)
+        right.save(paths["right"], format="PNG", compress_level=1)
+    return paths
+
+
+# --- spread / page-map helpers -----------------------------------------------------------------
 
 
 def spread_pages(pages: list) -> dict[int, dict]:
@@ -68,8 +200,38 @@ def set_spread_text(pages: list, n: int, text: str, calm_zone: str | None = None
         half["text"] = (text or "") if half.get("side") == zone else ""
 
 
+def update_spread(
+    story: dict,
+    pages: list,
+    n: int,
+    *,
+    text: str | None = None,
+    scene: str | None = None,
+    calm_zone: str | None = None,
+    personalized: bool | None = None,
+) -> None:
+    """Apply an edit to spread ``n`` in BOTH the story and the page map (kept in lock-step)."""
+    n = int(n)
+    spread = next((s for s in story.get("spreads") or [] if int(s.get("n") or 0) == n), None)
+    zone = calm_zone if calm_zone in SIDES else None
+    current_text = text if text is not None else spread_text(pages, n)
+    for half in spread_halves(pages, n):
+        if scene is not None:
+            half["scene"] = scene
+        if personalized is not None:
+            half["personalized"] = personalized
+    set_spread_text(pages, n, current_text, zone)
+    if spread is not None:
+        if text is not None:
+            spread["text"] = text
+        if scene is not None:
+            spread["scene"] = scene
+        if zone:
+            spread["calm_zone"] = zone
+
+
 def _calm_zone_for_spread(n: int) -> str:
-    """Alternate calm zone by spread (left on odd, right on even)."""
+    """Default calm zone alternates by spread (left on odd, right on even); the model may swap it."""
     return "left" if n % 2 == 1 else "right"
 
 
@@ -112,7 +274,9 @@ def compile_pages(client, job_dir: Path, inputs: dict, story: dict) -> list:
         spread = by_n.get(n)
         if not spread:
             raise ValueError(f"Missing spread {n}")
-        calm = spread.get("calm_zone") or _calm_zone_for_spread(n)
+        calm = spread.get("calm_zone")
+        if calm not in SIDES:
+            calm = _calm_zone_for_spread(n)
         anchor_state = spread.get("anchor_state")
         if anchor_state is None:
             anchor_state = _anchor_state(title, n)
@@ -123,12 +287,10 @@ def compile_pages(client, job_dir: Path, inputs: dict, story: dict) -> list:
             "anchor_state": anchor_state,
             "personalized": True,
             "blank": False,
-            "art_path_left": f"spreads/spread-{n:02d}/art-left.png",
-            "art_path_right": f"spreads/spread-{n:02d}/art-right.png",
-            # Legacy overlay field until Step 9 ReportLab text layer
-            "text_placement": "bottom",
+            # BOTH halves are cut from this one picture at PDF time.
+            "art_path": spread_art_rel(n),
         }
-        # Two different pictures per spread; the story text lives ONLY on the calm-zone half.
+        # One picture per spread; the story text lives ONLY on the calm-zone half.
         for side, number in (("left", 2 * n), ("right", 2 * n + 1)):
             pages.append(
                 {
@@ -136,8 +298,6 @@ def compile_pages(client, job_dir: Path, inputs: dict, story: dict) -> list:
                     "number": number,
                     "kind": "spread_half",
                     "side": side,
-                    "scene_left": spread.get("scene_left") or "",
-                    "scene_right": spread.get("scene_right") or "",
                     "text": (spread.get("text") or "") if side == calm else "",
                 }
             )

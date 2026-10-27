@@ -7,30 +7,72 @@ import time
 import uuid
 from pathlib import Path
 
+from .catalogue import get_title
 from .illustrate import generate_cover_panels, generate_spread_art
 from .job_log import append_event, read_json, write_json
 from .memory import record_change_and_learn
 from .openai_util import chat_json
-from .pages import page_spread_side, set_spread_text, spread_text
+from .pages import (
+    clear_spread_derivatives,
+    page_spread_side,
+    spread_halves,
+    spread_text,
+    update_spread,
+)
 from .pdf_build import build_pdf
+from .text_guards import ensure_catalogue_last_line
+
+# Canonical action names are per SPREAD (one picture, two pages). The old per-page names stay valid
+# as aliases so saved plans and operator-edited forms keep working.
+SPREAD_ACTIONS = ("rewrite_spread_text", "regen_spread_art", "update_spread_scene")
+ACTION_ALIASES = {
+    "rewrite_page_text": "rewrite_spread_text",
+    "regen_page_art": "regen_spread_art",
+    "update_page_scene": "update_spread_scene",
+}
+
+
+def canonical_action_type(action_type) -> str | None:
+    value = (action_type or "").strip() if isinstance(action_type, str) else action_type
+    return ACTION_ALIASES.get(value, value)
+
+
+def action_spread(action: dict) -> int | None:
+    """Spread an action targets: its ``spread``, else the spread that page 2-29 belongs to."""
+    raw = action.get("spread")
+    if raw not in (None, ""):
+        try:
+            n = int(raw)
+        except (TypeError, ValueError):
+            return None
+        return n if 1 <= n <= 14 else None
+    page = action.get("page")
+    if page in (None, ""):
+        return None
+    try:
+        located = page_spread_side(int(page))
+    except (TypeError, ValueError):
+        return None
+    return located[0] if located else None
 
 
 SYSTEM = """You are an editor for a personalized children's picture-book production tool.
 Given the operator's natural-language request and the current book state, decide concrete actions.
+Every spread is ONE continuous double-page picture (pages 2n and 2n+1 are its left and right halves).
 
 Return JSON:
 {
   "summary": "short summary of what you will do",
   "actions": [
     {
-      "type": "rewrite_page_text" | "regen_page_art" | "update_page_scene" |
+      "type": "rewrite_spread_text" | "regen_spread_art" | "update_spread_scene" |
               "regen_cover" | "rewrite_story_title" | "noop",
-      "page": number or null,
-      "text": "new page text if rewriting",
-      "scene": "full updated scene brief when visuals change (REQUIRED for props/outfit)",
+      "spread": number 1-14 or null,
+      "text": "new spread text if rewriting",
+      "scene": "full updated scene (left half AND right half of the same moment) when visuals change (REQUIRED for props/outfit)",
       "edit_instruction": "short must-show visual directive for the illustrator",
       "title": "new book title if rewriting title",
-      "text_placement": "optional new placement",
+      "calm_zone": "optional left|right: which half carries the text",
       "force_character_lock": false,
       "reason": "why"
     }
@@ -39,18 +81,19 @@ Return JSON:
 
 Rules:
 - Prefer the smallest change that satisfies the request.
-- Face/likeness/photo match ONLY (same scene, fix the child's face): regen_page_art
+- Face/likeness/photo match ONLY (same scene, fix the child's face): regen_spread_art
   with force_character_lock=true. Cover too if needed.
 - ANY visible prop, accessory, clothing, sunglasses, hat, object, or "what's in the
-  picture" change: you MUST use update_page_scene OR regen_page_art WITH a new
+  picture" change: you MUST use update_spread_scene OR regen_spread_art WITH a new
   scene string that includes the change (e.g. "Aicha wears kid-sized dark sunglasses").
-  Also set edit_instruction to a short must-show line. Bare regen_page_art with
+  Also set edit_instruction to a short must-show line. Bare regen_spread_art with
   null scene is NOT enough — the image model never sees the operator request otherwise.
-- If the target page is personalized=false but the operator wants the hero face,
+- A new scene must still describe the left half and the right half of the one picture.
+- If the target spread is not personalized but the operator wants the hero face,
   update scene to include the hero and set force_character_lock=true.
-- If only wording/spelling, rewrite_page_text (no art regen).
-- Composition/background/mood: update_page_scene with full new scene + regen via that type.
-- Multiple actions allowed.
+- If only wording/spelling, rewrite_spread_text (no art regen).
+- Composition/background/mood: update_spread_scene with full new scene + regen via that type.
+- Multiple actions allowed. Spreads are 1-14; the title page, parent spread and dedication are locked.
 """
 
 
@@ -83,13 +126,9 @@ def _edit_instruction_for_action(action: dict, demand: str) -> str | None:
     return demand or None
 
 
-def _apply_calm_zone(page: dict, action: dict) -> None:
-    zone = (action.get("calm_zone") or "").strip().lower()
-    if zone in {"left", "right"}:
-        page["calm_zone"] = zone
-    placement = (action.get("text_placement") or "").strip().lower()
-    if placement:
-        page["text_placement"] = placement
+def _zone_of(action: dict) -> str | None:
+    zone = (action.get("calm_zone") or action.get("text_placement") or "").strip().lower()
+    return zone if zone in {"left", "right"} else None
 
 
 def _current_pdf(job_dir: Path) -> str | None:
@@ -100,46 +139,45 @@ def _current_pdf(job_dir: Path) -> str | None:
     return found[0].relative_to(job_dir).as_posix() if found else None
 
 
-def _sync_spread(story: dict, pages: list, page: dict) -> None:
-    """Scenes are shared by both halves; the story text lives on the calm-zone half ONLY."""
-    if page.get("kind") != "spread_half":
+def _last_line_for(inputs: dict) -> str:
+    if not inputs.get("title_id"):
+        return ""
+    title = get_title(inputs["title_id"])
+    return (title.get("last_line") or "").replace("{name}", inputs.get("name", ""))
+
+
+def _keep_last_line(story: dict, pages: list, inputs: dict) -> None:
+    """Spread 14 must keep the exact catalogue last line whatever an edit did to its text."""
+    last_line = _last_line_for(inputs)
+    if not last_line:
         return
-    n = int(page["spread"])
-    text = page.get("text") or spread_text(pages, n)
-    for other in pages:
-        if other.get("kind") == "spread_half" and other.get("spread") == page.get("spread"):
-            for key in ("scene", "scene_left", "scene_right", "calm_zone", "personalized"):
-                if key in page:
-                    other[key] = page[key]
-    set_spread_text(pages, n, text, page.get("calm_zone"))
-    for spread in story.get("spreads") or []:
-        if int(spread.get("n") or 0) == n:
-            spread["text"] = text
-            spread["scene"] = page.get("scene")
-            for key in ("scene_left", "scene_right"):
-                if key in page:
-                    spread[key] = page[key]
+    story["spreads"] = ensure_catalogue_last_line(story.get("spreads") or [], last_line)
+    final = next((s for s in story["spreads"] if int(s.get("n") or 0) == 14), None)
+    if final is not None:
+        update_spread(story, pages, 14, text=final.get("text") or "")
 
 
 def _regen_spread(
     client,
     job_dir: Path,
-    page: dict,
+    n: int,
     pages: list,
     inputs: dict,
     story: dict,
     character_path: Path,
     edit_instruction: str | None = None,
 ):
-    """Regenerate the whole page pair for the page's spread (never patched)."""
-    if page_spread_side(page["number"]) is None:
-        raise ValueError(f"Page {page['number']} has no illustration (locked page).")
-    _sync_spread(story, pages, page)
+    """Regenerate the spread's ONE picture (never patched). Cached UI halves are dropped."""
+    halves = spread_halves(pages, n)
+    if not halves:
+        raise ValueError(f"Spread {n} has no illustration (locked page).")
     write_json(job_dir / "story" / "rebuilt_story.json", story)
+    clear_spread_derivatives(job_dir, n)
+    brief = {**halves[0], "spread": n, "text": spread_text(pages, n)}
     return generate_spread_art(
         client,
         job_dir,
-        {**page, "spread": page["spread"]},
+        brief,
         inputs,
         story,
         character_path,
@@ -173,6 +211,9 @@ def _update_job(job_dir: Path, **updates):
 
 def _action_label(action: dict) -> str:
     action_type = action.get("type") or "unknown"
+    spread = action.get("spread")
+    if spread is not None:
+        return f"{action_type} · spread {spread}"
     page = action.get("page")
     if page is not None:
         return f"{action_type} · page {page}"
@@ -185,27 +226,26 @@ def _set_progress(job_dir: Path, progress: dict):
 
 
 def plan_changes(client, job_dir: Path, demand: str, inputs: dict, story: dict, pages: list) -> dict:
-    page_summaries = [
+    spread_summaries = [
         {
-            "number": p["number"],
-            "kind": p.get("kind"),
-            "spread": p.get("spread"),
-            "side": p.get("side"),
-            "text": p.get("text"),
+            "spread": p["spread"],
+            "pages": [2 * int(p["spread"]), 2 * int(p["spread"]) + 1],
+            "text": spread_text(pages, int(p["spread"])),
             "calm_zone": p.get("calm_zone"),
             "personalized": p.get("personalized"),
             "scene_excerpt": (p.get("scene") or "")[:280],
         }
         for p in pages
+        if p.get("kind") == "spread_half" and p.get("side") == "left"
     ]
     user = {
         "demand": demand,
         "book_title": story.get("title"),
         "title_id": inputs.get("title_id"),
         "locked_pages": "1 (title), 30-31 (parent spread), 32 (dedication) are locked; "
-        "pages 2-29 are 14 spreads (spread n = pages 2n and 2n+1, regenerated as a pair).",
+        "spreads 1-14 are pages 2-29 (spread n = pages 2n and 2n+1, ONE picture).",
         "child_name": inputs.get("name"),
-        "pages": page_summaries,
+        "spreads": spread_summaries,
     }
     append_event(job_dir, "change_plan_start", demand)
     raw = chat_json(
@@ -303,7 +343,14 @@ def apply_changes(
         )
     else:
         plan = plan_changes(client, job_dir, demand, inputs, story, pages)
-    raw_actions = plan.get("actions") or []
+    raw_actions = []
+    for action in plan.get("actions") or []:
+        action = dict(action)
+        action["type"] = canonical_action_type(action.get("type"))
+        spread = action_spread(action)
+        if spread is not None:
+            action["spread"] = spread
+        raw_actions.append(action)
     tracked = []
     for index, action in enumerate(raw_actions):
         tracked.append(
@@ -311,6 +358,7 @@ def apply_changes(
                 "index": index,
                 "type": action.get("type"),
                 "page": action.get("page"),
+                "spread": action.get("spread"),
                 "label": _action_label(action),
                 "status": "pending",
                 "reason": action.get("reason") or "",
@@ -361,109 +409,68 @@ def apply_changes(
                     {"type": action_type, "skipped": True, "reason": "title is locked"}
                 )
                 tracked[index]["status"] = "skipped"
-            elif page_number is not None:
-                page = next((p for p in pages if p["number"] == int(page_number)), None)
-                if page is None:
-                    applied.append(
-                        {
-                            "type": action_type,
-                            "page": page_number,
-                            "error": "page not found",
-                        }
-                    )
-                    tracked[index]["status"] = "failed"
-                elif page.get("kind") != "spread_half" and action_type in {
-                    "rewrite_page_text",
-                    "update_page_scene",
-                    "regen_page_art",
-                }:
+            elif action_type in SPREAD_ACTIONS:
+                spread_n = action.get("spread")
+                halves = spread_halves(pages, spread_n) if spread_n else []
+                if spread_n is None:
                     # Title page, parent spread and dedication are LOCKED copy.
                     applied.append(
-                        {
-                            "type": action_type,
-                            "page": page["number"],
-                            "skipped": True,
-                            "reason": "locked page",
-                        }
+                        {"type": action_type, "page": page_number, "skipped": True, "reason": "locked page"}
                     )
                     tracked[index]["status"] = "skipped"
-                elif action_type == "rewrite_page_text" and action.get("text") is not None:
-                    page["text"] = action["text"]
-                    _apply_calm_zone(page, action)
-                    _sync_spread(story, pages, page)
+                elif not halves:
+                    applied.append({"type": action_type, "spread": spread_n, "error": "spread not found"})
+                    tracked[index]["status"] = "failed"
+                elif action_type == "rewrite_spread_text" and action.get("text") is not None:
+                    update_spread(story, pages, spread_n, text=action["text"], calm_zone=_zone_of(action))
+                    _keep_last_line(story, pages, inputs)
                     write_json(job_dir / "story" / "rebuilt_story.json", story)
                     applied.append(
                         {
                             "type": action_type,
-                            "page": page["number"],
-                            "text": page["text"],
+                            "spread": spread_n,
+                            "text": spread_text(pages, spread_n),
                             "reason": reason,
                         }
                     )
                     need_pdf = True
                     tracked[index]["status"] = "done"
-                elif action_type == "update_page_scene" and action.get("scene"):
-                    page["scene"] = action["scene"]
-                    if action.get("text") is not None:
-                        page["text"] = action["text"]
-                    _apply_calm_zone(page, action)
+                elif (
+                    (action_type == "update_spread_scene" and action.get("scene"))
+                    or action_type == "regen_spread_art"
+                    # moving the calm half without new words: the picture has to be redrawn
+                    or (action_type == "rewrite_spread_text" and _zone_of(action))
+                ):
                     lock_face = bool(action.get("force_character_lock")) or _mentions_face_lock(
                         f"{demand} {reason}"
                     )
+                    scene = action.get("scene") or halves[0].get("scene") or ""
                     if lock_face:
-                        page["personalized"] = True
-                    edit_instruction = _edit_instruction_for_action(action, demand)
-                    _regen_spread(
-                        client,
-                        job_dir,
-                        page,
-                        pages,
-                        inputs,
-                        story,
-                        character_path,
-                        edit_instruction=edit_instruction,
-                    )
-                    applied.append(
-                        {
-                            "type": action_type,
-                            "page": page["number"],
-                            "scene": page["scene"],
-                            "edit_instruction": edit_instruction,
-                            "personalized": page.get("personalized"),
-                            "reason": reason,
-                        }
-                    )
-                    need_pdf = True
-                    tracked[index]["status"] = "done"
-                elif action_type == "regen_page_art":
-                    if action.get("scene"):
-                        page["scene"] = action["scene"]
-                    if action.get("text") is not None:
-                        page["text"] = action["text"]
-                    _apply_calm_zone(page, action)
-                    lock_face = bool(action.get("force_character_lock")) or _mentions_face_lock(
-                        f"{demand} {reason}"
-                    )
-                    if lock_face:
-                        page["personalized"] = True
                         hero = str(inputs.get("name") or "").strip()
-                        scene = page.get("scene") or ""
                         if hero and hero.lower() not in scene.lower():
-                            page["scene"] = (
+                            scene = (
                                 f"{scene.rstrip()} "
                                 f"Show {hero} clearly in the scene; face, hair, and skin "
                                 "must match the locked hero character reference exactly."
                             ).strip()
                     edit_instruction = _edit_instruction_for_action(action, demand)
                     # Persist visual demand into the scene when the planner forgot to.
-                    if edit_instruction and not action.get("scene"):
-                        page["scene"] = _merge_visual_into_scene(
-                            page.get("scene") or "", edit_instruction
-                        )
+                    if edit_instruction and not action.get("scene") and action_type == "regen_spread_art":
+                        scene = _merge_visual_into_scene(scene, edit_instruction)
+                    update_spread(
+                        story,
+                        pages,
+                        spread_n,
+                        text=action.get("text"),
+                        scene=scene,
+                        calm_zone=_zone_of(action),
+                        personalized=True if lock_face else None,
+                    )
+                    _keep_last_line(story, pages, inputs)
                     _regen_spread(
                         client,
                         job_dir,
-                        page,
+                        spread_n,
                         pages,
                         inputs,
                         story,
@@ -473,10 +480,10 @@ def apply_changes(
                     applied.append(
                         {
                             "type": action_type,
-                            "page": page["number"],
-                            "scene": page.get("scene"),
+                            "spread": spread_n,
+                            "scene": scene,
                             "edit_instruction": edit_instruction,
-                            "personalized": page.get("personalized"),
+                            "personalized": halves[0].get("personalized"),
                             "character_lock": lock_face,
                             "reason": reason,
                         }
@@ -485,12 +492,7 @@ def apply_changes(
                     tracked[index]["status"] = "done"
                 else:
                     applied.append(
-                        {
-                            "type": action_type,
-                            "page": page_number,
-                            "skipped": True,
-                            "reason": reason,
-                        }
+                        {"type": action_type, "spread": spread_n, "skipped": True, "reason": reason}
                     )
                     tracked[index]["status"] = "skipped"
             elif action_type == "regen_cover":
@@ -509,6 +511,7 @@ def apply_changes(
             applied.append(
                 {
                     "type": action_type,
+                    "spread": action.get("spread"),
                     "page": page_number,
                     "error": str(error),
                 }
@@ -535,6 +538,7 @@ def apply_changes(
             status=tracked[index]["status"],
         )
 
+    write_json(job_dir / "story" / "rebuilt_story.json", story)
     write_json(job_dir / "story" / "pages.json", {"pages": pages})
 
     if need_cover:

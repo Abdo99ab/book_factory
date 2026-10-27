@@ -1,9 +1,10 @@
 """Small Pillow-only image checks shared by QA and cover generation (no numpy, no imagehash).
 
-* ``grey_hash`` / ``hash_distance``  - 16x16 greyscale thumbnail + mean absolute difference (0..1)
 * ``region_stats`` / ``is_busy``     - luminance spread of a zone, same rule as the cover logo zone
                                        in ``pdf_build._draw_front`` (std > 0.10 or p10 < 0.25 = busy)
 * ``check_front_cover_layout``       - face position + calm top / logo zones for the front art
+* ``spread_layout_failures``         - faces vs the fold, the outer edges and the crop bands of a spread
+* ``calm_zone_stats``                - luminance spread of the calm half's lower two thirds
 """
 
 from __future__ import annotations
@@ -12,10 +13,7 @@ from pathlib import Path
 
 from PIL import Image
 
-HASH_SIZE = 16
-# Mean absolute difference on the 16x16 greyscale thumbnails (0 = identical, 1 = black vs white).
-# Two different framings of one room differ by well over 0.05; the "same picture twice" bug is ~0.
-PAIR_DUPLICATE_THRESHOLD = 0.025
+from .constants import CROP_BAND_FRACTION, EDGE_BAND_MM, GUTTER_BAND_MM, SPREAD_WIDTH_MM
 
 BUSY_STD = 0.10
 BUSY_P10 = 0.25
@@ -44,29 +42,6 @@ def _open_rgb(source) -> Image.Image:
         return image.convert("RGB")
 
 
-# --- pair duplicate -------------------------------------------------------------------------------
-
-
-def grey_hash(source) -> list[int]:
-    """16x16 greyscale thumbnail as a flat list of 256 ints."""
-    image = _open_rgb(source).convert("L").resize((HASH_SIZE, HASH_SIZE), Image.Resampling.BOX)
-    return list(image.getdata())
-
-
-def hash_distance(a: list[int], b: list[int]) -> float:
-    """Mean absolute difference between two grey hashes, normalised to 0..1."""
-    return sum(abs(x - y) for x, y in zip(a, b)) / (len(a) * 255.0)
-
-
-def pair_distance(left, right) -> float:
-    return hash_distance(grey_hash(left), grey_hash(right))
-
-
-def is_duplicate_pair(left, right, threshold: float = PAIR_DUPLICATE_THRESHOLD) -> tuple[bool, float]:
-    distance = pair_distance(left, right)
-    return distance < threshold, distance
-
-
 # --- zone detail -----------------------------------------------------------------------------------
 
 
@@ -92,6 +67,93 @@ def region_stats(source, zone: tuple[float, float, float, float]) -> dict:
 
 def is_busy(stats: dict) -> bool:
     return stats["std"] > BUSY_STD or stats["p10"] < BUSY_P10
+
+
+# --- spread layout (fold, edges, crop bands, calm zone) ------------------------------------------------
+
+# The calm half's text sits in its lower two thirds: (x0, y0, x1, y1) as fractions of the SPREAD art.
+CALM_ZONE_BOXES = {
+    "left": (0.0, 1 / 3, 0.5, 1.0),
+    "right": (0.5, 1 / 3, 1.0, 1.0),
+}
+
+
+def calm_zone_stats(art_path: Path | str, calm_zone: str) -> dict:
+    """Luminance p10 / p90 / std of the lower two thirds of the calm half (``left`` or ``right``)."""
+    return region_stats(art_path, CALM_ZONE_BOXES["left" if calm_zone == "left" else "right"])
+
+
+def spread_layout_failures(
+    faces: list[dict] | None,
+    frame_size: tuple[int, int] | None = None,
+    crop_box: tuple[int, int, int, int] | None = None,
+) -> list[dict]:
+    """Fold / edge / crop-band failures for faces on a spread.
+
+    ``faces`` are normalised 0-1 boxes ``{x, y, w, h}`` measured on the model's FULL frame
+    (``frame_size`` px). ``crop_box`` is the (left, top, right, bottom) the frame is centre-cropped
+    to; without it the frame is the spread. Returns ``[{"zone", "message", "face"}]``:
+
+    * ``fold``       - the face overlaps the centre band, fold +/- GUTTER_BAND_MM
+    * ``outer edge`` - the face sits within EDGE_BAND_MM of the left / right edge (or is cut off)
+    * ``top/bottom`` - the face sits in the top / bottom band that can be cropped away: the larger of
+                       CROP_BAND_FRACTION and the share the fit crop really removes
+    """
+    if not faces:
+        return []
+    if frame_size and crop_box:
+        fw, fh = frame_size
+        cl, ct, cr, cb = crop_box
+    else:
+        fw = fh = 1.0
+        cl, ct, cr, cb = 0.0, 0.0, 1.0, 1.0
+    cw, ch = cr - cl, cb - ct
+    fold_half = GUTTER_BAND_MM / SPREAD_WIDTH_MM
+    edge = EDGE_BAND_MM / SPREAD_WIDTH_MM
+    band = max(CROP_BAND_FRACTION, ct / fh, (fh - cb) / fh)
+    found: dict[str, dict] = {}
+    for face in faces:
+        x0 = (float(face.get("x", 0)) * fw - cl) / cw
+        x1 = x0 + float(face.get("w", 0)) * fw / cw
+        y0 = float(face.get("y", 0))
+        y1 = y0 + float(face.get("h", 0))
+        if x0 < 0.5 + fold_half and x1 > 0.5 - fold_half:
+            found.setdefault(
+                "fold",
+                {
+                    "zone": "fold",
+                    "message": (
+                        f"fold: a face crosses the centre fold; keep every face and hand at least "
+                        f"{GUTTER_BAND_MM:g} mm away from the centre line of the picture"
+                    ),
+                    "face": face,
+                },
+            )
+        if x0 < edge or x1 > 1 - edge:
+            found.setdefault(
+                "outer edge",
+                {
+                    "zone": "outer edge",
+                    "message": (
+                        f"outer edge: a face is too close to the left or right edge; keep faces at "
+                        f"least {EDGE_BAND_MM:g} mm inside the outer edges"
+                    ),
+                    "face": face,
+                },
+            )
+        if y0 < band or y1 > 1 - band:
+            found.setdefault(
+                "top/bottom",
+                {
+                    "zone": "top/bottom",
+                    "message": (
+                        f"top/bottom: a face sits in the top or bottom {round(band * 100)}% of the "
+                        "frame, which is cropped away; keep heads and faces in the middle band"
+                    ),
+                    "face": face,
+                },
+            )
+    return list(found.values())
 
 
 # --- front cover layout ------------------------------------------------------------------------------

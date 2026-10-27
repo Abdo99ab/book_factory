@@ -1,7 +1,7 @@
 """QA reports and the human-check gate (spec §8.3, §13).
 
 Four deterministic reports run on a built job (no LLM, no network):
-  * structure      - 32-page map, 28 art files, locked copy, PDF page count / sizes / brand fonts, ppi
+  * structure      - 32-page map, 14 spread art files, locked copy, PDF page count / sizes / brand fonts, ppi
   * text_guard     - the Step 5 text guards re-run on the final spread text
   * anchor_state   - the anchor object follows the catalogue state schedule (never resets)
   * face_position  - no face in the vision review overlaps the live text box
@@ -24,6 +24,8 @@ from .catalogue import get_title
 from .constants import (
     CONTENT_PAGE_COUNT,
     PAGE_WITH_BLEED_MM,
+    SPREAD_HEIGHT_MM,
+    SPREAD_WIDTH_MM,
     PPI_FAIL,
     PPI_WARN,
     PRINTER,
@@ -35,15 +37,29 @@ from .text_guards import check_spreads
 
 QA_DIR = "qa"
 
-HUMAN_CHECK_ITEMS = [
-    ("likeness", "The child in the book is recognisably the child in the photo (hair, skin tone, glasses, marks)."),
-    ("consistency", "Same child, outfit and anchor object on every spread."),
-    ("anchor_state", "The anchor object follows its schedule and never resets."),
-    ("text_read", "Every page's text read aloud: UK English, natural, correct names."),
-    ("text_clear", "No text sits over a face or a key object, and all of it is legible."),
-    ("cover", "Cover, spine and back checked: band, title, blurb, logo, QR keep-clear."),
-    ("sensitive", "Sensitive scenes are age-appropriate and respectful of a real child's likeness."),
-]
+# The human reads these spreads aloud (opening, middle, close); every spread still gets its own row.
+READ_ALOUD_SPREADS = (1, 7, 14)
+
+
+def _human_check_items() -> list[tuple[str, str]]:
+    """One row for the child's likeness, one for the cover, and one per spread."""
+    items = [
+        ("likeness", "The child in the book is recognisably the child in the photo (hair, skin tone, glasses, marks)."),
+        ("cover", "Cover, spine and back checked: band, title, blurb, logo, QR keep-clear."),
+    ]
+    for n in range(1, SPREAD_COUNT + 1):
+        label = (
+            f"Spread {n} (pages {2 * n}-{2 * n + 1}): same child, outfit and anchor state; "
+            "nothing important on the fold; text clear of faces and legible."
+        )
+        if n in READ_ALOUD_SPREADS:
+            label += " Read the text aloud: UK English, natural, correct names."
+        items.append((f"spread_{n:02d}", label))
+    items.append(("sensitive", "Sensitive scenes are age-appropriate and respectful of a real child's likeness."))
+    return items
+
+
+HUMAN_CHECK_ITEMS = _human_check_items()
 
 
 # --- paths / hashing ------------------------------------------------------------------------------
@@ -74,60 +90,38 @@ def _issue(code: str, severity: str, message: str, **extra) -> dict:
     return {"code": code, "severity": severity, "message": message, **extra}
 
 
-# --- image checks used by structure: duplicate pages + cover layout ---------------------------------
+# --- image checks used by structure: fold / calm zone + cover layout ---------------------------------
 
 
-def pair_duplicates(job_dir: Path, spread_numbers=range(1, SPREAD_COUNT + 1)) -> list[dict]:
-    """Spreads whose left and right art are perceptually the same picture (16x16 grey MAD)."""
-    found = []
+def spread_layout_issues(job_dir: Path, spread_numbers=range(1, SPREAD_COUNT + 1)) -> list[dict]:
+    """Warnings recorded at generation time: a face on the fold / edge / crop band, a busy calm half."""
+    issues: list[dict] = []
     for n in spread_numbers:
-        left, right = spread_art_path(job_dir, n, "left"), spread_art_path(job_dir, n, "right")
-        if not (left.is_file() and right.is_file()):
-            continue
-        duplicate, distance = imagecheck.is_duplicate_pair(left, right)
-        if duplicate:
-            found.append({"spread": n, "right_page": 2 * n + 1, "distance": round(distance, 4)})
-    return found
-
-
-def pair_duplicate_issues(job_dir: Path) -> list[dict]:
-    return [
-        _issue(
-            "pair_duplicate",
-            "warning",
-            f"Spread {d['spread']}: left and right pictures are almost identical "
-            f"(difference {d['distance']:.3f} < {imagecheck.PAIR_DUPLICATE_THRESHOLD}). "
-            f"Regenerate the right page (page {d['right_page']}) with a different framing.",
-            spread=d["spread"],
-            page=d["right_page"],
-            distance=d["distance"],
-            proposed_action="regen_page_art",
-        )
-        for d in pair_duplicates(Path(job_dir))
-    ]
-
-
-def pair_duplicate_actions(job_dir: Path) -> list[dict]:
-    """Self-revise style actions: regenerate the RIGHT page of each duplicate pair."""
-    return [
-        {
-            "type": "regen_page_art",
-            "page": d["right_page"],
-            "reason": (
-                f"pair_duplicate: spread {d['spread']} shows the same picture on both pages "
-                f"(difference {d['distance']:.3f}); redraw the right page from a clearly different view."
-            ),
-            "edit_instruction": (
-                "Draw this page from a clearly different framing than the left page "
-                "(different camera distance and angle); do not copy the left composition."
-            ),
-            "force_character_lock": False,
-            "scene": None,
-            "text": None,
-            "text_placement": None,
-        }
-        for d in pair_duplicates(Path(job_dir))
-    ]
+        meta = read_json(Path(job_dir) / "spreads" / f"spread-{n:02d}" / "spread.json") or {}
+        zones = meta.get("fold_failures") or []
+        if zones:
+            issues.append(
+                _issue(
+                    "fold_warning",
+                    "warning",
+                    f"Spread {n}: a face breaks the {', '.join(zones)} rule after one retry; "
+                    "check the fold on the composed spread.",
+                    spread=n,
+                    zones=zones,
+                    proposed_action="regen_spread_art",
+                )
+            )
+        if meta.get("calm_zone_busy"):
+            issues.append(
+                _issue(
+                    "calm_zone_warning",
+                    "warning",
+                    f"Spread {n}: the {meta.get('calm_zone')} half is busy where the text sits.",
+                    spread=n,
+                    proposed_action="regen_spread_art",
+                )
+            )
+    return issues
 
 
 def cover_layout_issues(job_dir: Path) -> list[dict]:
@@ -146,7 +140,7 @@ def cover_layout_issues(job_dir: Path) -> list[dict]:
 
 
 _FACE_SYSTEM = (
-    "You locate faces in a children's book cover illustration. Return JSON "
+    "You locate faces in a children's book illustration (a cover or a wide double-page spread). Return JSON "
     '{"faces": [{"x": 0.0, "y": 0.0, "w": 0.1, "h": 0.1}]} with one box per visible face, '
     "normalised 0-1 (x, y = top-left corner as a fraction of the image width / height). "
     'Return {"faces": []} when no face is visible.'
@@ -174,10 +168,10 @@ def detect_faces(client, image_path: Path) -> list[dict] | None:
             client,
             _FACE_SYSTEM,
             [
-                {"type": "text", "text": "Find every face in this front-cover illustration."},
+                {"type": "text", "text": "Find every face in this illustration."},
                 {"type": "image_url", "image_url": {"url": url}},
             ],
-            description="Cover face position",
+            description="Face position",
             temperature=0.0,
         )
         faces = json.loads(raw).get("faces")
@@ -208,13 +202,12 @@ def structure_report(job_dir: Path, inputs: dict, story: dict, pages: list) -> d
         issues.append(_issue("page_map", "error", str(error)))
 
     missing = [
-        f"spread {n} {side}"
+        f"spread {n}"
         for n in range(1, SPREAD_COUNT + 1)
-        for side in ("left", "right")
-        if not spread_art_path(job_dir, n, side).is_file()
+        if not spread_art_path(job_dir, n).is_file()
     ]
     if missing:
-        issues.append(_issue("art_missing", "error", f"{len(missing)} page image(s) missing: {', '.join(missing[:4])}…"))
+        issues.append(_issue("art_missing", "error", f"{len(missing)} spread image(s) missing: {', '.join(missing[:4])}…"))
 
     locked = story.get("locked") or {}
     for key in ("title", "front_band", "back_question"):
@@ -228,11 +221,11 @@ def structure_report(job_dir: Path, inputs: dict, story: dict, pages: list) -> d
     lowest = min_effective_ppi(job_dir)
     if lowest is not None:
         if lowest < PPI_FAIL and ENFORCE_PRINT_PPI:
-            issues.append(_issue("resolution", "error", f"Lowest page is {lowest} ppi (< {PPI_FAIL}); no upscaler - regenerate larger."))
+            issues.append(_issue("resolution", "error", f"Lowest spread is {lowest} ppi (< {PPI_FAIL}); no upscaler - regenerate larger."))
         elif lowest < PPI_FAIL:
-            issues.append(_issue("resolution", "warning", f"Lowest page is {lowest} ppi (< {PPI_FAIL}); continuing (ENFORCE_PRINT_PPI off)."))
+            issues.append(_issue("resolution", "warning", f"Lowest spread is {lowest} ppi (< {PPI_FAIL}); continuing (ENFORCE_PRINT_PPI off)."))
         elif lowest < PPI_WARN:
-            issues.append(_issue("resolution", "warning", f"Lowest page is {lowest} ppi (< {PPI_WARN} target, >= {PPI_FAIL} minimum)."))
+            issues.append(_issue("resolution", "warning", f"Lowest spread is {lowest} ppi (< {PPI_WARN} target, >= {PPI_FAIL} minimum)."))
 
     pdf_info: dict = {}
     job = read_json(job_dir / "job.json") or {}
@@ -259,7 +252,7 @@ def structure_report(job_dir: Path, inputs: dict, story: dict, pages: list) -> d
         except Exception as error:  # unreadable PDF
             issues.append(_issue("pdf_unreadable", "error", f"PDF could not be read: {error}"))
 
-    issues.extend(pair_duplicate_issues(job_dir))
+    issues.extend(spread_layout_issues(job_dir))
     issues.extend(cover_layout_issues(job_dir))
 
     return {
@@ -267,7 +260,7 @@ def structure_report(job_dir: Path, inputs: dict, story: dict, pages: list) -> d
         "passed": not any(i["severity"] == "error" for i in issues),
         "issues": issues,
         "min_effective_ppi": lowest,
-        "page_box_mm": PAGE_WITH_BLEED_MM,
+        "spread_box_mm": SPREAD_WIDTH_MM,
         "pdf": pdf_info,
     }
 
@@ -308,19 +301,18 @@ def anchor_state_report(job_dir: Path, inputs: dict, review: dict | None) -> dic
             if schedule[n] < schedule[n - 1]:
                 issues.append(_issue("anchor_reset", "error", f"Schedule drops from {schedule[n - 1]} to {schedule[n]} at spread {n + 1}.", spread=n + 1))
 
-    seen = ((review or {}).get("pages") or {})
+    seen = ((review or {}).get("spreads") or {})
     reviewed = 0
     for n in range(1, SPREAD_COUNT + 1):
         meta = read_json(Path(job_dir) / "spreads" / f"spread-{n:02d}" / "spread.json") or {}
         if meta.get("anchor_state") is not None and meta["anchor_state"] != schedule[n - 1]:
             issues.append(_issue("anchor_state_mismatch", "error", f"Spread {n} was generated for state {meta['anchor_state']}, schedule says {schedule[n - 1]}.", spread=n))
-        for page in (2 * n, 2 * n + 1):
-            observed = (seen.get(str(page)) or {}).get("anchor_state_seen")
-            if observed is None:
-                continue
-            reviewed += 1
-            if int(observed) != schedule[n - 1]:
-                issues.append(_issue("anchor_state_seen", "error", f"Page {page}: reviewer saw state {observed}, schedule says {schedule[n - 1]}.", spread=n, page=page))
+        observed = (seen.get(str(n)) or {}).get("anchor_state_seen")
+        if observed is None:
+            continue
+        reviewed += 1
+        if int(observed) != schedule[n - 1]:
+            issues.append(_issue("anchor_state_seen", "error", f"Spread {n}: reviewer saw state {observed}, schedule says {schedule[n - 1]}.", spread=n))
     if not reviewed:
         issues.append(_issue("anchor_not_reviewed", "warning", "No vision review of the anchor object yet (run Self revise)."))
     return {"name": "anchor_state", "passed": not any(i["severity"] == "error" for i in issues), "issues": issues}
@@ -336,24 +328,39 @@ def _rects_overlap(a, b) -> bool:
 
 
 def face_position_report(job_dir: Path, review: dict | None) -> dict:
+    """Text boxes (page mm, from layout.json) vs the reviewer's face boxes (composed-spread fractions).
+
+    A face box is normalised on the whole spread; a text box lives on one page, so the right page's
+    box is shifted by (spread width - page width) = 210 mm into spread coordinates.
+    """
     layout = read_json(Path(job_dir) / "print" / "layout.json") or {}
-    text_boxes = {
-        r["page"]: r["box_mm"]
-        for r in layout.get("pages") or []
-        if r.get("kind") == "spread_half" and r.get("box_mm")
-    }
-    seen = ((review or {}).get("pages") or {})
+    seen = ((review or {}).get("spreads") or {})
+    shift = {"left": 0.0, "right": SPREAD_WIDTH_MM - PAGE_WITH_BLEED_MM}
     issues: list[dict] = []
-    checked = 0
-    for page, box in text_boxes.items():
-        record = seen.get(str(page))
-        if record is None:
+    checked: set[int] = set()
+    flagged: set[int] = set()
+    for record in layout.get("pages") or []:
+        box = record.get("box_mm")
+        if record.get("kind") != "spread_half" or not box:
             continue
-        checked += 1
-        for face in record.get("faces") or []:
-            rect = tuple(float(face.get(k, 0)) * PAGE_WITH_BLEED_MM for k in ("x", "y", "w", "h"))
-            if _rects_overlap(rect, tuple(box)):
-                issues.append(_issue("text_over_face", "error", f"Page {page}: text box overlaps a face.", page=page))
+        n = int(record.get("spread") or 0)
+        reviewed = seen.get(str(n))
+        if reviewed is None:
+            continue
+        checked.add(n)
+        if n in flagged:
+            continue
+        text_rect = (float(box[0]) + shift.get(record.get("side"), 0.0), float(box[1]), float(box[2]), float(box[3]))
+        for face in reviewed.get("faces") or []:
+            rect = (
+                float(face.get("x", 0)) * SPREAD_WIDTH_MM,
+                float(face.get("y", 0)) * SPREAD_HEIGHT_MM,
+                float(face.get("w", 0)) * SPREAD_WIDTH_MM,
+                float(face.get("h", 0)) * SPREAD_HEIGHT_MM,
+            )
+            if _rects_overlap(rect, text_rect):
+                issues.append(_issue("text_over_face", "error", f"Spread {n}: text box overlaps a face.", spread=n))
+                flagged.add(n)
                 break
     if not checked:
         issues.append(_issue("faces_not_reviewed", "warning", "No vision review of face positions yet (run Self revise)."))
