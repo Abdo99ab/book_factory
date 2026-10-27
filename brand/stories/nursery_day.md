@@ -1,47 +1,49 @@
 # nursery_day
 approved: false
-sets: home_door,nursery_coat_pegs,nursery_room
+sets: home_hallway,walk_route,nursery_door,nursery_room,nursery_garden
+carer_signature: {carer}'s yellow scarf
+last_line: Tomorrow we do it again. And you come back again.
 
-<!-- Placeholder beats; mark approved when story is signed off. -->
+<!-- Beats from the approved story concepts (14–15 Oct 2026). {name} = child, {carer} = carer name/role from the order. 'slot:' marks a personalisation slot. Titles stay working titles until Taoufik approves each story. -->
 
 ## Spread 1
-{name}'s Nursery Day — and Then You Come Back — beat 1: comfort object on at least eight spreads; locked nursery interior. Child acts; keep calm zone for text.
+Morning at home. {name} and {carer} put the comfort object in the bag. 'It comes too.'
 
 ## Spread 2
-{name}'s Nursery Day — and Then You Come Back — beat 2: comfort object on at least eight spreads; locked nursery interior. Child acts; keep calm zone for text.
+The walk or drive (slot: transport), the same route every day; one landmark {carer} names (slot: landmark, optional).
 
 ## Spread 3
-{name}'s Nursery Day — and Then You Come Back — beat 3: comfort object on at least eight spreads; locked nursery interior. Child acts; keep calm zone for text.
+The door of the nursery (slot: school_name). The teacher (slot: teacher_name) is there. The goodbye ritual drawn exactly as the parent described it (slot: goodbye_ritual, e.g. two kisses, one wave at the window).
 
 ## Spread 4
-{name}'s Nursery Day — and Then You Come Back — beat 4: comfort object on at least eight spreads; locked nursery interior. Child acts; keep calm zone for text.
+{carer} goes. {name}'s hand in the teacher's hand. The sentence: '{carer} always comes back after [anchor event].'
 
 ## Spread 5
-{name}'s Nursery Day — and Then You Come Back — beat 5: comfort object on at least eight spreads; locked nursery interior. Child acts; keep calm zone for text.
+Hanging the coat on the peg with {name}'s own picture on it (slot: peg_symbol).
 
 ## Spread 6
-{name}'s Nursery Day — and Then You Come Back — beat 6: comfort object on at least eight spreads; locked nursery interior. Child acts; keep calm zone for text.
+Play time. One other child (slot: friend_name or a generic friend) shares a toy.
 
 ## Spread 7
-{name}'s Nursery Day — and Then You Come Back — beat 7: comfort object on at least eight spreads; locked nursery interior. Child acts; keep calm zone for text.
+Snack. What's on the plate: fruit and bread, a UK nursery snack.
 
 ## Spread 8
-{name}'s Nursery Day — and Then You Come Back — beat 8: comfort object on at least eight spreads; locked nursery interior. Child acts; keep calm zone for text.
+Outside time, rain or sun (slot: climate_variant); wellies and coats.
 
 ## Spread 9
-{name}'s Nursery Day — and Then You Come Back — beat 9: comfort object on at least eight spreads; locked nursery interior. Child acts; keep calm zone for text.
+A small wobble: {name} misses {carer} for a moment. The teacher kneels: 'Shall we look at the window where {carer} waved?' They look. Then back to play. The wobble is shown and handled, never left alone.
 
 ## Spread 10
-{name}'s Nursery Day — and Then You Come Back — beat 10: comfort object on at least eight spreads; locked nursery interior. Child acts; keep calm zone for text.
+Story circle or singing. {name} knows the song.
 
 ## Spread 11
-{name}'s Nursery Day — and Then You Come Back — beat 11: comfort object on at least eight spreads; locked nursery interior. Child acts; keep calm zone for text.
+Nap or rest time with the comfort object.
 
 ## Spread 12
-{name}'s Nursery Day — and Then You Come Back — beat 12: comfort object on at least eight spreads; locked nursery interior. Child acts; keep calm zone for text.
+The anchor event: afternoon snack. 'After this one, {carer} comes.'
 
 ## Spread 13
-{name}'s Nursery Day — and Then You Come Back — beat 13: comfort object on at least eight spreads; locked nursery interior. Child acts; keep calm zone for text.
+The door opens. {carer} (or the second pick-up carer, slot). Running hug. 'You came back.' 'I always come back.'
 
 ## Spread 14
-{name}'s Nursery Day — and Then You Come Back — beat 14: comfort object on at least eight spreads; locked nursery interior. Child acts; keep calm zone for text.
+Home. {name} tells {carer} one thing about the day. Last line: 'Tomorrow we do it again. And you come back again.'

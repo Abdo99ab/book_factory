@@ -84,11 +84,11 @@
       "blurb": "A warm story where the child chooses each step on a big-kid list — shoes, coat, cup, hands, potty — at their own pace.",
       "parent_spread": {
         "you_could_say": "It's your turn to choose. Sitting counts. Oops is fine.",
-        "try_together": "What would you like to try first on your list?",
-        "in_real_life": "Keep the list on the fridge and let the child choose the next tick.",
+        "try_together": "Which big-kid thing shall we tick next?",
+        "in_real_life": "Keep the list on the fridge and let {name} choose the next tick.",
         "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
       },
-      "last_line": "The list waits on the fridge. {name} can choose again tomorrow.",
+      "last_line": "I'm the one who decides. And I decided.",
       "approved": false,
       "post_grade": null
     },
@@ -151,7 +151,7 @@
         "in_real_life": "Choose a simple goodbye phrase to practise together.",
         "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
       },
-      "last_line": "And then you come back.",
+      "last_line": "Tomorrow we do it again. And you come back again.",
       "approved": false,
       "post_grade": null
     },
@@ -221,7 +221,7 @@
         "in_real_life": "Practise the bedtime routine and the exit line together.",
         "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
       },
-      "last_line": "The boat is still a bed. {name} is still here.",
+      "last_line": "Tonight it sails again.",
       "approved": false,
       "post_grade": "night"
     },
@@ -273,7 +273,7 @@
         "in_real_life": "Look at the night sky together and name one thing you notice.",
         "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
       },
-      "last_line": "The rocket is quiet. The questions stay.",
+      "last_line": "The best captains ask the best questions.",
       "approved": false,
       "post_grade": "night"
     },
@@ -328,7 +328,7 @@
         "in_real_life": "Do one kind help for someone smaller this week.",
         "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
       },
-      "last_line": "Pip is safe. The shell shines once more.",
+      "last_line": "Today I helped someone small find their way.",
       "approved": false,
       "post_grade": null
     },
@@ -383,7 +383,7 @@
         "in_real_life": "Draw a tiny map of somewhere familiar together.",
         "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
       },
-      "last_line": "The compass rests. The trying stays.",
+      "last_line": "Wrong turns are part of the map.",
       "approved": false,
       "post_grade": "underwater"
     },
@@ -434,7 +434,7 @@
         "in_real_life": "Practise one praise line for honesty this week.",
         "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
       },
-      "last_line": "The truth is out. The mend can begin.",
+      "last_line": "Telling the truth makes me feel tall.",
       "approved": false,
       "post_grade": null
     },
@@ -485,7 +485,7 @@
         "in_real_life": "Make a simple jar and try one calm-down move together.",
         "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
       },
-      "last_line": "The jar is quiet. {name} can open it again if needed.",
+      "last_line": "Worries are smaller when you share them.",
       "approved": false,
       "post_grade": null
     },
@@ -550,7 +550,7 @@
         "in_real_life": "Pack the box together before moving day.",
         "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
       },
-      "last_line": "The new door closes softly. {name} is home.",
+      "last_line": "Home is where my things and my people are.",
       "approved": false,
       "post_grade": null
     },
@@ -612,7 +612,7 @@
         "in_real_life": "Look at one picture together and run the four checks.",
         "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
       },
-      "last_line": "The notebook closes. The questions stay open.",
+      "last_line": "I don't have to believe everything I see. I can check.",
       "approved": false,
       "post_grade": null
     }

@@ -15,7 +15,8 @@ from pathlib import Path
 from PIL import Image
 
 from .brand import ROUTE_PRESETS, SAFE_MM, SHARED_NEGATIVES
-from .catalogue import get_title
+from . import imagecheck, qa
+from .catalogue import get_title, load_story_beats, resolve_carer_text
 from .constants import (
     BACK_QR_SAFE_CORNER,
     BACK_QR_SAFE_MM,
@@ -48,16 +49,37 @@ def _route_preset(inputs: dict) -> dict:
     return ROUTE_PRESETS[inputs.get("route") or "morning_light"]
 
 
-def _cast_block(inputs: dict, story: dict) -> str:
+def _carer_signature(inputs: dict, story: dict) -> str:
+    """Catalogue-locked carer detail (e.g. a yellow scarf), from the story or the beats file header."""
+    signature = (story.get("carer_signature") or "").strip()
+    if not signature:
+        try:
+            signature = load_story_beats(inputs["title_id"])["meta"].get("carer_signature") or ""
+        except Exception:  # noqa: BLE001 - legacy jobs / unknown title: no signature
+            signature = ""
+    return resolve_carer_text(signature, inputs).strip()
+
+
+def _cast_block(inputs: dict, story: dict, include_carer: bool = True) -> str:
     hero = inputs.get("name") or "the hero"
     outfit = story.get("recurring_outfit") or ""
     carer = inputs.get("carer") or {}
     carer_line = ""
-    if carer.get("name") or carer.get("role"):
+    if not include_carer:
+        carer_line = (
+            "The carer is never on the front cover: show the child alone, with no adult, "
+            "no hand, no arm and no shadow of an adult."
+        )
+    elif carer.get("name") or carer.get("role"):
         carer_line = (
             f"The carer ({carer.get('role', 'carer')}, {carer.get('name', '')}) may appear, "
             "drawn identically on every page, never with an unhappy face."
         )
+        signature = _carer_signature(inputs, story)
+        if signature:
+            carer_line += (
+                f"\nThe carer always wears/carries: {signature} \u2014 identical on every page."
+            )
     comfort = inputs.get("comfort_object") or ""
     supporting = story.get("supporting_characters") or []
     if supporting:
@@ -113,14 +135,15 @@ def _composition_block(side: str, calm_zone: str) -> str:
     )
     if side == calm_zone:
         zone = (
-            f"Calm zone: the {calm_zone.upper()} page carries the story text. Keep a large, quiet, "
-            "uncluttered area (soft background only, no faces, no small details) in the lower "
-            "half of this page where the text will be set in code."
+            f"Calm zone: the {calm_zone.upper()} page carries the story text. This is the quieter, "
+            "wider picture: keep a large, quiet, uncluttered area (soft background only, no faces, "
+            "no small details) in the lower half of this page where the text will be set in code."
         )
     else:
         zone = (
             f"Calm zone: the {calm_zone.upper()} page carries the text, so this {side.upper()} page "
-            "carries the main action and the child's face, clearly visible."
+            "carries the main action and the child's face, clearly visible: a closer picture "
+            "than the calm page. It carries no story text."
         )
     return f"{base}\n{zone}"
 
@@ -149,7 +172,21 @@ def _spread_prompt(
     anchor = _anchor_block(title, spread.get("anchor_state"))
     if anchor:
         parts.append(anchor)
-    parts.append(f"Scene:\n{spread.get('scene') or ''}")
+    shared_scene = spread.get("scene") or ""
+    side_brief = (spread.get(f"scene_{side}") or "").strip()
+    other_side = "right" if side == "left" else "left"
+    other_brief = (spread.get(f"scene_{other_side}") or "").strip()
+    if side_brief:
+        parts.append(f"The moment (shared by both pages of this spread):\n{shared_scene}")
+        parts.append(f"This {side.upper()} page shows:\n{side_brief}")
+        if other_brief:
+            parts.append(
+                f"The other page of this spread shows: {other_brief}. "
+                "Do not repeat that framing: this page must be a clearly different picture "
+                "(different camera distance, angle and subject placement)."
+            )
+    else:  # legacy jobs without a scene pair
+        parts.append(f"Scene:\n{shared_scene}")
     if references:
         parts.append("Reference images, in order:\n" + "\n".join(f"{i + 1}. {r}" for i, r in enumerate(references)))
     parts.append(_composition_block(side, calm_zone))
@@ -247,8 +284,9 @@ def _reference_images(job_dir: Path, inputs: dict, spread: dict, side: str, left
     if side == "right" and left_path is not None and left_path.is_file():
         paths.append(left_path)
         labels.append(
-            "the LEFT page of this same spread, already drawn — continue the same room, light, "
-            "palette and anchor object across the page turn; do not copy its composition"
+            "the LEFT page of this same spread, already drawn. Keep the same room, light, "
+            "palette and anchor object, but this is a DIFFERENT view of the same moment, "
+            "NOT a copy: change the framing, camera distance and angle"
         )
     anchor = job_dir / "anchor" / "anchor.png"
     if anchor.is_file():
@@ -285,6 +323,8 @@ def generate_spread_art(
         "calm_zone": calm_zone,
         "anchor_state": spread.get("anchor_state"),
         "scene": spread.get("scene"),
+        "scene_left": spread.get("scene_left"),
+        "scene_right": spread.get("scene_right"),
         "text": spread.get("text"),
         "edit_instruction": edit_instruction,
         "image_size_requested": IMAGE_SIZE,
@@ -409,10 +449,10 @@ def generate_title_spot(client, job_dir: Path, inputs: dict, story: dict) -> Pat
     return path
 
 
-def _cover_prompt(kind: str, inputs: dict, story: dict) -> str:
+def _cover_prompt(kind: str, inputs: dict, story: dict, fix_zones: list[str] | None = None) -> str:
     preset = _route_preset(inputs)
     title = get_title(inputs["title_id"])
-    cast = _cast_block(inputs, story)
+    cast = _cast_block(inputs, story, include_carer=(kind != "front"))
     must_not_show = title.get("must_not_show") or []
     common = (
         f"{preset['preamble']}\n{cast}\n"
@@ -425,20 +465,37 @@ def _cover_prompt(kind: str, inputs: dict, story: dict) -> str:
         common += memory + "\n"
     if kind == "front":
         body = (
-            f"Create the FRONT COVER illustration only for '{story['title']}'. "
-            "The child's face is the largest element and clearly visible. "
-            "Keep the TOP 15% soft and plain (a family colour band sits there) and a calm, "
-            "quiet area in the upper third for the title. Keep the lower centre calm for a "
-            "logo. No faces within 10 mm of the trim edges."
+            f"Create the FRONT COVER illustration only for '{story['title']}'.\n"
+            "COMPOSITION (binding): the child alone, centred left-to-right, facing the viewer with the "
+            "face fully visible. The child's head and face sit at 50-62% of the picture height, "
+            "measured from the top, with shoulders and upper body below. The child is the largest "
+            "element. The carer is never on the front cover.\n"
+            "BACKGROUND: calm and soft, low contrast, a gentle wash with at most one or two large "
+            "simple shapes. No clutter, no pattern, no small details.\n"
+            "KEEP PLAIN: the TOP 30% of the picture is a plain, soft, empty background (a family "
+            "colour band and then the title are printed over it). The BOTTOM 15%, in the centre 40% "
+            "of the width, is plain and empty too (the logo is printed there).\n"
+            "NO EDGE CUTS: nothing may be cut off by the left, right or top edge. The whole head, "
+            "hair and any prop stay inside the picture with clear margin; no face within 10 mm of "
+            "any trim edge."
         )
     else:
         corner = BACK_QR_SAFE_CORNER.replace("_", "-")
         body = (
-            f"Create the BACK COVER illustration only for '{story['title']}'. "
-            "Same world, palette and cast as the front. A quiet epilogue moment showing the "
-            "anchor object. Keep the upper two thirds a calm, soft area for the question, "
-            "blurb and honesty line. "
-            f"Keep the {corner} corner (about {BACK_QR_SAFE_MM:g} mm square) soft and empty."
+            f"Create the BACK COVER illustration only for '{story['title']}'.\n"
+            "Same world, palette and cast as the front.\n"
+            "KEEP PLAIN: the UPPER TWO THIRDS of the picture is a plain, calm, soft wash with no "
+            "figures, objects or detail (the question, blurb and honesty line are printed there). "
+            "A quiet epilogue moment showing the anchor object sits in the LOWER THIRD only.\n"
+            f"QR KEEP-CLEAR: the {corner} corner (about {BACK_QR_SAFE_MM:g} mm square) stays "
+            "completely plain and empty.\n"
+            "NO EDGE CUTS: nothing important touches or is cut by the edges."
+        )
+    if fix_zones:
+        body += (
+            "\nRETRY: the previous attempt failed the layout check. Fix exactly these: "
+            + "; ".join(fix_zones)
+            + "."
         )
     face_lock = (
         "FACE LOCK: the supplied reference image is the hero character sheet. Match the "
@@ -447,8 +504,27 @@ def _cover_prompt(kind: str, inputs: dict, story: dict) -> str:
     return f"{body}\n\n{common}\n{NO_TEXT_RULE}\n{face_lock}\n"
 
 
+def _generate_cover_image(client, kind: str, prompt: str, ref_paths: list[Path], path: Path):
+    result = image_edit(
+        client, ref_paths, prompt, size=IMAGE_SIZE, description=f"{kind.title()} cover art"
+    )
+    data = _decode(result)
+    path.write_bytes(data)
+    return data
+
+
+def _front_layout_check(client, path: Path) -> dict:
+    faces = qa.detect_faces(client, path)
+    return imagecheck.check_front_cover_layout(path, faces)
+
+
 def generate_cover_panels(client, job_dir: Path, inputs: dict, story: dict, character_path: Path):
-    """Front and back cover art, text-free, character-locked. Typography is added in pdf_build."""
+    """Front and back cover art, text-free, character-locked. Typography is added in pdf_build.
+
+    The front art is layout-checked (face position, calm top band/title zone, calm logo zone). A
+    failing front is regenerated ONCE with the failing zone named; if it still fails the art is kept,
+    the soft plate is forced under the title/logo and ``cover_layout_warning`` is emitted.
+    """
     if not Path(character_path).is_file():
         raise FileNotFoundError("Character sheet missing; cannot generate cover panels.")
     cover_dir = job_dir / "cover"
@@ -463,14 +539,40 @@ def generate_cover_panels(client, job_dir: Path, inputs: dict, story: dict, char
     append_event(job_dir, "cover_start", "Generating cover art (front + back).")
 
     out = {}
+    layout: dict = {}
     for kind, prompt, ref_paths in (("front", front_prompt, refs), ("back", back_prompt, back_refs)):
-        result = image_edit(
-            client, ref_paths, prompt, size=IMAGE_SIZE, description=f"{kind.title()} cover art"
-        )
-        data = _decode(result)
-        width, height = _png_size(data)
         path = cover_dir / f"{kind}_art.png"
-        path.write_bytes(data)
+        data = _generate_cover_image(client, kind, prompt, ref_paths, path)
+        if kind == "front":
+            check = _front_layout_check(client, path)
+            layout = {"first_attempt": check["failures"], "regenerated": False}
+            if not check["passed"]:
+                append_event(
+                    job_dir,
+                    "cover_layout_retry",
+                    "Front cover layout check failed; regenerating once: " + "; ".join(check["failures"]),
+                    failures=check["failures"],
+                )
+                front_prompt = _cover_prompt("front", inputs, story, fix_zones=check["failures"])
+                data = _generate_cover_image(client, kind, front_prompt, ref_paths, path)
+                check = _front_layout_check(client, path)
+                layout["regenerated"] = True
+            layout.update(
+                {
+                    "failures": check["failures"],
+                    "face_checked": check["face_checked"],
+                    "force_soft_plate": bool(check["failures"]),
+                }
+            )
+            if check["failures"]:
+                append_event(
+                    job_dir,
+                    "cover_layout_warning",
+                    "Front cover still breaks the layout rules after one retry; keeping the art and "
+                    "forcing the soft plate: " + "; ".join(check["failures"]),
+                    failures=check["failures"],
+                )
+        width, height = _png_size(data)
         # Cover art is scaled to fill the 248 mm cover height (art stays square), never upscaled in pixels.
         info = _record_resolution(job_dir, f"{kind.title()} cover", width, COVER_HEIGHT_MM, cover=kind)
         out[kind] = {"file": path.name, "width": width, "height": height, **info}
@@ -483,10 +585,28 @@ def generate_cover_panels(client, job_dir: Path, inputs: dict, story: dict, char
             "back_prompt": back_prompt,
             "front_art": "front_art.png",
             "back_art": "back_art.png",
+            "front_preview": "front_preview.png",
             "character_locked": True,
             "art": out,
+            "layout": layout,
             "effective_ppi": min(v["effective_ppi"] for v in out.values()),
         },
     )
     append_event(job_dir, "cover_done", "Front and back cover art saved (both character-locked).")
+    render_front_preview(job_dir, inputs, story)
     return cover_dir / "front_art.png", cover_dir / "back_art.png"
+
+
+def render_front_preview(job_dir: Path, inputs: dict, story: dict) -> Path | None:
+    """Composed front cover (band + title + logo over the art, exactly as the PDF draws it).
+
+    Saved to ``cover/front_preview.png`` so the operator sees what will print, not just the raw art.
+    Never raises: a preview failure must not fail the build.
+    """
+    try:
+        from .pdf_build import render_front_preview as _render
+
+        return _render(job_dir, inputs, story)
+    except Exception as error:  # noqa: BLE001
+        append_event(job_dir, "cover_preview_failed", f"Front cover preview not rendered: {error}")
+        return None

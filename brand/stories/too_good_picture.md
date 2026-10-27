@@ -1,47 +1,49 @@
 # too_good_picture
 approved: false
-sets: classroom,home_desk
+sets: home_table_with_device,school_classroom,library_or_news_corner
+carer_signature: {carer}'s yellow scarf
+last_line: I don't have to believe everything I see. I can check.
 
-<!-- Placeholder beats; mark approved when story is signed off. -->
+<!-- Beats from the approved story concepts (14–15 Oct 2026). {name} = child, {carer} = carer name/role from the order. 'slot:' marks a personalisation slot. Titles stay working titles until Taoufik approves each story. -->
 
 ## Spread 1
-{name} and the Too-Good-To-Be-True Picture — beat 1: truth-detective notebook; same flying cat on spreads 1-10. Child acts; keep calm zone for text.
+At home, {name} at a tablet or family computer (slot: device) with {carer} nearby. On the screen, a simple picture of a cat flying over the city landmark (slot: city_landmark). Screen content is simple art, no real interface, nothing readable.
 
 ## Spread 2
-{name} and the Too-Good-To-Be-True Picture — beat 2: truth-detective notebook; same flying cat on spreads 1-10. Child acts; keep calm zone for text.
+At school, friends (slots: friend_1, friend_2) say 'It's real, everyone shared it!'
 
 ## Spread 3
-{name} and the Too-Good-To-Be-True Picture — beat 3: truth-detective notebook; same flying cat on spreads 1-10. Child acts; keep calm zone for text.
+{name} isn't sure. Opens the truth-detective notebook (the anchor object).
 
 ## Spread 4
-{name} and the Too-Good-To-Be-True Picture — beat 4: truth-detective notebook; same flying cat on spreads 1-10. Child acts; keep calm zone for text.
+Check 1 — Who made it? No name, no source. Hmm.
 
 ## Spread 5
-{name} and the Too-Good-To-Be-True Picture — beat 5: truth-detective notebook; same flying cat on spreads 1-10. Child acts; keep calm zone for text.
+Check 2 — Does it match what I know? Cats can't fly. The shadows go the wrong way.
 
 ## Spread 6
-{name} and the Too-Good-To-Be-True Picture — beat 6: truth-detective notebook; same flying cat on spreads 1-10. Child acts; keep calm zone for text.
+Check 3 — Can I find it somewhere I trust? With {carer}, they look at a news page or ask at the library: nobody reports a flying cat.
 
 ## Spread 7
-{name} and the Too-Good-To-Be-True Picture — beat 7: truth-detective notebook; same flying cat on spreads 1-10. Child acts; keep calm zone for text.
+Check 4 — Ask a grown-up I trust. {carer}: 'Good question. Let's check together.' Some pictures are made by computers.
 
 ## Spread 8
-{name} and the Too-Good-To-Be-True Picture — beat 8: truth-detective notebook; same flying cat on spreads 1-10. Child acts; keep calm zone for text.
+{name} makes a silly picture with {carer} — a paper collage, their face on a dinosaur, scissors and glue, never an AI tool. 'See? Pictures can be made.'
 
 ## Spread 9
-{name} and the Too-Good-To-Be-True Picture — beat 9: truth-detective notebook; same flying cat on spreads 1-10. Child acts; keep calm zone for text.
+Back at school, {name} explains the four checks to friends. Nobody is called silly.
 
 ## Spread 10
-{name} and the Too-Good-To-Be-True Picture — beat 10: truth-detective notebook; same flying cat on spreads 1-10. Child acts; keep calm zone for text.
+A friend shows a second strange video; the group runs the checks together.
 
 ## Spread 11
-{name} and the Too-Good-To-Be-True Picture — beat 11: truth-detective notebook; same flying cat on spreads 1-10. Child acts; keep calm zone for text.
+One thing turns out to be real (slot: real_animal_fact from the list): checking is about finding out, not doubting everything.
 
 ## Spread 12
-{name} and the Too-Good-To-Be-True Picture — beat 12: truth-detective notebook; same flying cat on spreads 1-10. Child acts; keep calm zone for text.
+The teacher pins the four checks on the class wall (as pictures, no readable text).
 
 ## Spread 13
-{name} and the Too-Good-To-Be-True Picture — beat 13: truth-detective notebook; same flying cat on spreads 1-10. Child acts; keep calm zone for text.
+At home, {name} adds a sticker to the detective notebook.
 
 ## Spread 14
-{name} and the Too-Good-To-Be-True Picture — beat 14: truth-detective notebook; same flying cat on spreads 1-10. Child acts; keep calm zone for text.
+Last line: 'I don't have to believe everything I see. I can check.'

@@ -1,47 +1,49 @@
 # big_kid_list
 approved: false
-sets: kitchen,hallway,bathroom_door
+sets: kitchen,hallway,garden,nursery_door
+carer_signature: Mum's yellow scarf
+last_line: I'm the one who decides. And I decided.
 
-<!-- Placeholder beats; mark approved when story is signed off. -->
+<!-- Beats from the approved story concepts (14–15 Oct 2026). {name} = child, {carer} = carer name/role from the order. 'slot:' marks a personalisation slot. Titles stay working titles until Taoufik approves each story. -->
 
 ## Spread 1
-{name} and the Big-Kid List — beat 1: paper list on the fridge with five pictures: shoes, coat, cup, hands, potty; ticks added s. Child acts; keep calm zone for text.
+At home with {carer}. A paper list on the fridge: five pictures — shoes, coat, cup, hands, potty. No ticks yet. {carer} says one thing a day, and {name} chooses which.
 
 ## Spread 2
-{name} and the Big-Kid List — beat 2: paper list on the fridge with five pictures: shoes, coat, cup, hands, potty; ticks added s. Child acts; keep calm zone for text.
+Day one: shoes. {name} pushes a foot in — wrong foot. Tries again, laughs, swaps them. Done. Tick number one goes on the list.
 
 ## Spread 3
-{name} and the Big-Kid List — beat 3: paper list on the fridge with five pictures: shoes, coat, cup, hands, potty; ticks added s. Child acts; keep calm zone for text.
+Day two: the coat. The zip will not catch. {carer} (or the optional sibling/friend) holds the bottom still, {name} pulls. Zip up to the chin. Tick two.
 
 ## Spread 4
-{name} and the Big-Kid List — beat 4: paper list on the fridge with five pictures: shoes, coat, cup, hands, potty; ticks added s. Child acts; keep calm zone for text.
+Day three: a cup with no lid. Two hands, one sip, one splash on the table. A cloth, a wipe, no fuss. Another sip. Tick three.
 
 ## Spread 5
-{name} and the Big-Kid List — beat 5: paper list on the fridge with five pictures: shoes, coat, cup, hands, potty; ticks added s. Child acts; keep calm zone for text.
+Day four: washing hands at the sink. Cold tap, soap, rub rub rub, singing the song all the way to twenty. Tick four.
 
 ## Spread 6
-{name} and the Big-Kid List — beat 6: paper list on the fridge with five pictures: shoes, coat, cup, hands, potty; ticks added s. Child acts; keep calm zone for text.
+The potty is the last picture. {name} looks at it for a while. 'Not today.' {carer}: 'That's fine. It's your turn to choose.' Back to playing.
 
 ## Spread 7
-{name} and the Big-Kid List — beat 7: paper list on the fridge with five pictures: shoes, coat, cup, hands, potty; ticks added s. Child acts; keep calm zone for text.
+Later, {name} sits on the potty with clothes on, just to see. The comfort object sits on a cushion beside it. The potty is only a potty.
 
 ## Spread 8
-{name} and the Big-Kid List — beat 8: paper list on the fridge with five pictures: shoes, coat, cup, hands, potty; ticks added s. Child acts; keep calm zone for text.
+A day of noticing: {name} says 'I need a wee!' out loud for the first time (in the garden or mid-play). {carer}: 'You noticed! That's the big-kid part.'
 
 ## Spread 9
-{name} and the Big-Kid List — beat 9: paper list on the fridge with five pictures: shoes, coat, cup, hands, potty; ticks added s. Child acts; keep calm zone for text.
+A try that doesn't work: {name} sits, waits, nothing happens. {carer}: 'Sitting counts.' Off the potty and back to the game.
 
 ## Spread 10
-{name} and the Big-Kid List — beat 10: paper list on the fridge with five pictures: shoes, coat, cup, hands, potty; ticks added s. Child acts; keep calm zone for text.
+A wet accident during play. {name} says 'Oops.' {carer}: 'Oops is fine. Clean clothes, carry on.' Dry pants in the chosen colour/pattern. No sad face anywhere.
 
 ## Spread 11
-{name} and the Big-Kid List — beat 11: paper list on the fridge with five pictures: shoes, coat, cup, hands, potty; ticks added s. Child acts; keep calm zone for text.
+The one that works: a wee in the potty. A small, real celebration — {name} and {carer} sing the hand-wash song together to twenty. No sticker, no present. Draw from the waist up or with the potty partly hidden.
 
 ## Spread 12
-{name} and the Big-Kid List — beat 12: paper list on the fridge with five pictures: shoes, coat, cup, hands, potty; ticks added s. Child acts; keep calm zone for text.
+{name} takes the pen and draws the fifth tick on the list — big and wobbly. It is {name}'s own tick.
 
 ## Spread 13
-{name} and the Big-Kid List — beat 13: paper list on the fridge with five pictures: shoes, coat, cup, hands, potty; ticks added s. Child acts; keep calm zone for text.
+The list, all five ticked. {name} packs the nursery bag: spare pants, spare trousers, 'just in case'. The comfort object goes on top.
 
 ## Spread 14
-{name} and the Big-Kid List — beat 14: paper list on the fridge with five pictures: shoes, coat, cup, hands, potty; ticks added s. Child acts; keep calm zone for text.
+First morning at the nursery (slot: school_name). {name} walks in through the door with the bag. Last line, spoken by {name}: 'I'm the one who decides. And I decided.'

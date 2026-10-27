@@ -11,7 +11,7 @@ from .illustrate import generate_cover_panels, generate_spread_art
 from .job_log import append_event, read_json, write_json
 from .memory import record_change_and_learn
 from .openai_util import chat_json
-from .pages import page_spread_side
+from .pages import page_spread_side, set_spread_text, spread_text
 from .pdf_build import build_pdf
 
 
@@ -101,18 +101,24 @@ def _current_pdf(job_dir: Path) -> str | None:
 
 
 def _sync_spread(story: dict, pages: list, page: dict) -> None:
-    """Spread text/scene live on both halves and in story['spreads']; keep them identical."""
+    """Scenes are shared by both halves; the story text lives on the calm-zone half ONLY."""
     if page.get("kind") != "spread_half":
         return
+    n = int(page["spread"])
+    text = page.get("text") or spread_text(pages, n)
     for other in pages:
         if other.get("kind") == "spread_half" and other.get("spread") == page.get("spread"):
-            for key in ("text", "scene", "calm_zone", "personalized"):
+            for key in ("scene", "scene_left", "scene_right", "calm_zone", "personalized"):
                 if key in page:
                     other[key] = page[key]
+    set_spread_text(pages, n, text, page.get("calm_zone"))
     for spread in story.get("spreads") or []:
-        if int(spread.get("n") or 0) == int(page.get("spread") or -1):
-            spread["text"] = page.get("text")
+        if int(spread.get("n") or 0) == n:
+            spread["text"] = text
             spread["scene"] = page.get("scene")
+            for key in ("scene_left", "scene_right"):
+                if key in page:
+                    spread[key] = page[key]
 
 
 def _regen_spread(

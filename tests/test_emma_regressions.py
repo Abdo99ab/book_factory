@@ -136,6 +136,41 @@ def test_28_images_generated_as_14_left_right_pairs(emma_build):
             assert "art-left.png" not in call["names"]
 
 
+def test_two_different_pictures_per_spread_in_the_prompts(emma_build):
+    """Same picture twice (preview defect): each page is drawn from its own brief, not repeating the other."""
+    spread_calls = [c for c in emma_build.fake.calls if c["description"].startswith("Spread ")]
+    spreads = emma_build.story["spreads"]
+    for n in range(1, 15):
+        left_call, right_call = spread_calls[2 * (n - 1)], spread_calls[2 * (n - 1) + 1]
+        spread = spreads[n - 1]
+        assert spread["scene_left"] != spread["scene_right"]
+        assert spread["scene_right"] in right_call["prompt"]
+        assert "Do not repeat" in right_call["prompt"]
+        assert f"The other page of this spread shows: {spread['scene_left']}" in right_call["prompt"]
+        assert spread["scene_left"] in left_call["prompt"]
+        assert f"The other page of this spread shows: {spread['scene_right']}" in left_call["prompt"]
+        assert "DIFFERENT view of the same moment" in right_call["prompt"]
+        assert "The carer always wears/carries: Mum's yellow scarf" in right_call["prompt"]
+
+
+def test_pages_json_has_text_on_exactly_one_half_per_spread(emma_build):
+    saved = read_json(emma_build.job_dir / "story" / "pages.json")["pages"]
+    by_number = {p["number"]: p for p in saved}
+    for n in range(1, 15):
+        left, right = by_number[2 * n], by_number[2 * n + 1]
+        assert bool(left["text"].strip()) != bool(right["text"].strip()), f"spread {n}"
+        carrying = left if left["text"].strip() else right
+        assert carrying["side"] == carrying["calm_zone"]
+        assert carrying["text"] == emma_build.story["spreads"][n - 1]["text"]
+        assert left["scene_left"] == right["scene_left"] and left["scene_right"] == right["scene_right"]
+
+
+def test_cover_front_prompt_has_no_carer_and_preview_is_saved(emma_build):
+    cover = read_json(emma_build.job_dir / "cover" / "cover.json")
+    assert "never on the front cover" in cover["front_prompt"]
+    assert (emma_build.job_dir / "cover" / "front_preview.png").is_file()
+
+
 # --- 3. anchor state never resets (Emma bug 1: fridge list back to zero) ------------------------------------------
 
 

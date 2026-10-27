@@ -49,6 +49,7 @@ Find real issues that hurt print quality, especially:
 - Missing accessories the page brief clearly requires (if brief is provided)
 - Artefacts: extra or missing fingers, melted hands, garbled glyphs inside the art, duplicated limbs
 - The anchor object (if the brief names one) shows the wrong state (e.g. wrong number of ticks)
+- The two pages of one spread show the same picture or framing (they must be two different views)
 
 Return JSON:
 {
@@ -243,6 +244,28 @@ def _merge_plans(parts: list[dict]) -> dict:
     return {"summary": summary, "issues": issues, "actions": actions, "records": records}
 
 
+def _add_pair_duplicate_actions(job_dir: Path, plan: dict) -> None:
+    """Deterministic check: same picture on both pages of a spread -> propose regen of the right page."""
+    from .qa import pair_duplicate_actions, pair_duplicate_issues
+
+    taken = {int(a.get("page") or 0) for a in plan.get("actions") or []}
+    for issue in pair_duplicate_issues(job_dir):
+        plan.setdefault("issues", []).append(
+            {
+                "page": issue["page"],
+                "severity": "warning",
+                "problem": issue["message"],
+                "fix": "Regenerate the right page with a different framing.",
+                "code": "pair_duplicate",
+            }
+        )
+    for action in pair_duplicate_actions(job_dir):
+        if int(action["page"]) in taken:
+            continue
+        plan.setdefault("actions", []).append(action)
+    plan["actions"] = sorted(plan.get("actions") or [], key=lambda a: int(a.get("page") or 0))[:MAX_ACTIONS]
+
+
 def review_book_pages(client, job_dir: Path, inputs: dict, story: dict, pages: list) -> dict:
     """Vision-review all composited pages; return a change-compatible plan."""
     reviewable = [
@@ -269,6 +292,7 @@ def review_book_pages(client, job_dir: Path, inputs: dict, story: dict, pages: l
             raise
 
     plan = _merge_plans(parts)
+    _add_pair_duplicate_actions(job_dir, plan)
     # review_record feeds qa.anchor_state / qa.face_position (and the human-check panel).
     (job_dir / "qa").mkdir(parents=True, exist_ok=True)
     write_json(job_dir / "qa" / "review_record.json", {"pages": plan.get("records") or {}})

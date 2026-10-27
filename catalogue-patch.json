@@ -1,0 +1,38 @@
+{
+ "big_kid_list": {
+  "last_line": "I'm the one who decides. And I decided.",
+  "parent_spread": {
+   "you_could_say": "It's your turn to choose. Sitting counts. Oops is fine.",
+   "try_together": "Which big-kid thing shall we tick next?",
+   "in_real_life": "Keep the list on the fridge and let {name} choose the next tick.",
+   "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
+  }
+ },
+ "nursery_day": {
+  "last_line": "Tomorrow we do it again. And you come back again."
+ },
+ "bed_boat": {
+  "last_line": "Tonight it sails again."
+ },
+ "night_rocket": {
+  "last_line": "The best captains ask the best questions."
+ },
+ "dinosaur_egg": {
+  "last_line": "Today I helped someone small find their way."
+ },
+ "ocean_map": {
+  "last_line": "Wrong turns are part of the map."
+ },
+ "tells_truth": {
+  "last_line": "Telling the truth makes me feel tall."
+ },
+ "worry_jar": {
+  "last_line": "Worries are smaller when you share them."
+ },
+ "new_front_door": {
+  "last_line": "Home is where my things and my people are."
+ },
+ "too_good_picture": {
+  "last_line": "I don't have to believe everything I see. I can check."
+ }
+}

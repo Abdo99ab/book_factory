@@ -50,7 +50,7 @@ from .constants import (
 )
 from .fonts import normalize_font_id, register_brand_fonts, reportlab_name
 from .illustrate import assert_print_resolution
-from .job_log import append_event, write_json
+from .job_log import append_event, read_json, write_json
 from .pages import spread_art_path
 
 SITE_URL = "raisedready.co.uk"
@@ -166,6 +166,8 @@ class _Ctx:
     route: dict
     grade: str | None
     layout_log: list
+    # Front cover art failed the layout check twice: always set title + logo on the soft plate.
+    force_cover_plate: bool = False
 
 
 def _y(c: canvas.Canvas, y_mm: float) -> float:
@@ -349,7 +351,9 @@ def _title_layout(ctx: _Ctx, title: str, width_mm: float):
     return line1, lines, size
 
 
-def _draw_title_block(ctx, c, art, title, centre_x_mm, top_mm, width_mm, allow_light_ink, label):
+def _draw_title_block(
+    ctx, c, art, title, centre_x_mm, top_mm, width_mm, allow_light_ink, label, force_plate=False
+):
     font = reportlab_name("title")
     line1, lines, size = _title_layout(ctx, title, width_mm)
     l1_size = SIZE_SCALE["front_title_and_the"][0]
@@ -359,6 +363,8 @@ def _draw_title_block(ctx, c, art, title, centre_x_mm, top_mm, width_mm, allow_l
     height_mm = height_pt * 25.4 / 72
     box = (centre_x_mm - width_mm / 2, top_mm - 2, centre_x_mm + width_mm / 2, top_mm + height_mm + 2)
     ink, plate = _decide_ink(ctx, art, box, allow_light_ink=allow_light_ink, label=label)
+    if force_plate and TEXT_PLATE != "none":
+        ink, plate = INK, True
     if plate:
         _soft_plate(c, box[0] - 4, box[1] - 3, width_mm + 8, height_mm + 8)
     cursor = top_mm
@@ -612,6 +618,7 @@ def _draw_front(ctx: _Ctx, c, art: _Art, panel: tuple[float, float], strip, alig
         trim_w - 30,
         True,
         "Front cover title",
+        force_plate=ctx.force_cover_plate,
     )
     # Logo bottom centre; full colour only when >= 60 mm wide (else one-ink navy).
     logo_w = 62.0
@@ -620,7 +627,7 @@ def _draw_front(ctx: _Ctx, c, art: _Art, panel: tuple[float, float], strip, alig
     logo_y = trim_y + trim_w - 10 - logo_h
     box = (centre - logo_w / 2, logo_y, centre + logo_w / 2, logo_y + logo_h)
     s = art.stats(box)
-    busy = s["std"] > 0.10 or s["p10"] < 0.25
+    busy = s["std"] > 0.10 or s["p10"] < 0.25 or ctx.force_cover_plate
     if busy and TEXT_PLATE != "none":
         _soft_plate(c, box[0] - 6, box[1] - 4, logo_w + 12, logo_h + 8)
     _draw_logo(c, "full_colour", centre - logo_w / 2, logo_y, logo_w)
@@ -828,6 +835,66 @@ def render_previews(pdf_path: Path, job_dir: Path, packaging: str, endpapers: bo
         pdf.close()
 
 
+def _cover_forces_plate(job_dir: Path) -> bool:
+    """True when cover generation kept art that failed the layout check twice (soft plate forced)."""
+    cover = read_json(Path(job_dir) / "cover" / "cover.json") or {}
+    return bool((cover.get("layout") or {}).get("force_soft_plate"))
+
+
+def render_front_preview(job_dir: Path, inputs: dict, story: dict, scale: float = 1.4) -> Path | None:
+    """Compose the front cover (art + band + title + logo, via ``_draw_front``) to cover/front_preview.png.
+
+    Same drawing code as the print cover, rendered from a throw-away single-page PDF. Operator UI only.
+    """
+    try:
+        import pypdfium2 as pdfium
+    except ImportError:  # pragma: no cover
+        append_event(job_dir, "cover_preview_skipped", "pypdfium2 not installed; no composed front preview.")
+        return None
+    register_brand_fonts()
+    job_dir = Path(job_dir)
+    front_art = job_dir / "cover" / "front_art.png"
+    if not front_art.is_file():
+        return None
+    title = get_title(inputs["title_id"])
+    work_dir = job_dir / "cover" / "_preview_work"
+    tmp_pdf = work_dir / "front_preview.pdf"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    c = canvas.Canvas(
+        str(tmp_pdf),
+        pagesize=(mm_to_pt(PAGE_WITH_BLEED_MM),) * 2,
+        initialFontName=reportlab_name("body"),
+    )
+    ctx = _Ctx(
+        canvas=c,
+        job_dir=job_dir,
+        work_dir=work_dir,
+        inputs=inputs,
+        story=story,
+        title=title,
+        name=inputs["name"],
+        family=title["family"],
+        route=ROUTE_PRESETS[inputs.get("route") or "morning_light"],
+        grade=None,
+        layout_log=[],
+        force_cover_plate=_cover_forces_plate(job_dir),
+    )
+    art = _Art(front_art, work_dir, None, tag="front-preview")
+    strip = (0.0, 0.0, PAGE_WITH_BLEED_MM, PAGE_WITH_BLEED_MM)
+    _single_cover_page(ctx, c, art, strip, front=True)
+    c.save()
+    out = job_dir / "cover" / "front_preview.png"
+    pdf = pdfium.PdfDocument(str(tmp_pdf))
+    try:
+        pdf[0].render(scale=scale).to_pil().convert("RGB").save(out, format="PNG")
+    finally:
+        pdf.close()
+    for leftover in work_dir.iterdir():
+        leftover.unlink(missing_ok=True)
+    work_dir.rmdir()
+    return out
+
+
 # --- entry point ----------------------------------------------------------------------------------------
 
 
@@ -886,6 +953,7 @@ def build_pdf(job_dir: Path, story: dict, pages: list, inputs: dict) -> Path:
         route=ROUTE_PRESETS[route_key],
         grade=title.get("post_grade") or None,
         layout_log=[],
+        force_cover_plate=_cover_forces_plate(job_dir),
     )
 
     front_fn = back_fn = None

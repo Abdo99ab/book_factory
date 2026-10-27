@@ -515,6 +515,8 @@ def create_app():
             )
         cover_front = job_dir / "cover" / "front_art.png"
         cover_print = job_dir / "print" / "cover.jpg"
+        cover_preview = job_dir / "cover" / "front_preview.png"
+        cover_layout = (read_json(job_dir / "cover" / "cover.json") or {}).get("layout") or {}
         validation = read_json(job_dir / "story" / "validation_report.json")
         change_queue = job.get("change_queue") or []
         queued_changes = [
@@ -542,6 +544,9 @@ def create_app():
             cover_print_exists=cover_print.is_file(),
             cover_front_url=url_for("cover_front", job_id=job_id),
             cover_print_url=url_for("cover_print", job_id=job_id),
+            cover_preview_exists=cover_preview.is_file(),
+            cover_preview_url=url_for("cover_front_preview", job_id=job_id),
+            cover_layout_failures=cover_layout.get("failures") or [],
             preview_page_count=PREVIEW_PAGE_COUNT,
             content_editable=content_editable and job.get("status") != "rebuilding_content",
             preferred_next=job.get("preferred_next") or inputs.get("start_mode") or "preview",
@@ -891,6 +896,13 @@ def create_app():
     @app.get("/jobs/<job_id>/cover/front")
     def cover_front(job_id):
         path = _job_dir(job_id) / "cover" / "front_art.png"
+        if not path.is_file():
+            abort(404)
+        return send_file(path, mimetype="image/png")
+
+    @app.get("/jobs/<job_id>/cover/front-preview")
+    def cover_front_preview(job_id):
+        path = _job_dir(job_id) / "cover" / "front_preview.png"
         if not path.is_file():
             abort(404)
         return send_file(path, mimetype="image/png")

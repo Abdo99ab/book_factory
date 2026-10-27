@@ -1,47 +1,49 @@
 # dinosaur_egg
 approved: false
-sets: garden,park
+sets: garden_or_park,fern_valley,river,dinosaur_nest,home_kitchen
+carer_signature: {carer}'s yellow scarf
+last_line: Today I helped someone small find their way.
 
-<!-- Placeholder beats; mark approved when story is signed off. -->
+<!-- Beats from the approved story concepts (14–15 Oct 2026). {name} = child, {carer} = carer name/role from the order. 'slot:' marks a personalisation slot. Titles stay working titles until Taoufik approves each story. -->
 
 ## Spread 1
-{name} and the Lost Dinosaur Egg — beat 1: Pip the baby dinosaur (design locked on spread 2); shiny shell from spread 12. Child acts; keep calm zone for text.
+Digging in the garden or park (slot: garden_vs_park) with a spade. Something big and speckled in the earth.
 
 ## Spread 2
-{name} and the Lost Dinosaur Egg — beat 2: Pip the baby dinosaur (design locked on spread 2); shiny shell from spread 12. Child acts; keep calm zone for text.
+The egg wobbles, cracks — a baby dinosaur (slot: dino_name, default Pip). Lock Pip's design and colour here and reuse it on every spread.
 
 ## Spread 3
-{name} and the Lost Dinosaur Egg — beat 3: Pip the baby dinosaur (design locked on spread 2); shiny shell from spread 12. Child acts; keep calm zone for text.
+Pip looks lost and small. {name}: 'Don't worry. I'll help you find your mum.'
 
 ## Spread 4
-{name} and the Lost Dinosaur Egg — beat 4: Pip the baby dinosaur (design locked on spread 2); shiny shell from spread 12. Child acts; keep calm zone for text.
+Through the giant ferns. Pip is too small to climb a log; {name} builds a step of stones.
 
 ## Spread 5
-{name} and the Lost Dinosaur Egg — beat 5: Pip the baby dinosaur (design locked on spread 2); shiny shell from spread 12. Child acts; keep calm zone for text.
+A river. {name} shares the snack (slot: snack) to give Pip energy.
 
 ## Spread 6
-{name} and the Lost Dinosaur Egg — beat 6: Pip the baby dinosaur (design locked on spread 2); shiny shell from spread 12. Child acts; keep calm zone for text.
+A long-necked dinosaur offers a bridge — its neck. Gentle, friendly.
 
 ## Spread 7
-{name} and the Lost Dinosaur Egg — beat 7: Pip the baby dinosaur (design locked on spread 2); shiny shell from spread 12. Child acts; keep calm zone for text.
+Pip is tired. {name} carries Pip on their back.
 
 ## Spread 8
-{name} and the Lost Dinosaur Egg — beat 8: Pip the baby dinosaur (design locked on spread 2); shiny shell from spread 12. Child acts; keep calm zone for text.
+A soft grey cloud; they shelter under a big leaf. {name} sings Pip the song {carer} sings at home (slot: family_song).
 
 ## Spread 9
-{name} and the Lost Dinosaur Egg — beat 9: Pip the baby dinosaur (design locked on spread 2); shiny shell from spread 12. Child acts; keep calm zone for text.
+Morning in the valley: big footprints to follow.
 
 ## Spread 10
-{name} and the Lost Dinosaur Egg — beat 10: Pip the baby dinosaur (design locked on spread 2); shiny shell from spread 12. Child acts; keep calm zone for text.
+Pip's mother appears — huge and gentle, lowering her head.
 
 ## Spread 11
-{name} and the Lost Dinosaur Egg — beat 11: Pip the baby dinosaur (design locked on spread 2); shiny shell from spread 12. Child acts; keep calm zone for text.
+The thank-you: Pip's mother lowers her head so {name} can stroke her nose.
 
 ## Spread 12
-{name} and the Lost Dinosaur Egg — beat 12: Pip the baby dinosaur (design locked on spread 2); shiny shell from spread 12. Child acts; keep calm zone for text.
+Pip gives {name} a shiny shell from the nest. The shell is the anchor object from here on.
 
 ## Spread 13
-{name} and the Lost Dinosaur Egg — beat 13: Pip the baby dinosaur (design locked on spread 2); shiny shell from spread 12. Child acts; keep calm zone for text.
+Walking home; the shell in {name}'s pocket.
 
 ## Spread 14
-{name} and the Lost Dinosaur Egg — beat 14: Pip the baby dinosaur (design locked on spread 2); shiny shell from spread 12. Child acts; keep calm zone for text.
+At home with {carer}. Last line: 'Today I helped someone small find their way.'

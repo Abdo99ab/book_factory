@@ -29,7 +29,7 @@ SPREAD_TEXTS = [
     "Emma sits and it works. Emma looks at the list.",
     "Emma ticks the list. Mum has a grin.",
     "Emma shows the list to Mum.",
-    "Emma has a cup. The list waits on the fridge. Emma can choose again tomorrow.",
+    "Emma holds the pen. I'm the one who decides. And I decided.",
 ]
 
 SPREAD_SCENES = [
@@ -48,6 +48,19 @@ SPREAD_SCENES = [
     "Emma shows the paper list on the fridge to Mum in the kitchen.",
     "Emma holds a cup in the kitchen; the paper list on the fridge has five ticks.",
 ]
+
+
+def scene_pair(n: int) -> dict:
+    """Two different pictures of spread ``n``: wide + quiet on the calm page, close + face on the other."""
+    scene = SPREAD_SCENES[n - 1]
+    wide = f"Wide, quiet view with a plain empty area for the text. {scene}"
+    close = f"Close view of Emma's face and hands, small detail in focus. {scene}"
+    calm = "left" if n % 2 == 1 else "right"
+    return (
+        {"scene_left": wide, "scene_right": close}
+        if calm == "left"
+        else {"scene_left": close, "scene_right": wide}
+    )
 
 
 def emma_inputs() -> dict:
@@ -75,7 +88,8 @@ def emma_story(inputs: dict | None = None) -> dict:
     title = get_title(inputs["title_id"])
     locked = _build_locked(title, inputs)
     spreads = [
-        {"n": i + 1, "text": SPREAD_TEXTS[i], "scene": SPREAD_SCENES[i]} for i in range(14)
+        {"n": i + 1, "text": SPREAD_TEXTS[i], "scene": SPREAD_SCENES[i], **scene_pair(i + 1)}
+        for i in range(14)
     ]
     return {
         "title_id": inputs["title_id"],
@@ -108,14 +122,19 @@ def clone(obj):
     return copy.deepcopy(obj)
 
 
-def _art(path: Path, size: int, tone: tuple, dark: bool = False) -> None:
-    """Flat-ish test art: light calm tone with a darker lower-left blob so text areas are testable."""
+def _art(path: Path, size: int, tone: tuple, dark: bool = False, alt_view: bool = False) -> None:
+    """Flat-ish test art: light calm tone with a darker lower-left blob so text areas are testable.
+
+    ``alt_view`` adds a big upper-left shape so the two pages of a spread are visibly different pictures.
+    """
     from PIL import Image, ImageDraw
 
     path.parent.mkdir(parents=True, exist_ok=True)
     image = Image.new("RGB", (size, size), tone)
     draw = ImageDraw.Draw(image)
     draw.ellipse((size * 0.55, size * 0.1, size * 0.95, size * 0.45), fill=(150, 120, 90))
+    if alt_view:
+        draw.ellipse((size * 0.05, size * 0.05, size * 0.5, size * 0.5), fill=(110, 140, 170))
     if dark:
         draw.rectangle((0, size // 2, size, size), fill=(30, 40, 60))
     image.save(path, format="PNG", compress_level=1)
@@ -126,7 +145,13 @@ def write_emma_art(job_dir: Path, size: int = 1400, dark_spreads: tuple = ()) ->
     for n in range(1, 15):
         for side in ("left", "right"):
             tone = (236 + (n % 3) * 4, 228 + (n % 4) * 3, 205 + (n % 5) * 4)
-            _art(job_dir / "spreads" / f"spread-{n:02d}" / f"art-{side}.png", size, tone, dark=n in dark_spreads)
+            _art(
+                job_dir / "spreads" / f"spread-{n:02d}" / f"art-{side}.png",
+                size,
+                tone,
+                dark=n in dark_spreads,
+                alt_view=(side == "right"),
+            )
     _art(job_dir / "cover" / "front_art.png", size, (240, 224, 196))
     _art(job_dir / "cover" / "back_art.png", size, (244, 234, 214))
     _art(job_dir / "title_page" / "spot.png", 512, (250, 246, 239))

@@ -480,6 +480,18 @@
         {% else %}
           <div class="blank-page">Front art pending</div>
         {% endif %}
+        <p class="muted">Raw art</p>
+      </div>
+      <div class="cover-image">
+        {% if cover_preview_exists %}
+          <img src="{{ cover_preview_url }}?v={{ job.status }}" alt="Front cover with band, title and logo">
+        {% else %}
+          <div class="blank-page">Composed front pending</div>
+        {% endif %}
+        <p class="muted">Composed front (band + title + logo)</p>
+        {% if cover_layout_failures %}
+          <p class="muted"><strong>Layout warning:</strong> {{ cover_layout_failures | join('; ') }}</p>
+        {% endif %}
       </div>
       <div class="cover-image wide">
         {% if cover_print_exists %}

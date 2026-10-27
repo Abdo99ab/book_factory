@@ -1,47 +1,49 @@
 # ocean_map
 approved: false
-sets: beach,shallow_sea
+sets: beach_or_bath,coral_maze,sunken_ship,reef
+carer_signature: {carer}'s yellow scarf
+last_line: Wrong turns are part of the map.
 
-<!-- Placeholder beats; mark approved when story is signed off. -->
+<!-- Beats from the approved story concepts (14–15 Oct 2026). {name} = child, {carer} = carer name/role from the order. 'slot:' marks a personalisation slot. Titles stay working titles until Taoufik approves each story. -->
 
 ## Spread 1
-{name}'s Ocean Map — beat 1: turtle guide and sea-glass compass. Child acts; keep calm zone for text.
+Opening on the beach or in the bath that became an ocean (slot: beach_vs_bath). A bottle washes up.
 
 ## Spread 2
-{name}'s Ocean Map — beat 2: turtle guide and sea-glass compass. Child acts; keep calm zone for text.
+The map inside, with {name}'s name in curly writing (the name is set in code, not painted).
 
 ## Spread 3
-{name}'s Ocean Map — beat 3: turtle guide and sea-glass compass. Child acts; keep calm zone for text.
+Diving in with a friendly turtle guide (slot: turtle_name). Mask off or transparent; face visible.
 
 ## Spread 4
-{name}'s Ocean Map — beat 4: turtle guide and sea-glass compass. Child acts; keep calm zone for text.
+First wrong turn: a dead-end cave. 'That way didn't work. Let's try another.'
 
 ## Spread 5
-{name}'s Ocean Map — beat 5: turtle guide and sea-glass compass. Child acts; keep calm zone for text.
+A coral maze. {name} marks the wrong paths with shells so they don't repeat them.
 
 ## Spread 6
-{name}'s Ocean Map — beat 6: turtle guide and sea-glass compass. Child acts; keep calm zone for text.
+A current pushes them back. {name} laughs and swims along the reef instead.
 
 ## Spread 7
-{name}'s Ocean Map — beat 7: turtle guide and sea-glass compass. Child acts; keep calm zone for text.
+An octopus who has lost one of eight socks; {name} helps find it (a moment of fun).
 
 ## Spread 8
-{name}'s Ocean Map — beat 8: turtle guide and sea-glass compass. Child acts; keep calm zone for text.
+The map gets wet and smudged. {name} redraws it from memory.
 
 ## Spread 9
-{name}'s Ocean Map — beat 9: turtle guide and sea-glass compass. Child acts; keep calm zone for text.
+The sunken ship, calm and bright, fish drifting through.
 
 ## Spread 10
-{name}'s Ocean Map — beat 10: turtle guide and sea-glass compass. Child acts; keep calm zone for text.
+The chest is stuck. The first try fails; the second, pushing together with the turtle, works.
 
 ## Spread 11
-{name}'s Ocean Map — beat 11: turtle guide and sea-glass compass. Child acts; keep calm zone for text.
+Inside: a sea-glass compass. It only points the right way after a wrong turn.
 
 ## Spread 12
-{name}'s Ocean Map — beat 12: turtle guide and sea-glass compass. Child acts; keep calm zone for text.
+Swimming home the right way first time, thanks to the shell trail.
 
 ## Spread 13
-{name}'s Ocean Map — beat 13: turtle guide and sea-glass compass. Child acts; keep calm zone for text.
+Back on the beach or in the bath; the compass on the windowsill.
 
 ## Spread 14
-{name}'s Ocean Map — beat 14: turtle guide and sea-glass compass. Child acts; keep calm zone for text.
+Last line: 'Wrong turns are part of the map.' Generate at daylight tones first; the underwater grade is applied after the face check.

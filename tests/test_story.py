@@ -28,17 +28,91 @@ def test_locked_keys_present():
         assert key in locked
 
 
+def _spread(n: int) -> dict:
+    return {
+        "n": n,
+        "text": "Emma picks a shoe.",
+        "scene": "kitchen",
+        "scene_left": f"Wide quiet kitchen, spread {n}.",
+        "scene_right": f"Close on Emma's hands and face, spread {n}.",
+    }
+
+
+_INPUTS = {
+    "title_id": "big_kid_list",
+    "name": "Emma",
+    "age": "3",
+    "pronouns": "she",
+    "gender": "female",
+    "age_band": "2-3.5",
+    "carer": {"name": "Sam", "role": "Mum"},
+    "home_type": "house",
+    "comfort_object": "bunny",
+    "slots": {"potty_or_seat": "potty"},
+}
+
+
+@patch("pipeline.story.humanize_story_fields", side_effect=lambda _c, _d, s: s)
+@patch("pipeline.story.chat_json")
+def test_payload_has_binding_beats_signature_sets_and_scene_pair_schema(mock_chat, _h, tmp_path):
+    from pipeline import story as story_module
+
+    mock_chat.return_value = json.dumps({"spreads": [_spread(i) for i in range(1, 15)]})
+    job_dir = tmp_path / "job"
+    (job_dir / "story").mkdir(parents=True)
+    out = rebuild_story(MagicMock(), job_dir, dict(_INPUTS))
+
+    system, user_json = mock_chat.call_args.args[1], mock_chat.call_args.args[2]
+    payload = json.loads(user_json)
+    assert len(payload["beats"]) == 14
+    assert "{carer}" not in json.dumps(payload["beats"]) and "{name}" not in json.dumps(payload["beats"])
+    assert payload["carer_signature"] == "Mum's yellow scarf"
+    assert payload["sets"] == ["kitchen", "hallway", "garden", "nursery_door"]
+    assert payload["last_line"] == "I'm the one who decides. And I decided."
+    schema = payload["output_schema"]["spreads"][0]
+    assert {"n", "text", "scene", "scene_left", "scene_right"} <= set(schema)
+    for phrase in ("BEATS ARE BINDING", "SAME events in the SAME order", "Add nothing", "exact"):
+        assert phrase in story_module.SYSTEM
+    assert "scene_left" in system and "DIFFERENT pictures" in system and "calm_zone" in system
+    assert out["carer_signature"] == "Mum's yellow scarf"
+    assert "{name}" not in json.dumps(out["locked"]["parent_spread"])
+
+
+@patch("pipeline.story.humanize_story_fields", side_effect=lambda _c, _d, s: s)
+@patch("pipeline.story.chat_json")
+def test_identical_scene_pair_is_a_hard_fail_and_retried(mock_chat, _h, tmp_path):
+    bad = [_spread(i) for i in range(1, 15)]
+    bad[2]["scene_right"] = bad[2]["scene_left"]  # same picture twice
+    good = [_spread(i) for i in range(1, 15)]
+    mock_chat.side_effect = [json.dumps({"spreads": bad}), json.dumps({"spreads": good})]
+    job_dir = tmp_path / "job"
+    (job_dir / "story").mkdir(parents=True)
+    out = rebuild_story(MagicMock(), job_dir, dict(_INPUTS))
+    assert mock_chat.call_count == 2
+    assert out["spreads"][2]["scene_left"] != out["spreads"][2]["scene_right"]
+
+
+def test_scene_pair_guard_rules():
+    from pipeline.text_guards import scene_pair_issues
+
+    ok = {"n": 1, "scene": "S", "scene_left": "wide", "scene_right": "close"}
+    assert scene_pair_issues([ok], require=True) == []
+    same = {**ok, "scene_right": "WIDE "}
+    assert [i["code"] for i in scene_pair_issues([same])] == ["scene_pair"]
+    copied = {**ok, "scene_left": "S"}
+    assert scene_pair_issues([copied])  # equals the shared scene verbatim
+    missing = {"n": 1, "scene": "S"}
+    assert scene_pair_issues([missing]) == []  # legacy spreads are skipped ...
+    assert scene_pair_issues([missing], require=True)  # ... unless story generation requires them
+    assert scene_pair_issues([{**ok, "scene_right": ""}])  # half a pair
+
+
 @patch("pipeline.story.humanize_story_fields", side_effect=lambda _c, _d, s: s)
 @patch("pipeline.story.chat_json")
 def test_guard_retry_path(mock_chat, _mock_humanize, tmp_path):
-    spreads_ok = [{"n": i, "text": "Emma picks a shoe.", "scene": "kitchen"} for i in range(1, 15)]
-    spreads_ok[-1]["text"] = (
-        "Emma has a cup. The list waits on the fridge. Emma can choose again tomorrow."
-    )
-    bad_spreads = [
-        {"n": i, "text": "Emma picks a shoe.", "scene": "kitchen"}
-        for i in range(1, 15)
-    ]
+    spreads_ok = [_spread(i) for i in range(1, 15)]
+    spreads_ok[-1]["text"] = "Emma holds the pen. I'm the one who decides. And I decided."
+    bad_spreads = [_spread(i) for i in range(1, 15)]
     bad_spreads[0]["text"] = "A magical day for Emma."
     bad = {"spreads": bad_spreads}
     good = {"spreads": spreads_ok}

@@ -83,6 +83,10 @@ Parked items: consent ticks, retention/deletion jobs, log redaction, `store=Fals
 
 **Commit:** `feat: brand catalogue, printer profiles, and feature flags`
 
+> **Update (27 Oct 2026, preview defects):** the Step 1 story files in `brand/stories/*.md` are now **real beats** (14 `## Spread N` blocks plus `approved:`, `sets:`, `carer_signature:` and `last_line:` headers), not placeholders. They stay `approved: false` until Taoufik signs each story. `catalogue-patch.json` (repo root) was applied onto `brand/catalogue.json`: every title's `last_line` equals its story header, and `big_kid_list.parent_spread` was replaced. The story prompt treats the beats as binding (same events, same order, nothing added, last spread ends with the exact catalogue `last_line`).
+>
+> **Log only (not fixed this round) - likeness test:** the generated child can read older or younger than the order's age and drift from the photo (age and likeness). `scripts/likeness_test.py` should gain an apparent-age item next to hair, skin tone, eyes and glasses/marks, and the likeness test should be run on a 2-3-year-old photo for `big_kid_list`.
+
 ---
 
 ## Step 2 — Fonts
@@ -325,6 +329,7 @@ Parked items: consent ticks, retention/deletion jobs, log redaction, `store=Fals
 | 26 Oct 2026 (afternoon) | Initial Step 0 plan (4 mm bleed, upscaler, replace humanize, full data-protection step). |
 | 26 Oct 2026 (evening) | **Revised** Step 0: TJ 3 mm LOCKED; no upscaler (page-pair native res); keep humanize.py; Step 12 PARKED; `order_id` kept; update file/test map. **Awaiting review before Step 1.** |
 | 26 Oct 2026 (night) | **Steps 1-13 complete** on `raised-ready-migration` (not pushed). Step 7 guard fixtures + validation; Step 8 native-resolution page-pair art (no upscaler; warn <300 ppi, fail <150); Step 9 ReportLab vector text + printer-profile PDF (`print/{order_id}-final.pdf`); Step 10 `pipeline/qa.py` + Human-check panel + Send gate; Step 11 catalogue templates with `{slot}` placeholders; Step 12 PARKED comments only (no consent/retention built); Step 13 Emma-build regressions with mocked OpenAI. Full suite: 117 passed. |
+| 27 Oct 2026 | **Preview defects fixed** (local, not pushed): (1) real story beats + catalogue patch, `carer_signature` / `sets` in the story payload, binding-beats system prompt; (2) two different pictures per spread (`scene_left` / `scene_right`, text only on the calm-zone half, `pair_duplicate` QA check); (3) front-cover layout rules, one-shot layout regen, `cover_layout_warning`, composed `cover/front_preview.png` on the job page. |
 
 ---
 

@@ -44,6 +44,7 @@ def test_clean_job_passes_qa_with_ppi_warning(job):
     codes = {i["code"] for r in report["reports"].values() for i in r["issues"]}
     assert "resolution" in codes  # 1400 px < 300 ppi target -> warning, not failure
     assert "anchor_not_reviewed" in codes and "faces_not_reviewed" in codes
+    assert "pair_duplicate" not in codes  # left and right art are different pictures
 
 
 def test_structure_fails_when_art_missing(job):

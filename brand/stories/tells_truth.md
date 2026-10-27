@@ -1,47 +1,49 @@
 # tells_truth
 approved: false
-sets: kitchen,living_room
+sets: living_room,kitchen_table,child_bedroom,school_or_nursery
+carer_signature: {carer}'s yellow scarf
+last_line: Telling the truth makes me feel tall.
 
-<!-- Placeholder beats; mark approved when story is signed off. -->
+<!-- Beats from the approved story concepts (14–15 Oct 2026). {name} = child, {carer} = carer name/role from the order. 'slot:' marks a personalisation slot. Titles stay working titles until Taoufik approves each story. -->
 
 ## Spread 1
-{name} Tells the Truth — beat 1: the broken object the parent chose (spreads 2-9). Child acts; keep calm zone for text.
+A normal afternoon. {name} playing ball indoors (or the parent-chosen everyday accident, slot: broken_object context).
 
 ## Spread 2
-{name} Tells the Truth — beat 2: the broken object the parent chose (spreads 2-9). Child acts; keep calm zone for text.
+The crash. The chosen object (slot: broken_object) is broken. No angry face anywhere.
 
 ## Spread 3
-{name} Tells the Truth — beat 3: the broken object the parent chose (spreads 2-9). Child acts; keep calm zone for text.
+{name} alone with it. A thought bubble: hide it under the cushion. The hiding is only ever a thought, never acted.
 
 ## Spread 4
-{name} Tells the Truth — beat 4: the broken object the parent chose (spreads 2-9). Child acts; keep calm zone for text.
+Two paths side by side as a choice the child sees: hide, or tell.
 
 ## Spread 5
-{name} Tells the Truth — beat 5: the broken object the parent chose (spreads 2-9). Child acts; keep calm zone for text.
+{name} walks to {carer}. Heart beating fast — shown as a small drum in the corner, not fear on the face.
 
 ## Spread 6
-{name} Tells the Truth — beat 6: the broken object the parent chose (spreads 2-9). Child acts; keep calm zone for text.
+'I broke it. It was an accident.'
 
 ## Spread 7
-{name} Tells the Truth — beat 7: the broken object the parent chose (spreads 2-9). Child acts; keep calm zone for text.
+{carer} kneels: 'Thank you for telling me. That was brave.' (slot: praise_words, the parent's exact words.)
 
 ## Spread 8
-{name} Tells the Truth — beat 8: the broken object the parent chose (spreads 2-9). Child acts; keep calm zone for text.
+Together they look at the pieces. Fixing what can be fixed — glue, tape.
 
 ## Spread 9
-{name} Tells the Truth — beat 9: the broken object the parent chose (spreads 2-9). Child acts; keep calm zone for text.
+What can't be fixed: 'That's OK. You're more important than the [object].'
 
 ## Spread 10
-{name} Tells the Truth — beat 10: the broken object the parent chose (spreads 2-9). Child acts; keep calm zone for text.
+Later, {name} finds a sibling's or friend's lost toy (slot: sibling_friend) and gives it back without being asked.
 
 ## Spread 11
-{name} Tells the Truth — beat 11: the broken object the parent chose (spreads 2-9). Child acts; keep calm zone for text.
+Bedtime: {carer}: 'I can trust you.' {name} smiles.
 
 ## Spread 12
-{name} Tells the Truth — beat 12: the broken object the parent chose (spreads 2-9). Child acts; keep calm zone for text.
+A small star drawn on {name}'s hand by {carer} — a family ritual, not a reward chart.
 
 ## Spread 13
-{name} Tells the Truth — beat 13: the broken object the parent chose (spreads 2-9). Child acts; keep calm zone for text.
+Next day at nursery or school (slot: school_name), {name} tells the teacher 'I spilled it' about a small mess. The teacher thanks them.
 
 ## Spread 14
-{name} Tells the Truth — beat 14: the broken object the parent chose (spreads 2-9). Child acts; keep calm zone for text.
+Last line: 'Telling the truth makes me feel tall.'

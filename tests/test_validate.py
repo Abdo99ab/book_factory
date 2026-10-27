@@ -144,7 +144,7 @@ def test_validate_auto_appends_missing_catalogue_last_line(bundle):
         report = validate_content(None, job_dir, inputs, story, pages)
     assert report["passed"] is True
     saved = json.loads((job_dir / "story" / "rebuilt_story.json").read_text(encoding="utf-8"))
-    assert "can choose again tomorrow" in saved["spreads"][-1]["text"]
+    assert "I'm the one who decides. And I decided." in saved["spreads"][-1]["text"]
 
 
 def test_must_not_show_in_scene_is_error(bundle):
@@ -209,8 +209,10 @@ def test_apply_repair_never_touches_locked(bundle):
     assert by_number[1]["kind"] == "title" and "Hacked" not in str(by_number[1].get("title"))
     assert "Hacked" not in by_number[30]["text"]
     assert "Hacked" not in by_number[32]["text"]
-    # spread 2 = pages 4 and 5; both halves and the story spread updated together
-    assert by_number[4]["text"] == by_number[5]["text"] == "Emma puts on the shoes."
+    # spread 2 = pages 4 and 5; calm zone is the right half, so only page 5 carries the text
+    assert by_number[5]["text"] == "Emma puts on the shoes."
+    assert by_number[4]["text"] == ""
+    assert by_number[4]["scene"] == by_number[5]["scene"] == "Emma in the hall by the door."
     assert story["spreads"][1]["text"] == "Emma puts on the shoes."
 
 

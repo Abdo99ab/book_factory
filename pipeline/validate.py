@@ -16,7 +16,7 @@ from .catalogue import check_band_grammar, get_title
 from .constants import CONTENT_PAGE_COUNT, SPREAD_COUNT
 from .job_log import append_event, write_json
 from .openai_util import chat_json
-from .pages import compile_pages
+from .pages import compile_pages, set_spread_text, spread_text
 from .text_guards import (
     SOFT_GUARD_CODES,
     check_spreads,
@@ -445,7 +445,8 @@ def _structural_issues(inputs: dict, story: dict, pages: list) -> list:
             continue
         spread_n = page.get("spread")
         scene = page.get("scene") or ""
-        text = page.get("text") or ""
+        # Story text lives on the calm-zone half only; the other half is intentionally empty.
+        text = spread_text(pages, spread_n) if spread_n else (page.get("text") or "")
         if not scene.strip():
             issues.append(_issue("error", "empty_scene", "Scene description is empty.", page=number, fix_hint="Add a visual scene description."))
         if not text.strip():
@@ -499,7 +500,9 @@ def _llm_validate(client, inputs: dict, story: dict, pages: list) -> dict:
             "number": p.get("number"),
             "spread": p.get("spread"),
             "scene": p.get("scene"),
-            "text": p.get("text"),
+            "scene_left": p.get("scene_left"),
+            "scene_right": p.get("scene_right"),
+            "text": spread_text(pages, p.get("spread")),
             "calm_zone": p.get("calm_zone"),
             "anchor_state": p.get("anchor_state"),
         }
@@ -561,13 +564,13 @@ def _apply_repair(story: dict, pages: list, repair: dict) -> tuple[dict, list]:
                 target["scene"] = fix["scene"]
             if fix.get("text") is not None:
                 target["text"] = fix["text"]
-        # keep the paired half in sync
+        # keep the paired half in sync (text lives on the calm-zone half only)
         for other in pages:
             if other.get("kind") == "spread_half" and other.get("spread") == page.get("spread"):
                 if fix.get("scene"):
                     other["scene"] = fix["scene"]
-                if fix.get("text") is not None:
-                    other["text"] = fix["text"]
+        if fix.get("text") is not None:
+            set_spread_text(pages, int(page["spread"]), fix["text"])
 
     # Defence in depth: whatever happened above, locked content is restored.
     story["locked"] = locked_snapshot
@@ -667,7 +670,7 @@ def _sync_spread_text_onto_pages(pages: list, spreads: list) -> list:
             continue
         spread = by_n.get(int(page.get("spread") or 0))
         if spread and spread.get("text") is not None:
-            page["text"] = spread["text"]
+            set_spread_text(pages, int(page["spread"]), spread["text"], page.get("calm_zone"))
             if spread.get("scene") is not None:
                 page["scene"] = spread["scene"]
     return pages

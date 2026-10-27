@@ -111,6 +111,8 @@ def load_story_beats(title_id: str) -> dict:
     meta = {
         "approved": False,
         "sets": [],
+        "carer_signature": "",
+        "last_line": "",
         "title_id": title_id,
     }
     for line in text.splitlines()[:20]:
@@ -119,7 +121,18 @@ def load_story_beats(title_id: str) -> dict:
         if line.startswith("sets:"):
             raw = line.split(":", 1)[1].strip()
             meta["sets"] = [s.strip() for s in raw.split(",") if s.strip()]
+        if line.startswith("carer_signature:"):
+            meta["carer_signature"] = line.split(":", 1)[1].strip()
+        if line.startswith("last_line:"):
+            meta["last_line"] = line.split(":", 1)[1].strip()
     return {"meta": meta, "beats": beats, "path": str(path)}
+
+
+def resolve_carer_text(text: str, inputs: dict) -> str:
+    """Fill ``{carer}`` in beats / signatures with the order's carer name (else role, else 'the carer')."""
+    carer = (inputs or {}).get("carer") or {}
+    label = (carer.get("name") or carer.get("role") or "the carer").strip()
+    return (text or "").replace("{carer}", label)
 
 
 def _validate_title(title_id: str, entry: dict) -> None:

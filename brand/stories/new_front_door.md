@@ -1,47 +1,49 @@
 # new_front_door
 approved: false
-sets: old_home,new_home,van
+sets: old_home_rooms,old_front_door,moving_van_road,new_front_door,new_home_rooms
+carer_signature: {carer}'s yellow scarf
+last_line: Home is where my things and my people are.
 
-<!-- Placeholder beats; mark approved when story is signed off. -->
+<!-- Beats from the approved story concepts (14–15 Oct 2026). {name} = child, {carer} = carer name/role from the order. 'slot:' marks a personalisation slot. Titles stay working titles until Taoufik approves each story. -->
 
 ## Spread 1
-{name}'s New Front Door — beat 1: first-night box; old and new home reference sheets. Child acts; keep calm zone for text.
+Boxes everywhere in the old home (slot: old_home_type). {name} looks unsure.
 
 ## Spread 2
-{name}'s New Front Door — beat 2: first-night box; old and new home reference sheets. Child acts; keep calm zone for text.
+{carer}: 'Let's say goodbye properly.' Goodbye to the bedroom, the kitchen, the garden or balcony.
 
 ## Spread 3
-{name}'s New Front Door — beat 3: first-night box; old and new home reference sheets. Child acts; keep calm zone for text.
+{name} at the old front door (slot: old_door_photo if supplied; else a generic UK door).
 
 ## Spread 4
-{name}'s New Front Door — beat 4: first-night box; old and new home reference sheets. Child acts; keep calm zone for text.
+Packing the first-night box: the comfort object, pyjamas, a book, a family photo (slot: box_items). The box is the anchor object.
 
 ## Spread 5
-{name}'s New Front Door — beat 5: first-night box; old and new home reference sheets. Child acts; keep calm zone for text.
+The moving van and the road (slot: transport: car, train or plane).
 
 ## Spread 6
-{name}'s New Front Door — beat 6: first-night box; old and new home reference sheets. Child acts; keep calm zone for text.
+The new front door, a different colour or number (slot: new_home_type). {name} holds the key.
 
 ## Spread 7
-{name}'s New Front Door — beat 7: first-night box; old and new home reference sheets. Child acts; keep calm zone for text.
+Empty rooms, an echo. {name} calls 'Hello!' and laughs.
 
 ## Spread 8
-{name}'s New Front Door — beat 8: first-night box; old and new home reference sheets. Child acts; keep calm zone for text.
+Choosing where the bed goes in the new room.
 
 ## Spread 9
-{name}'s New Front Door — beat 9: first-night box; old and new home reference sheets. Child acts; keep calm zone for text.
+Unpacking the first-night box first.
 
 ## Spread 10
-{name}'s New Front Door — beat 10: first-night box; old and new home reference sheets. Child acts; keep calm zone for text.
+The first dinner, on the floor with boxes as a table.
 
 ## Spread 11
-{name}'s New Front Door — beat 11: first-night box; old and new home reference sheets. Child acts; keep calm zone for text.
+The same bedtime routine as always: same book, same song.
 
 ## Spread 12
-{name}'s New Front Door — beat 12: first-night box; old and new home reference sheets. Child acts; keep calm zone for text.
+Morning: a neighbour child waves from a window, or {name} spots a new park.
 
 ## Spread 13
-{name}'s New Front Door — beat 13: first-night box; old and new home reference sheets. Child acts; keep calm zone for text.
+A drawing of the old home stuck on the new wall: 'I can keep both.'
 
 ## Spread 14
-{name}'s New Front Door — beat 14: first-night box; old and new home reference sheets. Child acts; keep calm zone for text.
+Last line: 'Home is where my things and my people are.'

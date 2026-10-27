@@ -19,6 +19,7 @@ import hashlib
 import time
 from pathlib import Path
 
+from . import imagecheck
 from .catalogue import get_title
 from .constants import (
     CONTENT_PAGE_COUNT,
@@ -71,6 +72,124 @@ def pdf_sha256(job_dir: Path) -> str | None:
 
 def _issue(code: str, severity: str, message: str, **extra) -> dict:
     return {"code": code, "severity": severity, "message": message, **extra}
+
+
+# --- image checks used by structure: duplicate pages + cover layout ---------------------------------
+
+
+def pair_duplicates(job_dir: Path, spread_numbers=range(1, SPREAD_COUNT + 1)) -> list[dict]:
+    """Spreads whose left and right art are perceptually the same picture (16x16 grey MAD)."""
+    found = []
+    for n in spread_numbers:
+        left, right = spread_art_path(job_dir, n, "left"), spread_art_path(job_dir, n, "right")
+        if not (left.is_file() and right.is_file()):
+            continue
+        duplicate, distance = imagecheck.is_duplicate_pair(left, right)
+        if duplicate:
+            found.append({"spread": n, "right_page": 2 * n + 1, "distance": round(distance, 4)})
+    return found
+
+
+def pair_duplicate_issues(job_dir: Path) -> list[dict]:
+    return [
+        _issue(
+            "pair_duplicate",
+            "warning",
+            f"Spread {d['spread']}: left and right pictures are almost identical "
+            f"(difference {d['distance']:.3f} < {imagecheck.PAIR_DUPLICATE_THRESHOLD}). "
+            f"Regenerate the right page (page {d['right_page']}) with a different framing.",
+            spread=d["spread"],
+            page=d["right_page"],
+            distance=d["distance"],
+            proposed_action="regen_page_art",
+        )
+        for d in pair_duplicates(Path(job_dir))
+    ]
+
+
+def pair_duplicate_actions(job_dir: Path) -> list[dict]:
+    """Self-revise style actions: regenerate the RIGHT page of each duplicate pair."""
+    return [
+        {
+            "type": "regen_page_art",
+            "page": d["right_page"],
+            "reason": (
+                f"pair_duplicate: spread {d['spread']} shows the same picture on both pages "
+                f"(difference {d['distance']:.3f}); redraw the right page from a clearly different view."
+            ),
+            "edit_instruction": (
+                "Draw this page from a clearly different framing than the left page "
+                "(different camera distance and angle); do not copy the left composition."
+            ),
+            "force_character_lock": False,
+            "scene": None,
+            "text": None,
+            "text_placement": None,
+        }
+        for d in pair_duplicates(Path(job_dir))
+    ]
+
+
+def cover_layout_issues(job_dir: Path) -> list[dict]:
+    cover = read_json(Path(job_dir) / "cover" / "cover.json") or {}
+    layout = cover.get("layout") or {}
+    if not layout.get("failures"):
+        return []
+    return [
+        _issue(
+            "cover_layout_warning",
+            "warning",
+            "Front cover art breaks the layout rules (soft plate forced): " + "; ".join(layout["failures"]),
+            failures=layout["failures"],
+        )
+    ]
+
+
+_FACE_SYSTEM = (
+    "You locate faces in a children's book cover illustration. Return JSON "
+    '{"faces": [{"x": 0.0, "y": 0.0, "w": 0.1, "h": 0.1}]} with one box per visible face, '
+    "normalised 0-1 (x, y = top-left corner as a fraction of the image width / height). "
+    'Return {"faces": []} when no face is visible.'
+)
+
+
+def detect_faces(client, image_path: Path) -> list[dict] | None:
+    """Vision face boxes (same normalised format as ``review_record`` faces); None = could not run."""
+    import base64
+    import io
+    import json
+
+    from PIL import Image
+
+    from .openai_util import chat_json_vision
+
+    try:
+        with Image.open(image_path) as image:
+            rgb = image.convert("RGB")
+            rgb.thumbnail((640, 640))
+            buffer = io.BytesIO()
+            rgb.save(buffer, format="JPEG", quality=75)
+        url = "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+        raw = chat_json_vision(
+            client,
+            _FACE_SYSTEM,
+            [
+                {"type": "text", "text": "Find every face in this front-cover illustration."},
+                {"type": "image_url", "image_url": {"url": url}},
+            ],
+            description="Cover face position",
+            temperature=0.0,
+        )
+        faces = json.loads(raw).get("faces")
+        if not isinstance(faces, list):
+            return None
+        return [
+            {k: float(f[k]) for k in ("x", "y", "w", "h")}
+            for f in faces
+            if isinstance(f, dict) and all(k in f for k in ("x", "y", "w", "h"))
+        ]
+    except Exception:  # noqa: BLE001 - detection is advisory; never break the build
+        return None
 
 
 # --- 1. structure ---------------------------------------------------------------------------------
@@ -139,6 +258,9 @@ def structure_report(job_dir: Path, inputs: dict, story: dict, pages: list) -> d
             issues.append(_issue("fonts", "error", str(error)))
         except Exception as error:  # unreadable PDF
             issues.append(_issue("pdf_unreadable", "error", f"PDF could not be read: {error}"))
+
+    issues.extend(pair_duplicate_issues(job_dir))
+    issues.extend(cover_layout_issues(job_dir))
 
     return {
         "name": "structure",

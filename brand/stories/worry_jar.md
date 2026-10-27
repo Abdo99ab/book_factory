@@ -1,47 +1,49 @@
 # worry_jar
 approved: false
-sets: bedroom,kitchen_table
+sets: kitchen_table,walk_to_school,school_classroom,bedroom_shelf
+carer_signature: {carer}'s yellow scarf
+last_line: Worries are smaller when you share them.
 
-<!-- Placeholder beats; mark approved when story is signed off. -->
+<!-- Beats from the approved story concepts (14–15 Oct 2026). {name} = child, {carer} = carer name/role from the order. 'slot:' marks a personalisation slot. Titles stay working titles until Taoufik approves each story. -->
 
 ## Spread 1
-{name}'s Worry Jar — beat 1: the jar; grey stones that never look like faces. Child acts; keep calm zone for text.
+{name} at the breakfast table, pockets bulging with plain grey stones (the worries). Stones never look like faces.
 
 ## Spread 2
-{name}'s Worry Jar — beat 2: the jar; grey stones that never look like faces. Child acts; keep calm zone for text.
+The stones named: up to three worries from the vetted list or moderated free text (slot: worries), e.g. 'What if I get it wrong at school?'
 
 ## Spread 3
-{name}'s Worry Jar — beat 3: the jar; grey stones that never look like faces. Child acts; keep calm zone for text.
+Walking is heavy. {name} is quieter than usual.
 
 ## Spread 4
-{name}'s Worry Jar — beat 4: the jar; grey stones that never look like faces. Child acts; keep calm zone for text.
+{carer} notices: 'Your pockets look heavy today.'
 
 ## Spread 5
-{name}'s Worry Jar — beat 5: the jar; grey stones that never look like faces. Child acts; keep calm zone for text.
+Kitchen table: an empty jar (slot: jar_design). 'Let's look at them one by one.'
 
 ## Spread 6
-{name}'s Worry Jar — beat 6: the jar; grey stones that never look like faces. Child acts; keep calm zone for text.
+Worry one, said out loud. It shrinks a little just by being said.
 
 ## Spread 7
-{name}'s Worry Jar — beat 7: the jar; grey stones that never look like faces. Child acts; keep calm zone for text.
+The sorting: 'Can we do something about it?' → a yes pile. 'Is it just a what-if?' → the jar.
 
 ## Spread 8
-{name}'s Worry Jar — beat 8: the jar; grey stones that never look like faces. Child acts; keep calm zone for text.
+A yes worry: a small plan together (practise the spelling words, agree a pick-up time).
 
 ## Spread 9
-{name}'s Worry Jar — beat 9: the jar; grey stones that never look like faces. Child acts; keep calm zone for text.
+What-if worries go into the jar with the lid on. 'They can wait there.'
 
 ## Spread 10
-{name}'s Worry Jar — beat 10: the jar; grey stones that never look like faces. Child acts; keep calm zone for text.
+Breathing like blowing out five birthday candles (slot: calm_down_move).
 
 ## Spread 11
-{name}'s Worry Jar — beat 11: the jar; grey stones that never look like faces. Child acts; keep calm zone for text.
+The walk to school (slot: school_name) is lighter; {name} skips.
 
 ## Spread 12
-{name}'s Worry Jar — beat 12: the jar; grey stones that never look like faces. Child acts; keep calm zone for text.
+A new worry pops up at school. {name}: 'I'll put you in the jar later' and carries on.
 
 ## Spread 13
-{name}'s Worry Jar — beat 13: the jar; grey stones that never look like faces. Child acts; keep calm zone for text.
+Evening: the jar on the shelf. Some stones have turned into pebbles that shine.
 
 ## Spread 14
-{name}'s Worry Jar — beat 14: the jar; grey stones that never look like faces. Child acts; keep calm zone for text.
+Last line: 'Worries are smaller when you share them.' Never draw a worry coming true.

@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from .brand import READ_IT_AGAIN_LINE
-from .catalogue import get_title, load_story_beats
+from .catalogue import get_title, load_story_beats, resolve_carer_text
 from .constants import OUTFIT_CONSTANT, pronouns_for
 from .humanize import humanize_story_fields
 from .job_log import append_event, write_json
@@ -19,20 +19,41 @@ SYSTEM = """You are a UK English picture-book author and editor for Raised Ready
 Write warm, concrete, age-appropriate prose. No stated moral. No AI clichés.
 UK spelling only. Obey voice rules: short sentences, child acts, at most one adjective per noun.
 Do not invent characters beyond the child, carer, and slot personalisation.
+
+BEATS ARE BINDING. The "beats" list gives the 14 spreads: write each spread from its beat with the
+SAME events in the SAME order. Add nothing: no new events, props, characters, places or morals.
+You are giving the beat its final wording, not rewriting the story. The last spread (14) must end
+with the exact "last_line" given, word for word.
+
+TWO PICTURES PER SPREAD. Every spread is shown as two facing pages, so for each spread return:
+- "scene": one short line naming the moment (shared context).
+- "scene_left": the brief for the LEFT page picture.
+- "scene_right": the brief for the RIGHT page picture.
+scene_left and scene_right are two DIFFERENT pictures of the SAME moment. The "calm_zone" page
+(left on odd spreads, right on even spreads) is the quieter, wider picture: a wide or medium-wide
+shot with a plain, uncluttered area where the text will sit, and no face close-up. The other page
+is the close action picture: the child's face clear, with the hands or the key prop in view. They
+must differ in framing (wide vs close, different angle or subject placement). Never give the same
+framing twice, and never copy "scene" into either one. Briefs describe pictures only: no readable
+text in the art.
 Return strict JSON only."""
 
 
-def _format_beats(beats: list, name: str) -> list[dict]:
+def _format_beats(beats: list, name: str, inputs: dict | None = None) -> list[dict]:
     formatted = []
     for beat in beats:
         text = (beat.get("text") or "").replace("{name}", name)
+        text = resolve_carer_text(text, inputs or {})
         formatted.append({"n": int(beat["n"]), "beat": text.strip()})
     return formatted
 
 
 def _build_locked(title: dict, inputs: dict) -> dict:
     name = inputs["name"]
-    parent = dict(title.get("parent_spread") or {})
+    parent = {
+        key: str(value).replace("{name}", name)
+        for key, value in (title.get("parent_spread") or {}).items()
+    }
     parent["read_it_again"] = READ_IT_AGAIN_LINE
     return {
         "title": title["title_template"].replace("{name}", name),
@@ -76,7 +97,12 @@ def rebuild_story(client, job_dir: Path, inputs: dict) -> dict:
         "home_type": inputs.get("home_type"),
         "comfort_object": inputs.get("comfort_object"),
         "slots": inputs.get("slots") or {},
-        "beats": _format_beats(beats_payload["beats"], inputs["name"]),
+        "beats": _format_beats(beats_payload["beats"], inputs["name"], inputs),
+        "beats_binding": True,
+        "carer_signature": resolve_carer_text(
+            beats_payload["meta"].get("carer_signature") or "", inputs
+        ),
+        "sets": list(beats_payload["meta"].get("sets") or []),
         "must_not_show": title.get("must_not_show") or [],
         "last_line": title.get("last_line", "").replace("{name}", inputs["name"]),
         "story_override": inputs.get("story_override") or "",
@@ -86,7 +112,9 @@ def rebuild_story(client, job_dir: Path, inputs: dict) -> dict:
                 {
                     "n": "1..14",
                     "text": "story text for this spread",
-                    "scene": "illustrator brief, no readable text in art",
+                    "scene": "one-line shared description of the moment, no readable text in art",
+                    "scene_left": "brief for the LEFT page picture (differs in framing from scene_right)",
+                    "scene_right": "brief for the RIGHT page picture (differs in framing from scene_left)",
                 }
             ],
             "blurb_draft": "optional ≤45 words",
@@ -123,6 +151,7 @@ def rebuild_story(client, job_dir: Path, inputs: dict) -> dict:
         "blurb_draft": draft_payload.get("blurb_draft") or title.get("blurb"),
         "recurring_outfit": recurring_outfit,
         "supporting_characters": [],
+        "carer_signature": user["carer_signature"],
         "_cast_lock": _cast_lock(inputs),
         "anchor": title.get("anchor"),
         "must_not_show": title.get("must_not_show"),
@@ -133,6 +162,7 @@ def rebuild_story(client, job_dir: Path, inputs: dict) -> dict:
         child_name=inputs["name"],
         age_band=inputs.get("age_band") or title["age_band"],
         last_line=catalogue_last_line,
+        require_scenes=True,
     )
     issues = check_spreads(draft_for_guards, story_body, locked, **guard_kwargs)
     blocking = hard_issues(issues)
@@ -199,6 +229,7 @@ def rebuild_story(client, job_dir: Path, inputs: dict) -> dict:
             child_name=inputs["name"],
             age_band=inputs.get("age_band") or title["age_band"],
             last_line=catalogue_last_line,
+            require_scenes=True,
         )
         if post_issues:
             story_body = pre_humanize

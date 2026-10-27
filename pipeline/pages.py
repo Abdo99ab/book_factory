@@ -34,10 +34,38 @@ def page_art_path(job_dir: Path, page_number: int) -> Path | None:
 def spread_pages(pages: list) -> dict[int, dict]:
     """Spread-level briefs keyed by spread number (taken from each spread's left half)."""
     return {
-        int(p["spread"]): p
+        int(p["spread"]): {**p, "text": spread_text(pages, int(p["spread"]))}
         for p in pages
         if p.get("kind") == "spread_half" and p.get("side") == "left"
     }
+
+
+def spread_halves(pages: list, n: int) -> list[dict]:
+    return [
+        p for p in pages if p.get("kind") == "spread_half" and int(p.get("spread") or -1) == int(n)
+    ]
+
+
+def spread_text(pages: list, n: int) -> str:
+    """The spread's story text (stored on its calm-zone half only; falls back to any half)."""
+    halves = spread_halves(pages, n)
+    for half in halves:
+        if half.get("side") == half.get("calm_zone") and (half.get("text") or "").strip():
+            return half["text"]
+    for half in halves:
+        if (half.get("text") or "").strip():
+            return half["text"]
+    return ""
+
+
+def set_spread_text(pages: list, n: int, text: str, calm_zone: str | None = None) -> None:
+    """Store ``text`` on the calm-zone half ONLY; the other half gets ''."""
+    halves = spread_halves(pages, n)
+    zone = calm_zone or next((h.get("calm_zone") for h in halves if h.get("calm_zone")), None)
+    zone = zone or _calm_zone_for_spread(int(n))
+    for half in halves:
+        half["calm_zone"] = zone
+        half["text"] = (text or "") if half.get("side") == zone else ""
 
 
 def _calm_zone_for_spread(n: int) -> str:
@@ -90,7 +118,6 @@ def compile_pages(client, job_dir: Path, inputs: dict, story: dict) -> list:
             anchor_state = _anchor_state(title, n)
         base = {
             "spread": n,
-            "text": spread.get("text") or "",
             "scene": spread.get("scene") or "",
             "calm_zone": calm,
             "anchor_state": anchor_state,
@@ -101,8 +128,19 @@ def compile_pages(client, job_dir: Path, inputs: dict, story: dict) -> list:
             # Legacy overlay field until Step 9 ReportLab text layer
             "text_placement": "bottom",
         }
-        pages.append({**base, "number": 2 * n, "kind": "spread_half", "side": "left"})
-        pages.append({**base, "number": 2 * n + 1, "kind": "spread_half", "side": "right"})
+        # Two different pictures per spread; the story text lives ONLY on the calm-zone half.
+        for side, number in (("left", 2 * n), ("right", 2 * n + 1)):
+            pages.append(
+                {
+                    **base,
+                    "number": number,
+                    "kind": "spread_half",
+                    "side": side,
+                    "scene_left": spread.get("scene_left") or "",
+                    "scene_right": spread.get("scene_right") or "",
+                    "text": (spread.get("text") or "") if side == calm else "",
+                }
+            )
 
     parent = story.get("locked", {}).get("parent_spread") or {}
     pages.append(

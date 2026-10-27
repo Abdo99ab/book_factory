@@ -23,7 +23,10 @@ Hard rules:
 - Keep the same 14 spreads (n = 1..14) and the same plot beats; do not touch the locked copy.
 - The final spread must still end with the supplied last_line.
 - No readable text in scenes.
-Return strict JSON: {"spreads": [{"n": 1, "text": "...", "scene": "..."}, ... 14 items]}
+- Each spread keeps TWO different pictures of the same moment: scene_left and scene_right (never
+  identical, never equal to scene). Remove removed cast members from them too.
+Return strict JSON: {"spreads": [{"n": 1, "text": "...", "scene": "...", "scene_left": "...",
+"scene_right": "..."}, ... 14 items]}
 """
 
 # Guard codes that cannot apply when the operator deliberately changes the cast.
@@ -67,7 +70,13 @@ def rebuild_story_for_cast(
         "last_line": last_line,
         "must_not_show": title.get("must_not_show") or [],
         "current_spreads": [
-            {"n": s["n"], "text": s.get("text"), "scene": s.get("scene")}
+            {
+                "n": s["n"],
+                "text": s.get("text"),
+                "scene": s.get("scene"),
+                "scene_left": s.get("scene_left"),
+                "scene_right": s.get("scene_right"),
+            }
             for s in current.get("spreads") or []
         ],
         "preference_memory": format_memory_for_prompt(),
@@ -86,6 +95,12 @@ def rebuild_story_for_cast(
         description="Spread rebuild for cast change",
     )
     spreads = json.loads(raw).get("spreads") or []
+    previous = {int(s.get("n") or 0): s for s in current.get("spreads") or []}
+    for spread in spreads:
+        old = previous.get(int(spread.get("n") or 0)) or {}
+        for key in ("scene_left", "scene_right"):
+            if not (spread.get(key) or "").strip() and old.get(key):
+                spread[key] = old[key]
     story = copy.deepcopy(current)
     story["spreads"] = spreads
     story["supporting_characters"] = approved_characters

@@ -119,6 +119,58 @@ def ensure_catalogue_last_line(spreads: list, last_line: str) -> list:
     return out
 
 
+def scene_pair_issues(spreads: list, *, require: bool = False) -> list[dict]:
+    """Hard guard: every spread needs two DIFFERENT pictures (scene_left / scene_right).
+
+    Neither may equal the shared ``scene`` verbatim, and left may not equal right. Spreads that
+    carry neither key are skipped unless ``require`` is set (story generation sets it; QA of older
+    jobs does not).
+    """
+    issues: list[dict] = []
+    for spread in spreads or []:
+        n = int(spread.get("n") or 0)
+        left = _norm_ws(spread.get("scene_left") or "")
+        right = _norm_ws(spread.get("scene_right") or "")
+        scene = _norm_ws(spread.get("scene") or "")
+        if not left and not right:
+            if require:
+                issues.append(
+                    {
+                        "code": "scene_pair",
+                        "spread": n,
+                        "message": f"Spread {n} needs both scene_left and scene_right (two different pictures).",
+                    }
+                )
+            continue
+        if not left or not right:
+            issues.append(
+                {
+                    "code": "scene_pair",
+                    "spread": n,
+                    "message": f"Spread {n} needs both scene_left and scene_right.",
+                }
+            )
+            continue
+        if left.lower() == right.lower():
+            issues.append(
+                {
+                    "code": "scene_pair",
+                    "spread": n,
+                    "message": f"Spread {n}: scene_left and scene_right are identical; they must be two different pictures.",
+                }
+            )
+        for label, value in (("scene_left", left), ("scene_right", right)):
+            if scene and value.lower() == scene.lower():
+                issues.append(
+                    {
+                        "code": "scene_pair",
+                        "spread": n,
+                        "message": f"Spread {n}: {label} repeats the shared scene verbatim; give it its own framing.",
+                    }
+                )
+    return issues
+
+
 def check_spreads(
     draft: dict,
     candidate: dict,
@@ -127,6 +179,7 @@ def check_spreads(
     child_name: str,
     age_band: str,
     last_line: str,
+    require_scenes: bool = False,
 ) -> list[dict]:
     """Return guard violations; empty list means pass."""
     issues: list[dict] = []
@@ -253,6 +306,8 @@ def check_spreads(
                 "message": f"At most one rhetorical question allowed; found {rhetorical}.",
             }
         )
+
+    issues.extend(scene_pair_issues(cand_spreads, require=require_scenes))
 
     if last_line:
         # Prefer explicit n=14; fall back to list order.
