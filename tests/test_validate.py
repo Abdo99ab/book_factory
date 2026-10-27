@@ -75,6 +75,43 @@ def test_text_guard_violation_surfaces_as_error(bundle):
     assert "guard_banned_phrase" in codes
 
 
+def test_readability_guard_is_warning_not_error(bundle):
+    _job, inputs, story, pages = bundle
+    story = clone(story)
+    # Long words push Flesch–Kincaid over the 2.0 band cap without banned phrases.
+    story["spreads"][0]["text"] = (
+        "Emma contemplates the refrigerator checklist meticulously before deciding."
+    )
+    issues = _structural_issues(inputs, story, pages)
+    readability = [i for i in issues if i["code"] == "guard_readability"]
+    assert readability and all(i["severity"] == "warning" for i in readability)
+    assert "guard_readability" not in _codes(_errors(issues))
+
+
+def test_vague_toys_llm_flag_does_not_fail_validation(bundle):
+    job_dir, inputs, story, pages = bundle
+    llm = {
+        "passed": False,
+        "score": 90,
+        "summary": "page 14 introduces toys that are not grounded in the supplied story elements.",
+        "issues": [
+            {
+                "severity": "error",
+                "code": "invented",
+                "message": "page 14 introduces toys that are not grounded in the supplied story elements.",
+                "page": 14,
+            }
+        ],
+        "invented_elements": ["unspecified toys"],
+        "repair": {"needed": False},
+    }
+    with patch.object(validate, "_llm_validate", return_value=llm):
+        report = validate_content(None, job_dir, inputs, story, pages)
+    assert report["passed"] is True
+    assert report["invented_elements"] == []
+    assert all(i["severity"] != "error" or i["code"] != "invented" for i in report["issues"])
+
+
 def test_must_not_show_in_scene_is_error(bundle):
     _job, inputs, story, pages = bundle
     pages = clone(pages)

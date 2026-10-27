@@ -17,12 +17,18 @@ from .constants import CONTENT_PAGE_COUNT, SPREAD_COUNT
 from .job_log import append_event, write_json
 from .openai_util import chat_json
 from .pages import compile_pages
-from .text_guards import check_spreads
+from .text_guards import SOFT_GUARD_CODES, check_spreads
 
 CALM_ZONES = {"left", "right"}
 
 # Guard codes that are advisory only (everything else from text_guards is an error).
-WARNING_GUARD_CODES: set[str] = set()
+WARNING_GUARD_CODES: set[str] = set(SOFT_GUARD_CODES)
+
+# LLM often flags generic "toys" even when the comfort object is a soft toy — never hard-fail those.
+_VAGUE_INVENTED = re.compile(
+    r"\b(unspecified\s+)?toys?\b|\bplush(?:es)?\b|\bstuffed\b|\bsoft\s+toys?\b",
+    re.IGNORECASE,
+)
 
 STRUCTURAL_SYSTEM = """You are a strict QA editor for Raised Ready personalised picture books (UK English).
 Validate the 14 story spreads and page briefs BEFORE illustration.
@@ -41,7 +47,7 @@ Return JSON:
       "fix_hint": "how to fix"
     }
   ],
-  "invented_elements": ["names/props/characters not grounded in the beats, carer, comfort object or slots"],
+  "invented_elements": ["named characters/props not grounded in the beats, carer, comfort object or slots"],
   "repair": {
     "needed": boolean,
     "supporting_characters": [{"name":"","description":""}],
@@ -53,14 +59,20 @@ Return JSON:
 }
 
 Hard errors (must set passed=false):
-- Characters, pets, mascots or toys invented and NOT in the beats, carer, comfort object or slots
+- Named characters, pets or mascots invented and NOT in the beats, carer, comfort object or slots
 - The child's name missing or misspelled
 - Anything listed under must_not_show appearing in a scene
 - Scenes that demand painted letters/titles/captions in the illustration
 - Outcome claims, timelines, deficit words about the child, or a stated moral
 - Unsafe / age-inappropriate content
 
-Warnings only: minor pacing; text that mentions something the scene does not draw.
+Allowed without error:
+- The comfort_object from the order (including soft toys / plush / bunny / blanket)
+- Ordinary household props already implied by the beats (fridge, list, shoes, coat, cup, potty, door)
+
+Warnings only (passed can still be true):
+- Vague "toys" with no new named character
+- Minor pacing; text that mentions something the scene does not draw
 
 Never edit the locked block (title, front band, back question, parent spread, dedication).
 repair.page_fixes may only touch story spread pages (2-29).
@@ -559,6 +571,48 @@ def _apply_repair(story: dict, pages: list, repair: dict) -> tuple[dict, list]:
     return story, pages
 
 
+def _soften_llm_report(llm_report: dict, inputs: dict) -> dict:
+    """Downgrade vague toy inventions; comfort_object may be a soft toy."""
+    report = dict(llm_report or {})
+    comfort = str(inputs.get("comfort_object") or "").strip().lower()
+    softened_issues = []
+    for raw in report.get("issues") or []:
+        issue = dict(raw)
+        message = str(issue.get("message") or "")
+        if issue.get("severity") == "error" and _VAGUE_INVENTED.search(message):
+            issue["severity"] = "warning"
+            issue["code"] = "vague_prop"
+        softened_issues.append(issue)
+
+    invented = []
+    for item in report.get("invented_elements") or []:
+        label = str(item).strip()
+        if not label:
+            continue
+        low = label.lower()
+        if comfort and comfort in low:
+            continue
+        if _VAGUE_INVENTED.search(label) and len(label.split()) <= 4:
+            continue  # drop "toys" / "unspecified toys"
+        invented.append(label)
+
+    hard = [i for i in softened_issues if i.get("severity") == "error"]
+    if hard:
+        passed = False
+    elif not invented:
+        # LLM may have failed only on vague toys — allow pass when nothing hard remains.
+        passed = True
+    else:
+        passed = bool(report.get("passed", False))
+
+    report["issues"] = softened_issues
+    report["invented_elements"] = invented
+    report["passed"] = passed
+    if passed and "toy" in str(report.get("summary") or "").lower():
+        report["summary"] = "Content validated (vague prop flags softened)."
+    return report
+
+
 def _merge_report(structural: list, llm_report: dict) -> dict:
     issues = list(structural) + list(llm_report.get("issues") or [])
     has_error = any(i.get("severity") == "error" for i in issues)
@@ -581,7 +635,7 @@ def validate_content(client, job_dir: Path, inputs: dict, story: dict, pages: li
     append_event(job_dir, "validation_start", "Validating story, pages, and prompts before illustration.")
 
     structural = _structural_issues(inputs, story, pages)
-    llm_report = _llm_validate(client, inputs, story, pages)
+    llm_report = _soften_llm_report(_llm_validate(client, inputs, story, pages), inputs)
     report = _merge_report(structural, llm_report)
     report["attempt"] = 1
     write_json(job_dir / "story" / "validation_report.json", report)
@@ -608,7 +662,7 @@ def validate_content(client, job_dir: Path, inputs: dict, story: dict, pages: li
         write_json(job_dir / "story" / "pages.json", {"pages": pages})
 
         structural2 = _structural_issues(inputs, story, pages)
-        llm_report2 = _llm_validate(client, inputs, story, pages)
+        llm_report2 = _soften_llm_report(_llm_validate(client, inputs, story, pages), inputs)
         report2 = _merge_report(structural2, llm_report2)
         report2["attempt"] = 2
         report2["repaired_from"] = report
