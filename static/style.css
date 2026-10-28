@@ -132,6 +132,12 @@ label {
   font-weight: 700;
   font-size: 0.92rem;
 }
+/* Author ``display: flex`` on labels otherwise overrides HTML ``hidden``. */
+label[hidden],
+.order-field[hidden],
+[hidden] {
+  display: none !important;
+}
 input, select, textarea {
   font: inherit;
   color: var(--ink);
