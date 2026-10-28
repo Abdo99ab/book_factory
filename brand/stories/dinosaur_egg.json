@@ -34,6 +34,11 @@
     "the child crying or in danger"
   ],
   "personalisation_slots": [],
+  "order_inputs": {
+    "carer": false,
+    "comfort_object": false,
+    "giver": true
+  },
   "spreads": [
     {
       "n": 1,

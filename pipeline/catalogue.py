@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -140,6 +141,49 @@ def load_story_beats(title_id: str) -> dict:
     return {"meta": meta, "beats": beats, "path": locked.get("path"), "locked": locked}
 
 
+def _story_corpus(locked: dict) -> str:
+    parts: list[str] = []
+    for key in (
+        "title_template",
+        "back_question",
+        "back_blurb",
+        "honesty_line",
+        "cover_art",
+        "dedication_template",
+        "last_line",
+        "parent_art",
+    ):
+        parts.append(str(locked.get(key) or ""))
+    for block in (locked.get("title_page") or {}, locked.get("parent_spread") or {}):
+        parts.extend(str(v) for v in block.values())
+    for sp in locked.get("spreads") or []:
+        for key in ("text", "art", "anchor", "calm_zone_note", "scene"):
+            parts.append(str(sp.get(key) or ""))
+    return "\n".join(parts)
+
+
+def order_inputs_for_story(locked: dict) -> dict:
+    """Which create-form fields this locked story needs (beyond name/age/pronouns/photo/order id).
+
+    Always off (removed from the product): ``home_type``, freeform ``dedication``.
+    Detected from placeholders; optional ``order_inputs`` on the JSON overrides.
+    """
+    corpus = _story_corpus(locked)
+    detected = {
+        "carer": bool(
+            re.search(r"\[Carer\]|\{[Cc]arer\}|\[carer\]", corpus)
+            or locked.get("carer_signature")
+        ),
+        "comfort_object": bool(re.search(r"\[Object\]|\[object\]|\{comfort", corpus)),
+        "giver": bool(re.search(r"\[Giver\]|\[giver\]", corpus)),
+    }
+    override = locked.get("order_inputs") or {}
+    for key in ("carer", "comfort_object", "giver"):
+        if key in override:
+            detected[key] = bool(override[key])
+    return detected
+
+
 def list_factory_titles() -> list[dict]:
     """Titles ready for Book Factory (approved + locked story JSON on disk)."""
     out = []
@@ -149,7 +193,13 @@ def list_factory_titles() -> list[dict]:
             continue
         if not locked_story_path(tid).is_file():
             continue
-        out.append(entry)
+        locked = load_locked_story(tid)
+        enriched = dict(entry)
+        enriched["order_inputs"] = order_inputs_for_story(locked)
+        # Prefer locked slots when present (story 01 standard).
+        if "personalisation_slots" in locked:
+            enriched["personalisation_slots"] = locked.get("personalisation_slots") or []
+        out.append(enriched)
     return out
 
 

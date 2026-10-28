@@ -20,10 +20,13 @@ def generate_character(client, job_dir: Path, reference_path: Path, inputs: dict
     preset = ROUTE_PRESETS[route]
     out = job_dir / "character" / "character.png"
     out.parent.mkdir(parents=True, exist_ok=True)
+    outfit = (inputs.get("outfit") or title.get("outfit") or "").strip()
+    comfort = (inputs.get("comfort_object") or "").strip()
+    comfort_bit = f" Comfort object: {comfort}." if comfort else ""
     prompt = (
         f"{preset['character_sheet']}\n"
         f"Child named {inputs['name']}, age {inputs['age']}, pronouns {inputs['pronouns']}. "
-        f"Everyday outfit: {title.get('outfit')}. Comfort object: {inputs.get('comfort_object')}. "
+        f"Everyday outfit: {outfit}.{comfort_bit} "
         f"Match the face, hair, skin tone and marks from the reference photo exactly. "
         f"{SHARED_NEGATIVES}. {preset['negatives']}."
     )

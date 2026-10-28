@@ -109,12 +109,14 @@ def generate_content(job_dir: Path, inputs: dict, client=None) -> dict:
     )
     parent["read_it_again"] = read_again
 
-    dedication_hint = (inputs.get("dedication_text") or "").strip()
-    if dedication_hint:
-        dedication = dedication_hint
+    # Dedication comes from the locked story template only (no freeform create field).
+    if giver:
+        dedication = personalize(
+            locked.get("dedication_template") or "For [Name], from [Giver]",
+            inputs,
+        )
     else:
-        base = personalize(locked.get("dedication_template") or "For [Name], from [Giver]", inputs)
-        dedication = base if giver else personalize("For [Name]", inputs)
+        dedication = personalize("For [Name]", inputs)
 
     spreads_out = []
     for raw in locked.get("spreads") or []:

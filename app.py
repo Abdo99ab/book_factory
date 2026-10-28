@@ -17,7 +17,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 from flask import Flask, abort, flash, redirect, render_template, request, send_file, url_for
 from werkzeug.utils import secure_filename
 
-from pipeline.catalogue import get_title, list_factory_titles
+from pipeline.catalogue import get_title, list_factory_titles, load_locked_story, order_inputs_for_story
 from pipeline.constants import (
     ALLOWED_IMAGE_EXTENSIONS,
     ARCHIVE_ROOT,
@@ -67,20 +67,14 @@ def create_app() -> Flask:
         name = (request.form.get("name") or "").strip()
         age = (request.form.get("age") or "").strip()
         pronouns = (request.form.get("pronouns") or "").strip().lower()
-        carer_name = (request.form.get("carer_name") or "").strip()
-        carer_role = (request.form.get("carer_role") or "").strip()
-        giver = (request.form.get("giver") or "").strip() or carer_name
-        home_type = (request.form.get("home_type") or "house").strip().lower()
-        comfort_object = (request.form.get("comfort_object") or "").strip()
-        dedication_text = (request.form.get("dedication_text") or "").strip()
         order_id = (request.form.get("order_id") or "").strip()
         reference = request.files.get("reference_image")
 
         if not title_id or not name or not age or pronouns not in PRONOUNS:
             flash("Title, name, age and pronouns are required.", "error")
             return redirect(url_for("create_form"))
-        if not carer_name or not carer_role or not comfort_object or not order_id:
-            flash("Carer, comfort object and order id are required.", "error")
+        if not order_id:
+            flash("Order id is required.", "error")
             return redirect(url_for("create_form"))
         if not reference or not reference.filename:
             flash("Upload a child photo.", "error")
@@ -90,15 +84,31 @@ def create_app() -> Flask:
             return redirect(url_for("create_form"))
         try:
             title = get_title(title_id)
+            locked = load_locked_story(title_id)
         except Exception:
-            flash("Unknown title.", "error")
+            flash("Unknown title or locked story missing.", "error")
             return redirect(url_for("create_form"))
         if not title.get("approved") or title_id not in {t["title_id"] for t in list_factory_titles()}:
             flash("That title is not ready for Book Factory yet (needs a FINAL locked story).", "error")
             return redirect(url_for("create_form"))
 
+        needed = order_inputs_for_story(locked)
+        carer_name = (request.form.get("carer_name") or "").strip()
+        carer_role = (request.form.get("carer_role") or "").strip()
+        giver = (request.form.get("giver") or "").strip()
+        comfort_object = (request.form.get("comfort_object") or "").strip()
+        if needed.get("carer") and (not carer_name or not carer_role):
+            flash("Carer name and role are required for this title.", "error")
+            return redirect(url_for("create_form"))
+        if needed.get("comfort_object") and not comfort_object:
+            flash("Comfort object is required for this title.", "error")
+            return redirect(url_for("create_form"))
+        if needed.get("giver") and not giver:
+            flash("Giver (dedication from) is required for this title.", "error")
+            return redirect(url_for("create_form"))
+
         slots = {}
-        for slot in title.get("personalisation_slots") or []:
+        for slot in locked.get("personalisation_slots") or title.get("personalisation_slots") or []:
             sid = slot["id"]
             val = (request.form.get(f"slot_{sid}") or "").strip()
             if slot.get("required") and not val:
@@ -123,22 +133,26 @@ def create_app() -> Flask:
             "name": name,
             "age": age,
             "pronouns": pronouns,
-            "carer": {"name": carer_name, "role": carer_role},
-            "giver": giver,
-            "home_type": home_type if home_type in {"flat", "house"} else "house",
-            "comfort_object": comfort_object,
-            "slots": slots,
-            "dedication_text": dedication_text,
             "order_id": order_id,
+            "slots": slots,
             "page_count": CONTENT_PAGE_COUNT,
+            "order_inputs": needed,
         }
+        if needed.get("carer"):
+            inputs["carer"] = {"name": carer_name, "role": carer_role}
+        if needed.get("giver"):
+            inputs["giver"] = giver
+        elif needed.get("carer"):
+            inputs["giver"] = carer_name
+        if needed.get("comfort_object"):
+            inputs["comfort_object"] = comfort_object
         write_json(job_dir / "inputs.json", inputs)
         write_json(
             job_dir / "job.json",
             {
                 "job_id": job_id,
                 "status": "queued",
-                "book_title": title["title_template"].replace("{name}", name),
+                "book_title": title["title_template"].replace("{name}", name).replace("[Name]", name),
                 "name": name,
                 "title_id": title_id,
                 "order_id": order_id,

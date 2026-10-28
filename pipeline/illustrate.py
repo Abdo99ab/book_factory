@@ -152,9 +152,11 @@ def _cover_prompt(kind: str, inputs: dict, story: dict) -> str:
             f"{SHARED_NEGATIVES}. {preset['negatives']}."
         )
     corner = BACK_QR_SAFE_CORNER.replace("_", "-")
+    carer = (inputs.get("carer") or {}).get("name")
+    with_carer = f" Quiet epilogue with {carer} and the child in the middle." if carer else " Quiet epilogue with the child; no named carer required."
     return (
         f"{preset['preamble']}\n"
-        f"BACK COVER for '{story['title']}'. Square. Quiet epilogue with carer and child in the middle. "
+        f"BACK COVER for '{story['title']}'. Square.{with_carer} "
         f"BOTTOM 40%: calm open area for a white text plate (question, blurb, logo, QR). "
         f"Leave the {corner} of that band plain (~{BACK_QR_SAFE_MM:g} mm). "
         f"Outfit: {outfit}. {SHARED_NEGATIVES}. {preset['negatives']}."

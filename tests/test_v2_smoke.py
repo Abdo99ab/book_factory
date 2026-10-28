@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from pipeline.catalogue import get_title, list_factory_titles, list_titles, load_locked_story, load_story_beats
+from pipeline.catalogue import (
+    get_title,
+    list_factory_titles,
+    list_titles,
+    load_locked_story,
+    load_story_beats,
+    order_inputs_for_story,
+)
 from pipeline.content import _pages_from_manuscript, calm_zone_for, generate_content, personalize
 from pipeline.constants import COVER_HEIGHT_MM, COVER_WIDTH_MM, PAGE_WITH_BLEED_MM, SPINE_MM, WRAP_MM
 
@@ -37,6 +44,10 @@ def test_locked_dinosaur_egg_matches_story_01_standard():
     assert "[Name]" in locked["spreads"][0]["text"]
     assert "Pip" in locked["spreads"][1]["text"]
     assert locked["parent_spread"]["in_real_life"].startswith("Next time it rains")
+    needed = order_inputs_for_story(locked)
+    assert needed == {"carer": False, "comfort_object": False, "giver": True}
+    factory = {t["title_id"]: t for t in list_factory_titles()}
+    assert factory["dinosaur_egg"]["order_inputs"]["carer"] is False
     title = get_title("dinosaur_egg")
     assert title["approved"] is True
     assert "teal jumper" in title["outfit"]
@@ -48,9 +59,7 @@ def test_personalize_placeholders():
     inputs = {
         "name": "Emma",
         "pronouns": "she",
-        "carer": {"name": "Sam", "role": "Mum"},
         "giver": "Nana",
-        "comfort_object": "blue bunny",
         "slots": {},
     }
     assert personalize("[Name] finds two biscuits in [their] pocket.", inputs) == (
@@ -65,12 +74,8 @@ def test_generate_content_no_ai_uses_locked_text(tmp_path):
         "name": "Emma",
         "age": "4",
         "pronouns": "she",
-        "carer": {"name": "Sam", "role": "Mum"},
         "giver": "Nana",
-        "comfort_object": "blue bunny",
         "slots": {},
-        "dedication_text": "",
-        "home_type": "house",
         "order_id": "RR-TEST",
     }
     data = generate_content(tmp_path, inputs)
@@ -81,7 +86,7 @@ def test_generate_content_no_ai_uses_locked_text(tmp_path):
     assert "Emma" in s1["text"] and "[Name]" not in s1["text"]
     assert "spade" in s1["art"].lower() or "spade" in s1["scene"].lower()
     assert data["parent_spread"]["try_together"] == '"What would you have packed for Pip?"'
-    assert "Nana" in data["dedication"]
+    assert data["dedication"] == "For Emma, from Nana"
     pages = _pages_from_manuscript(data, inputs)
     assert len(pages) == 32
     # Text on calm side only: spread 1 calm right → page 3
@@ -96,4 +101,8 @@ def test_app_imports():
     client = app.test_client()
     page = client.get("/create")
     assert page.status_code == 200
-    assert b"dinosaur" in page.data.lower() or b"Dinosaur" in page.data
+    body = page.data
+    assert b"dinosaur" in body.lower() or b"Dinosaur" in body
+    assert b'name="home_type"' not in body
+    assert b'name="dedication_text"' not in body
+    assert b'data-order-inputs' in body

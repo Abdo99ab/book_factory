@@ -4,7 +4,7 @@
   <section class="form-header">
     <p class="eyebrow">New job</p>
     <h1>Build a Raised Ready book</h1>
-    <p class="lede">FINAL locked story only (story text taken as written — no AI rewrite). Child details, order ID and one photo. Fields marked <span class="req">*</span> are required.</p>
+    <p class="lede">FINAL locked story only. Core fields are always name, age, pronouns, photo and order ID — extra fields appear only when the story needs them.</p>
   </section>
 
   <form class="panel" method="post" action="{{ url_for('create_job') }}" enctype="multipart/form-data" id="create-form">
@@ -17,8 +17,9 @@
                   data-family="{{ t.family }}"
                   data-band="{{ t.band }}"
                   data-age="{{ t.age_band }}"
-                  data-slots='{{ t.personalisation_slots | tojson }}'>
-            {{ t.title_template.replace('{name}', '…') }} — {{ t.band }} · ages {{ t.age_band }}
+                  data-slots='{{ t.personalisation_slots | tojson }}'
+                  data-order-inputs='{{ t.order_inputs | tojson }}'>
+            {{ t.title_template.replace('{name}', '…').replace('[Name]', '…') }} — {{ t.band }} · ages {{ t.age_band }}
           </option>
           {% endfor %}
         </select>
@@ -40,33 +41,24 @@
           <option value="they">They / them</option>
         </select>
       </label>
-      <label>Carer name <span class="req">*</span>
-        <input name="carer_name" required placeholder="e.g. Sam">
+
+      <label class="order-field" data-order-key="carer" hidden>Carer name <span class="req">*</span>
+        <input name="carer_name" placeholder="e.g. Sam">
       </label>
-      <label>Carer role <span class="req">*</span>
-        <input name="carer_role" required placeholder="Mum / Dad / Nana / Grandad…">
+      <label class="order-field" data-order-key="carer" hidden>Carer role <span class="req">*</span>
+        <input name="carer_role" placeholder="Mum / Dad / Nana / Grandad…">
       </label>
-      <label>Dedication from (Giver)
-        <input name="giver" placeholder="Defaults to carer name">
-        <small>Used on page 32: For [Name], from [Giver].</small>
+      <label class="order-field" data-order-key="giver" hidden>Dedication from (Giver) <span class="req">*</span>
+        <input name="giver" placeholder="e.g. Nana">
+        <small>Page 32: For [Name], from [Giver].</small>
       </label>
-      <label>Home type <span class="req">*</span>
-        <select name="home_type" required>
-          <option value="house">House</option>
-          <option value="flat">Flat</option>
-        </select>
+      <label class="order-field" data-order-key="comfort_object" hidden>Comfort object <span class="req">*</span>
+        <input name="comfort_object" placeholder="e.g. blue bunny">
       </label>
-      <label>Comfort object <span class="req">*</span>
-        <input name="comfort_object" required placeholder="e.g. blue bunny">
-      </label>
+
       <label>Order ID <span class="req">*</span>
         <input name="order_id" required pattern="[A-Za-z0-9-]+" placeholder="RR-1001">
         <small>Letters, numbers and hyphens — used in the print filename.</small>
-      </label>
-
-      <label class="wide">Dedication
-        <textarea name="dedication_text" rows="2" placeholder="For Emma, from Nana — with all our love"></textarea>
-        <small>Optional. Printed as typed on page 32.</small>
       </label>
 
       <fieldset class="wide" id="slots-fieldset" hidden>
@@ -93,6 +85,7 @@
     const titleMeta = document.getElementById('title-meta');
     const ageInput = document.querySelector('input[name="age"]');
     const ageWarning = document.getElementById('age-warning');
+    const orderFields = Array.from(document.querySelectorAll('.order-field'));
 
     function parseAgeBand(band) {
       const m = String(band || '').match(/(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)/);
@@ -100,9 +93,34 @@
       return { lo: parseFloat(m[1]), hi: parseFloat(m[2]) };
     }
 
+    function setFieldActive(label, on) {
+      label.hidden = !on;
+      label.querySelectorAll('input, select, textarea').forEach((el) => {
+        el.disabled = !on;
+        if (label.querySelector('.req')) el.required = on;
+        if (!on) {
+          if (el.tagName === 'SELECT') el.selectedIndex = 0;
+          else el.value = '';
+        }
+      });
+    }
+
+    function renderOrderInputs() {
+      const opt = titleSelect.selectedOptions[0];
+      let flags = { carer: false, comfort_object: false, giver: false };
+      if (opt && opt.value) {
+        try { flags = { ...flags, ...JSON.parse(opt.dataset.orderInputs || '{}') }; } catch (e) {}
+      }
+      orderFields.forEach((label) => {
+        const key = label.dataset.orderKey;
+        setFieldActive(label, Boolean(flags[key]));
+      });
+    }
+
     function renderSlots() {
       const opt = titleSelect.selectedOptions[0];
       slotsBox.innerHTML = '';
+      renderOrderInputs();
       if (!opt || !opt.value) {
         slotsFieldset.hidden = true;
         titleMeta.textContent = '';
@@ -113,12 +131,12 @@
       try { slots = JSON.parse(opt.dataset.slots || '[]'); } catch (e) { slots = []; }
       if (!slots.length) {
         slotsFieldset.hidden = true;
+        checkAge();
         return;
       }
       slotsFieldset.hidden = false;
       slots.forEach((slot) => {
         const label = document.createElement('label');
-        label.className = slot.type === 'select' ? '' : '';
         const star = slot.required ? ' <span class="req">*</span>' : '';
         label.innerHTML = `${slot.label || slot.id}${star}`;
         let field;
