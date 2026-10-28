@@ -1,49 +1,49 @@
 {% extends "base.html" %}
 {% block title %}Story characters{% endblock %}
 {% block content %}
-<section class="wrap">
+<section class="char-admin">
+  <p class="eyebrow">Admin</p>
   <h1>Story characters</h1>
-  <p>Sheets are drawn once per story (no customer data). Orders cannot illustrate until every sheet is on disk and approved.</p>
-  <table class="table">
-    <thead>
-      <tr>
-        <th>Title</th>
-        <th>Character</th>
-        <th>Spreads</th>
-        <th>File</th>
-        <th>Status</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in rows %}
-      <tr>
-        <td>{{ row.title_id }}</td>
-        <td>{{ row.name }} <code>{{ row.id }}</code></td>
-        <td>{{ row.spreads|join(", ") }}</td>
-        <td>{% if row.has_file %}yes{% else %}<strong>missing</strong>{% endif %}</td>
-        <td>
+  <p class="lede">Sheets are drawn once per story (no customer data). Preview and approve here before orders can illustrate.</p>
+
+  {% if not rows %}
+  <div class="err-banner">No story characters found. Check that the locked story JSON has a <code>characters</code> list and that this server has pulled the latest branch.</div>
+  {% endif %}
+
+  <div class="char-grid">
+    {% for row in rows %}
+    <article class="char-card">
+      <div class="char-sheet">
+        {% if row.has_file %}
+        <img src="{{ url_for('admin_character_sheet', title_id=row.title_id, character_id=row.id) }}" alt="{{ row.name }} sheet">
+        {% else %}
+        <div class="char-missing">No sheet yet</div>
+        {% endif %}
+      </div>
+      <div class="char-meta">
+        <h2>{{ row.name }}</h2>
+        <p class="char-ids"><code>{{ row.title_id }}</code> · <code>{{ row.id }}</code></p>
+        <p>Spreads: {{ row.spreads|join(", ") or "—" }}</p>
+        <p>
           {% if row.approved %}
-            approved{% if row.approved_by %} ({{ row.approved_by }}){% endif %}
+          <span class="pill ok">Approved{% if row.approved_by %} · {{ row.approved_by }}{% endif %}</span>
           {% else %}
-            <strong>needs approval</strong>
+          <span class="pill warn">Needs approval</span>
           {% endif %}
-        </td>
-        <td>
-          <form method="post" action="{{ url_for('admin_generate_character', title_id=row.title_id, character_id=row.id) }}" style="display:inline">
-            <button type="submit">Generate</button>
+          {% if not row.has_file %}<span class="pill warn">File missing</span>{% endif %}
+        </p>
+        <div class="char-actions">
+          <form method="post" action="{{ url_for('admin_generate_character', title_id=row.title_id, character_id=row.id) }}">
+            <button type="submit" class="btn">Generate / regenerate</button>
           </form>
-          <form method="post" action="{{ url_for('admin_approve_character', title_id=row.title_id, character_id=row.id) }}" style="display:inline">
+          <form method="post" action="{{ url_for('admin_approve_character', title_id=row.title_id, character_id=row.id) }}" class="approve-form">
             <input type="text" name="approved_by" placeholder="Your name" required>
-            <button type="submit">Approve</button>
+            <button type="submit" class="btn primary">Approve</button>
           </form>
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="6">No story characters defined yet.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  <p><a href="{{ url_for('list_jobs') }}">← Jobs</a></p>
+        </div>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
 </section>
 {% endblock %}

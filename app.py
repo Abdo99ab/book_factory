@@ -306,7 +306,8 @@ def create_app() -> Flask:
             tid = title["title_id"]
             try:
                 chars = list_story_characters(tid)
-            except Exception:
+            except Exception as error:  # noqa: BLE001
+                logger.info("admin/characters skip %s: %s", tid, error)
                 continue
             if not chars:
                 continue
@@ -326,6 +327,17 @@ def create_app() -> Flask:
                     }
                 )
         return render_template("admin_characters.html", rows=rows)
+
+    @app.get("/admin/characters/<title_id>/<character_id>/sheet")
+    def admin_character_sheet(title_id, character_id):
+        entry = next((c for c in list_story_characters(title_id) if c.get("id") == character_id), None)
+        if not entry:
+            abort(404)
+        path = resolve_sheet_path(entry, title_id).resolve()
+        brand_root = (Path(__file__).resolve().parent / "brand").resolve()
+        if not str(path).startswith(str(brand_root)) or not path.is_file():
+            abort(404)
+        return send_file(path)
 
     @app.post("/admin/characters/<title_id>/<character_id>/generate")
     def admin_generate_character(title_id, character_id):
