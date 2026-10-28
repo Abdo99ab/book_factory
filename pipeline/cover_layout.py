@@ -17,7 +17,7 @@ from .fonts import register_brand_fonts, reportlab_name
 from .job_log import append_event, read_json, write_json
 
 BAND_DEPTH_MM = float(SIZE_SCALE["band_depth_mm"])
-TITLE_GAP_BELOW_BAND_MM = 11.0
+TITLE_GAP_BELOW_BAND_MM = 4.5  # mm below the family band; shared with pdf_build._draw_front
 TITLE_SIDE_INSET_MM = 30.0  # trim_w - 30 in _draw_front
 TITLE_PLATE_PAD_MM = 5.0
 LOGO_W_MM = 62.0

@@ -8,26 +8,35 @@ from PIL import Image
 
 from pipeline.cover_layout import (
     MAX_REFRAME_SHIFT,
+    TITLE_GAP_BELOW_BAND_MM,
     check_front_faces,
     front_cover_zones,
     layout_prompt_rules,
     reframe_cover_art,
 )
 from pipeline.illustrate import _cover_prompt
+from pipeline.pdf_build import TITLE_GAP_BELOW_BAND_MM as PDF_TITLE_GAP
 
 
 def _solid_cover(path: Path, size: int = 400) -> None:
     Image.new("RGB", (size, size), (180, 200, 160)).save(path)
 
 
+def test_title_gap_shared_and_closer_to_band():
+    assert 4.0 <= TITLE_GAP_BELOW_BAND_MM <= 5.0
+    assert PDF_TITLE_GAP == TITLE_GAP_BELOW_BAND_MM
+
+
 def test_front_zones_derived_from_title_layout():
     zones = front_cover_zones("Emma and the Lost Dinosaur Egg", "Emma")
-    assert 0.25 <= zones["clear_top"] <= 0.42
+    # With a ~4.5 mm gap the title zone ends a little higher than the old 11 mm gap.
+    assert 0.22 <= zones["clear_top"] <= 0.40
     assert 0.75 <= zones["clear_bottom"] <= 0.92
     assert zones["clear_top"] < zones["face_centre_y"] < zones["clear_bottom"]
     assert abs(zones["face_centre_y"] - (zones["clear_top"] + zones["clear_bottom"]) / 2) < 1e-6
     assert zones["title_pct"] == round(zones["clear_top"] * 100)
     assert zones["centre_pct"] == round(zones["face_centre_y"] * 100)
+    assert zones["title_top"] < zones["clear_top"]
 
 
 def test_cover_prompt_keeps_layout_rules_when_cover_art_present():

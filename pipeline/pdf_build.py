@@ -45,10 +45,13 @@ from .constants import (
     SPINE_MM,
     SPREAD_COUNT,
     SPREAD_WIDTH_MM,
+    STORY_PLATE_ALPHA_MAX,
+    STORY_PLATE_ALPHA_MIN,
     TEXT_PLATE,
     WRAP_MM,
     mm_to_pt,
 )
+from .cover_layout import TITLE_GAP_BELOW_BAND_MM
 from .fonts import normalize_font_id, register_brand_fonts, reportlab_name
 from .illustrate import split_spread, spread_art_path
 from .job_log import append_event, read_json, write_json
@@ -231,9 +234,17 @@ def _fill_rect(c, x, y, w, h, rgb) -> None:
     c.restoreState()
 
 
-def _soft_plate(c, x, y, w, h) -> None:
-    """Soft see-through feathered plate under text or logo — no hard white block."""
-    per_layer = 1 - (1 - PLATE_ALPHA) ** (1 / PLATE_LAYERS)
+def _soft_plate(c, x, y, w, h, *, alpha: float | None = None) -> None:
+    """Soft see-through feathered plate under text or logo — no hard white block.
+
+    ``alpha`` is the peak centre opacity (0–1). Defaults to ``PLATE_ALPHA``.
+    """
+    peak = float(PLATE_ALPHA if alpha is None else alpha)
+    peak = max(0.0, min(1.0, peak))
+    if peak <= 0.001:
+        return
+    # Distribute peak across feathered layers (outer softer).
+    per_layer = 1 - (1 - peak) ** (1 / PLATE_LAYERS)
     c.saveState()
     c.setFillColorRGB(*_c01(PLATE))
     for i in range(PLATE_LAYERS):
@@ -251,6 +262,34 @@ def _soft_plate(c, x, y, w, h) -> None:
     c.restoreState()
 
 
+def contrast_with_white_plate(p10: float, alpha: float, ink_rgb=INK) -> float:
+    """Navy-on-art contrast after blending a white plate of opacity ``alpha`` over p10 luminance."""
+    blended = float(alpha) * 1.0 + (1.0 - float(alpha)) * float(p10)
+    return (blended + 0.05) / (_lum(ink_rgb) + 0.05)
+
+
+def resolve_story_plate_alpha(art: _Art, box_mm) -> tuple[float, float]:
+    """Always-on graded plate: return (alpha, raw_navy_contrast_before_plate).
+
+    Starts at ``STORY_PLATE_ALPHA_MIN``; raises toward ``STORY_PLATE_ALPHA_MAX`` until
+    ``CONTRAST_TARGET`` passes under the plate.
+    """
+    s = art.stats(box_mm)
+    p10 = float(s["p10"])
+    raw = (p10 + 0.05) / (_lum(INK) + 0.05)
+    lo = float(STORY_PLATE_ALPHA_MIN)
+    hi = float(STORY_PLATE_ALPHA_MAX)
+    if hi < lo:
+        lo, hi = hi, lo
+    alpha = lo
+    step = 0.05
+    while alpha < hi - 1e-9 and contrast_with_white_plate(p10, alpha) < CONTRAST_TARGET:
+        alpha = min(hi, alpha + step)
+    if contrast_with_white_plate(p10, alpha) < CONTRAST_TARGET:
+        alpha = hi
+    return alpha, raw
+
+
 def _decide_ink(
     ctx: _Ctx,
     art: _Art | None,
@@ -264,10 +303,15 @@ def _decide_ink(
 
     Pass ``plate_policy='auto'`` for the front-cover title: plate only when contrast fails (or the
     caller forces one) so the title is not locked in a white box over the child's face.
+
+    Pass ``plate_policy='graded'`` for spread story text: always a faint plate (see
+    ``resolve_story_plate_alpha``); ``plate_bool`` is always True.
     """
     if art is None:
         return INK, False
     policy = (plate_policy or TEXT_PLATE).strip().lower()
+    if policy == "graded":
+        return INK, True
     if policy == "always":
         return INK, True
     s = art.stats(box_mm)
@@ -540,13 +584,15 @@ def _draw_spread_page(ctx: _Ctx, page: dict, art_path: Path, side: str, index: i
             )
         left, top, width, height_mm = story_text_box_mm(side, height_mm)
         box = (left, top, left + width, top + height_mm)
-        # Same auto policy as the front title: plate only when contrast fails.
-        ink, plate = _decide_ink(
-            ctx, art, box, label=f"Page {page['number']}", plate_policy="auto"
+        # Graded plate: always faint; opacity rises until contrast passes.
+        ink, _ = _decide_ink(
+            ctx, art, box, label=f"Page {page['number']}", plate_policy="graded"
         )
-        if plate:
-            pad = STORY_PLATE_PAD_MM
-            _soft_plate(c, left - pad, top - pad, width + 2 * pad, height_mm + 2 * pad)
+        plate_alpha, raw_contrast = resolve_story_plate_alpha(art, box)
+        pad = STORY_PLATE_PAD_MM
+        _soft_plate(
+            c, left - pad, top - pad, width + 2 * pad, height_mm + 2 * pad, alpha=plate_alpha
+        )
         _draw_lines(
             c,
             lines,
@@ -562,7 +608,9 @@ def _draw_spread_page(ctx: _Ctx, page: dict, art_path: Path, side: str, index: i
         record.update(
             {
                 "text": True,
-                "plate": plate,
+                "plate": True,
+                "plate_alpha": round(plate_alpha, 3),
+                "raw_contrast": round(raw_contrast, 2),
                 "size_pt": size,
                 "lines": len(lines),
                 "box_mm": [left, top, width, height_mm],
@@ -735,7 +783,7 @@ def _draw_front(ctx: _Ctx, c, art: _Art, panel: tuple[float, float], strip, alig
         art,
         ctx.story["locked"]["title"],
         centre,
-        trim_y + BAND_DEPTH_MM + 11,
+        trim_y + BAND_DEPTH_MM + TITLE_GAP_BELOW_BAND_MM,
         trim_w - 30,
         True,
         "Front cover title",

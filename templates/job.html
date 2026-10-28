@@ -43,12 +43,45 @@
   </div>
   {% endif %}
 
-  {% if has_character %}
+  {% if has_character or has_face %}
   <section class="panel">
     <p class="eyebrow">Reference</p>
-    <h2>Character sheet</h2>
-    <div class="media-frame" style="max-width:280px">
-      <img src="{{ url_for('job_file', job_id=job.job_id, rel='character/character.png') }}" alt="Character sheet">
+    <h2>Character sheets</h2>
+    <div class="cover-grid">
+      <div>
+        <h3 style="margin:0 0 0.5rem;font-size:1rem">Face (identity)</h3>
+        <div class="media-frame" style="max-width:280px">
+          {% if has_face %}
+          <img src="{{ url_for('job_file', job_id=job.job_id, rel='character/face.png') }}" alt="Face sheet">
+          {% else %}
+          <p class="placeholder">Not generated yet</p>
+          {% endif %}
+        </div>
+        <form method="post" action="{{ url_for('regenerate_character_sheet', job_id=job.job_id, kind='face') }}"
+              style="margin-top:0.75rem"
+              onsubmit="this.querySelector('button').disabled=true">
+          <button class="button secondary" type="submit" {% if busy %}disabled{% endif %}>
+            Regenerate face sheet
+          </button>
+        </form>
+      </div>
+      <div>
+        <h3 style="margin:0 0 0.5rem;font-size:1rem">Body (outfit)</h3>
+        <div class="media-frame" style="max-width:280px">
+          {% if has_character %}
+          <img src="{{ url_for('job_file', job_id=job.job_id, rel='character/character.png') }}" alt="Body sheet">
+          {% else %}
+          <p class="placeholder">Not generated yet</p>
+          {% endif %}
+        </div>
+        <form method="post" action="{{ url_for('regenerate_character_sheet', job_id=job.job_id, kind='body') }}"
+              style="margin-top:0.75rem"
+              onsubmit="this.querySelector('button').disabled=true">
+          <button class="button secondary" type="submit" {% if busy %}disabled{% endif %}>
+            Regenerate body sheet
+          </button>
+        </form>
+      </div>
     </div>
   </section>
   {% endif %}

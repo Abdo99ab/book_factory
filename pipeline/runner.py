@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from .character import character_paths, generate_character
+from .character import character_paths, generate_character, generate_one_sheet
 from .constants import PREVIEW_SPREAD_COUNT, SPREAD_COUNT
 from .content import generate_content
 from .illustrate import (
@@ -292,6 +292,31 @@ def run_edit_spread(job_id: str, job_dir: Path, n: int, instruction: str) -> Non
         append_event(job_dir, "edit_done", f"Spread {n} updated.", spread=int(n))
     except Exception as error:
         logger.exception("Edit spread failed %s", job_id)
+        _update_job(job_dir, status="failed", error=str(error))
+        append_event(job_dir, "job_failed", str(error))
+        raise
+
+
+def run_regenerate_character(job_id: str, job_dir: Path, kind: str) -> None:
+    """Force-regenerate the face or body sheet from the order photo."""
+    if kind not in {"face", "body"}:
+        raise ValueError(f"Unknown character sheet kind: {kind}")
+    inputs = read_json(job_dir / "inputs.json")
+    client = create_client()
+    _update_job(job_dir, status="generating_character", error=None)
+    try:
+        generate_one_sheet(client, job_dir, _reference(job_dir), inputs, kind, force=True)
+        prev = (read_json(job_dir / "job.json") or {}).get("status")
+        # Restore a sensible non-busy status.
+        status = "content_ready"
+        if (job_dir / "cover" / "front_art.png").is_file():
+            status = "preview_ready"
+        if (read_json(job_dir / "job.json") or {}).get("pdf"):
+            status = "complete"
+        _update_job(job_dir, status=status if prev != "generating_character" else status, error=None)
+        append_event(job_dir, f"{kind}_sheet_regenerated", f"{kind.title()} sheet regenerated.")
+    except Exception as error:
+        logger.exception("Regenerate %s failed %s", kind, job_id)
         _update_job(job_dir, status="failed", error=str(error))
         append_event(job_dir, "job_failed", str(error))
         raise

@@ -217,7 +217,8 @@ ROUTE_PRESETS = {
         "face_sheet": (
             "Reference face sheet in Morning Light style: large close-up head-and-shoulders "
             "portraits of the same child, front view and three-quarter view, faces filling "
-            "most of the frame, plain light background, soft gouache, warm daylight."
+            "most of the frame, plain light background, soft gouache, warm daylight. "
+            "Show only the book outfit neckline — never the clothes from the photo."
         ),
         "story_pt": 23,
         "leading": 1.35,
@@ -244,7 +245,8 @@ ROUTE_PRESETS = {
         "face_sheet": (
             "Reference face sheet in Field Guide style: large close-up head-and-shoulders "
             "portraits of the same child, front view and three-quarter view, faces filling "
-            "most of the frame, plain light background, ink line and watercolour wash."
+            "most of the frame, plain light background, ink line and watercolour wash. "
+            "Show only the book outfit neckline — never the clothes from the photo."
         ),
         "story_pt": 17,
         "leading": 1.4,

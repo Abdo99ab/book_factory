@@ -38,6 +38,7 @@ from pipeline.runner import (
     run_edit_text,
     run_prepare,
     run_preview,
+    run_regenerate_character,
     spreads_missing_composed_preview,
 )
 from pipeline.story_characters import (
@@ -233,10 +234,20 @@ def create_app() -> Flask:
             spreads=spreads,
             title_meta=title_meta,
             has_character=(job_dir / "character" / "character.png").is_file(),
+            has_face=(job_dir / "character" / "face.png").is_file(),
             has_front=(job_dir / "cover" / "front_art.png").is_file(),
             has_back=(job_dir / "cover" / "back_art.png").is_file(),
             front_preview=(job_dir / "cover" / "front_preview.png").is_file(),
         )
+
+    @app.post("/jobs/<job_id>/character/<kind>/regenerate")
+    def regenerate_character_sheet(job_id, kind):
+        if kind not in {"face", "body"}:
+            abort(404)
+        job_dir = _job_dir(job_id)
+        job_executor.submit(_safe, run_regenerate_character, job_id, job_dir, kind)
+        flash(f"Regenerating {kind} sheet…", "success")
+        return redirect(url_for("job_page", job_id=job_id))
 
     @app.post("/jobs/<job_id>/preview")
     def start_preview(job_id):

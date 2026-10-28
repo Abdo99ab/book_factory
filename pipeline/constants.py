@@ -49,6 +49,9 @@ SAFE_MM = BRAND_SAFE_MM
 
 # Soft white plate under story text (not front title; not parent paper pages)
 TEXT_PLATE = os.getenv("TEXT_PLATE", "always").strip().lower()
+# Graded story-text plate (spreads): always drawn; opacity rises until contrast passes.
+STORY_PLATE_ALPHA_MIN = float(os.getenv("STORY_PLATE_ALPHA_MIN", "0.20"))
+STORY_PLATE_ALPHA_MAX = float(os.getenv("STORY_PLATE_ALPHA_MAX", "0.70"))
 PRINTED_IN_UK_LINE = os.getenv("PRINTED_IN_UK_LINE", "0").strip() in {"1", "true", "yes"}
 
 # TJ packaging only in v2
