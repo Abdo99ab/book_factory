@@ -4,7 +4,7 @@
   <section class="form-header">
     <p class="eyebrow">New job</p>
     <h1>Build a Raised Ready book</h1>
-    <p class="lede">Catalogue title, child details, order ID and one photo. Fields marked <span class="req">*</span> are required.</p>
+    <p class="lede">FINAL locked story only (story text taken as written — no AI rewrite). Child details, order ID and one photo. Fields marked <span class="req">*</span> are required.</p>
   </section>
 
   <form class="panel" method="post" action="{{ url_for('create_job') }}" enctype="multipart/form-data" id="create-form">
@@ -46,6 +46,10 @@
       <label>Carer role <span class="req">*</span>
         <input name="carer_role" required placeholder="Mum / Dad / Nana / Grandad…">
       </label>
+      <label>Dedication from (Giver)
+        <input name="giver" placeholder="Defaults to carer name">
+        <small>Used on page 32: For [Name], from [Giver].</small>
+      </label>
       <label>Home type <span class="req">*</span>
         <select name="home_type" required>
           <option value="house">House</option>
@@ -77,7 +81,7 @@
     </div>
 
     <div class="actions" style="margin-top:1.5rem">
-      <button class="button accent" type="submit">Start — manuscript &amp; character</button>
+      <button class="button accent" type="submit">Start — locked story &amp; character</button>
       <a class="button secondary" href="{{ url_for('list_jobs') }}">Cancel</a>
     </div>
   </form>

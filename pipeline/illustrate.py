@@ -40,23 +40,33 @@ def split_spread(art_path: Path) -> tuple[Image.Image, Image.Image]:
 def _spread_prompt(inputs: dict, story: dict, spread: dict, character_note: str) -> str:
     title, preset = _route_bits(inputs)
     n = int(spread["n"])
-    calm = spread.get("calm_zone") or calm_zone_for(n)
-    action = "right" if calm == "left" else "left"
-    anchor = title.get("anchor") or {}
-    schedule = anchor.get("state_schedule") or []
-    state = schedule[n - 1] if n - 1 < len(schedule) else schedule[-1] if schedule else 0
-    must_not = "; ".join(title.get("must_not_show") or [])
+    calm = (spread.get("calm_zone") or calm_zone_for(n)).strip().lower()
+    calm_note = (spread.get("calm_zone_note") or "").strip()
+    art = (spread.get("art") or spread.get("scene") or "the beat in action").strip()
+    outfit = story.get("outfit") or title.get("outfit")
+    story_anchor = story.get("anchor") or title.get("anchor") or {}
+    if isinstance(story_anchor, dict):
+        anchor_desc = story_anchor.get("description") or ""
+    else:
+        anchor_desc = str(story_anchor)
+    spread_anchor = (spread.get("anchor") or "").strip() or anchor_desc
+    must_not = "; ".join(story.get("must_not_show") or title.get("must_not_show") or [])
+    # Calm zone is NOT a separate image — one continuous spread; keep that area low-detail for text.
+    calm_rule = (
+        f"CALM ZONE ({calm.upper()}): keep this area LOW-DETAIL (soft sky / wall / lawn / canopy) "
+        f"so printed story text can sit there. Do not put faces, Pip, or busy objects in that zone. "
+        f"{calm_note}".strip()
+    )
     return (
         f"{preset['preamble']}\n"
         f"ONE CONTINUOUS double-page picture for spread {n} of '{story['title']}'. "
-        f"Landscape, full bleed, child's eye level.\n"
-        f"CALM HALF ({calm.upper()}): empty soft background / wall / sky / floor texture ONLY — "
-        f"no people, no objects, no furniture details. Story text will be printed there.\n"
-        f"ACTION HALF ({action.upper()}): {spread.get('scene') or 'the beat in action'}. "
-        f"Child ({inputs['name']}) in {title.get('outfit')}, comfort object {inputs.get('comfort_object')}. "
-        f"Carer {inputs['carer']['name']} only if the scene needs them. "
-        f"Anchor object: {anchor.get('description')} at state {state}.\n"
-        f"No face or important object on the centre fold. "
+        f"Landscape, full bleed, child's eye level. Not two separate images.\n"
+        f"SCENE: {art}\n"
+        f"{calm_rule}\n"
+        f"Child ({inputs['name']}) in {outfit}. "
+        f"Face never covered or turned away. "
+        f"Spread anchor: {spread_anchor}. Story anchor lock: {anchor_desc}\n"
+        f"No face or important object on the centre fold. No text, letters or logos in the art. "
         f"{character_note}\n"
         f"Must not show: {must_not}. {SHARED_NEGATIVES}. {preset['negatives']}."
     )
@@ -90,7 +100,10 @@ def generate_spread(client, job_dir: Path, inputs: dict, story: dict, character_
         {
             "n": int(n),
             "calm_zone": spread.get("calm_zone") or calm_zone_for(n),
-            "scene": spread.get("scene"),
+            "calm_zone_note": spread.get("calm_zone_note"),
+            "scene": spread.get("scene") or spread.get("art"),
+            "art": spread.get("art"),
+            "anchor": spread.get("anchor"),
             "text": spread.get("text"),
         },
     )
@@ -125,13 +138,17 @@ def regenerate_spread(
 
 def _cover_prompt(kind: str, inputs: dict, story: dict) -> str:
     title, preset = _route_bits(inputs)
+    outfit = story.get("outfit") or title.get("outfit")
     if kind == "front":
+        cover_art = (story.get("cover_art") or "").strip()
+        scene = cover_art or (
+            f"Child alone, facing viewer, largest element. Head top around 40% down. "
+            f"TOP 35%: empty plain area for the title. BOTTOM centre: plain area for the logo."
+        )
         return (
             f"{preset['preamble']}\n"
-            f"FRONT COVER for '{story['title']}'. Square. Child alone, facing viewer, largest element. "
-            f"Head top around 40% down. TOP 35%: empty plain wall for the title. "
-            f"BOTTOM centre: plain floor for the logo. No carer. No text in art. "
-            f"Outfit: {title.get('outfit')}. Comfort: {inputs.get('comfort_object')}. "
+            f"FRONT COVER for '{story['title']}'. Square. {scene} "
+            f"No carer face. No text in art. Outfit: {outfit}. "
             f"{SHARED_NEGATIVES}. {preset['negatives']}."
         )
     corner = BACK_QR_SAFE_CORNER.replace("_", "-")
@@ -140,7 +157,7 @@ def _cover_prompt(kind: str, inputs: dict, story: dict) -> str:
         f"BACK COVER for '{story['title']}'. Square. Quiet epilogue with carer and child in the middle. "
         f"BOTTOM 40%: calm open area for a white text plate (question, blurb, logo, QR). "
         f"Leave the {corner} of that band plain (~{BACK_QR_SAFE_MM:g} mm). "
-        f"Outfit: {title.get('outfit')}. {SHARED_NEGATIVES}. {preset['negatives']}."
+        f"Outfit: {outfit}. {SHARED_NEGATIVES}. {preset['negatives']}."
     )
 
 
@@ -207,11 +224,15 @@ def generate_title_spot(client, job_dir: Path, inputs: dict, story: dict) -> Pat
         return path
     title, preset = _route_bits(inputs)
     path.parent.mkdir(parents=True, exist_ok=True)
+    title_page = story.get("title_page") or {}
+    spot_brief = (title_page.get("spot") or "").strip()
+    if not spot_brief:
+        anchor = story.get("anchor") or title.get("anchor") or {}
+        spot_brief = (anchor.get("description") if isinstance(anchor, dict) else str(anchor)) or "story anchor"
     prompt = (
         f"{preset['preamble']}\n"
-        f"Small spot illustration of the story's anchor object only: "
-        f"{(title.get('anchor') or {}).get('description')}. No people, no text. "
-        f"{SHARED_NEGATIVES}."
+        f"Small spot illustration for the title page only: {spot_brief}. "
+        f"No people unless the brief asks. No text, letters or logos. {SHARED_NEGATIVES}."
     )
     try:
         result = image_generate(client, prompt, size="1024x1024", description="Title spot")
@@ -219,6 +240,29 @@ def generate_title_spot(client, job_dir: Path, inputs: dict, story: dict) -> Pat
         return path
     except Exception as error:  # noqa: BLE001
         append_event(job_dir, "title_spot_failed", str(error))
+        return None
+
+
+def generate_parent_spot(client, job_dir: Path, inputs: dict, story: dict) -> Path | None:
+    """Optional spot for words-for-the-real-moment (pp 30–31)."""
+    path = job_dir / "parent" / "spot.png"
+    if path.is_file():
+        return path
+    brief = (story.get("parent_art") or "").strip()
+    if not brief:
+        return None
+    _, preset = _route_bits(inputs)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    prompt = (
+        f"{preset['preamble']}\n"
+        f"Small spot illustration for the parent pages: {brief}. No text in art. {SHARED_NEGATIVES}."
+    )
+    try:
+        result = image_generate(client, prompt, size="1024x1024", description="Parent spot")
+        path.write_bytes(_decode(result))
+        return path
+    except Exception as error:  # noqa: BLE001
+        append_event(job_dir, "parent_spot_failed", str(error))
         return None
 
 

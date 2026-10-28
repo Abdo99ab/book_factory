@@ -11,6 +11,7 @@ from .content import generate_content
 from .illustrate import (
     ensure_spreads,
     generate_cover_panels,
+    generate_parent_spot,
     generate_title_spot,
     regenerate_cover,
     regenerate_spread,
@@ -20,6 +21,57 @@ from .openai_util import create_client
 from .pdf_build import build_pdf, render_front_preview, render_preview_spreads, render_spread_preview
 
 logger = logging.getLogger(__name__)
+
+
+def spreads_with_art(job_dir: Path) -> list[int]:
+    """Spread numbers that have ``art.png`` on disk."""
+    return [
+        n
+        for n in range(1, SPREAD_COUNT + 1)
+        if (job_dir / "spreads" / f"spread-{n:02d}" / "art.png").is_file()
+    ]
+
+
+def spreads_missing_composed_preview(job_dir: Path) -> list[int]:
+    """Spreads that have art but no ``preview.png`` (art + calm-half text) yet."""
+    return [
+        n
+        for n in spreads_with_art(job_dir)
+        if not (job_dir / "spreads" / f"spread-{n:02d}" / "preview.png").is_file()
+    ]
+
+
+def compose_spread_ui_previews(
+    job_dir: Path,
+    inputs: dict | None = None,
+    story: dict | None = None,
+    pages: list | None = None,
+    numbers: list[int] | None = None,
+    *,
+    only_missing: bool = False,
+) -> list[Path]:
+    """Compose operator ``preview.png`` (story text on calm half) for the given spreads.
+
+    Defaults to every spread that has art. Used by preview, build, and the job UI.
+    """
+    inputs = inputs or read_json(job_dir / "inputs.json") or {}
+    story = story or _load_story(job_dir)
+    pages = pages if pages is not None else _load_pages(job_dir)
+    if numbers is None:
+        numbers = spreads_missing_composed_preview(job_dir) if only_missing else spreads_with_art(job_dir)
+    elif only_missing:
+        numbers = [n for n in numbers if n in spreads_missing_composed_preview(job_dir)]
+    if not numbers or not inputs.get("title_id"):
+        return []
+    return render_preview_spreads(job_dir, inputs, story, numbers, pages=pages)
+
+
+def compose_missing_spread_ui_previews(job_dir: Path, inputs: dict | None = None, story: dict | None = None) -> list[Path]:
+    """Background-friendly: compose ``preview.png`` only where art exists and preview is missing."""
+    try:
+        return compose_spread_ui_previews(job_dir, inputs, story, only_missing=True)
+    except FileNotFoundError:
+        return []
 
 
 def _update_job(job_dir: Path, **fields) -> dict:
@@ -56,12 +108,13 @@ def _reference(job_dir: Path) -> Path:
 
 
 def _ensure_manuscript(client, job_dir: Path, inputs: dict) -> dict:
-    """Load manuscript or generate it once. Does not require the character sheet."""
+    """Load manuscript or materialise the locked story once (no AI rewrite)."""
+    del client  # text comes from brand/stories/*.json
     path = job_dir / "story" / "manuscript.json"
     if path.is_file():
         return _load_story(job_dir)
     _update_job(job_dir, status="generating_content", error=None)
-    story = generate_content(client, job_dir, inputs)
+    story = generate_content(job_dir, inputs)
     inputs = {**inputs, "route": story.get("route")}
     write_json(job_dir / "inputs.json", inputs)
     return story
@@ -81,7 +134,7 @@ def run_prepare(job_id: str, job_dir: Path) -> None:
     inputs = read_json(job_dir / "inputs.json")
     if not inputs:
         raise FileNotFoundError("inputs.json missing")
-    append_event(job_dir, "job_start", "v2 prepare: manuscript + character.")
+    append_event(job_dir, "job_start", "v2 prepare: locked story + character.")
     _update_job(job_dir, status="generating_content", error=None)
     client = create_client()
     try:
@@ -98,7 +151,7 @@ def run_prepare(job_id: str, job_dir: Path) -> None:
         append_event(
             job_dir,
             "content_ready",
-            "Manuscript and character ready. Run Preview (cover + 2 spreads) or Build.",
+            "Locked story + character ready. Run Preview (cover + 2 spreads) or Build.",
         )
     except Exception as error:
         logger.exception("Prepare failed %s", job_id)
@@ -131,17 +184,12 @@ def run_preview(job_id: str, job_dir: Path) -> None:
             render_front_preview(job_dir, inputs, story)
         except Exception as preview_err:  # noqa: BLE001
             append_event(job_dir, "cover_preview_failed", str(preview_err))
-        composed = render_preview_spreads(
-            job_dir,
-            inputs,
-            story,
-            list(range(1, PREVIEW_SPREAD_COUNT + 1)),
-            pages=pages,
-        )
+        # Compose text for every spread that has art (preview generates 1–2; reuse later arts too).
+        composed = compose_spread_ui_previews(job_dir, inputs, story, pages)
         append_event(
             job_dir,
             "spread_previews_ready",
-            f"Composed text overlays for {len(composed)} preview spread(s).",
+            f"Composed text overlays for {len(composed)} spread(s).",
         )
         _update_job(
             job_dir,
@@ -169,16 +217,16 @@ def run_build(job_id: str, job_dir: Path) -> Path:
         pages = _load_pages(job_dir)
         character = _ensure_character(client, job_dir, inputs)
         generate_title_spot(client, job_dir, inputs, story)
+        generate_parent_spot(client, job_dir, inputs, story)
         generate_cover_panels(client, job_dir, inputs, story, character, front_only=False)
         ensure_spreads(client, job_dir, inputs, story, character, list(range(1, SPREAD_COUNT + 1)))
         _update_job(job_dir, status="building_pdf")
         pdf_path = build_pdf(job_dir, story, pages, inputs)
-        render_preview_spreads(
+        composed = compose_spread_ui_previews(job_dir, inputs, story, pages)
+        append_event(
             job_dir,
-            inputs,
-            story,
-            list(range(1, SPREAD_COUNT + 1)),
-            pages=pages,
+            "spread_previews_ready",
+            f"Composed text overlays for {len(composed)} spread(s).",
         )
         _update_job(
             job_dir,

@@ -85,51 +85,72 @@ def resolve_route(title: dict) -> str:
     return route
 
 
-def load_story_beats(title_id: str) -> dict:
-    path = STORIES_DIR / f"{title_id}.md"
+def locked_story_path(title_id: str) -> Path:
+    return STORIES_DIR / f"{title_id}.json"
+
+
+def load_locked_story(title_id: str) -> dict:
+    """Load the FINAL locked story JSON (story 01 format). Required for Book Factory."""
+    path = locked_story_path(title_id)
     if not path.is_file():
-        raise CatalogueError(f"Missing story beats for {title_id}: {path}")
-    text = path.read_text(encoding="utf-8")
-    beats = []
-    current = None
-    for line in text.splitlines():
-        if line.startswith("## Spread "):
-            if current:
-                beats.append(current)
-            num = int(line.replace("## Spread ", "").strip().split()[0])
-            current = {"n": num, "text": "", "must_include": []}
-        elif current is not None and line.lower().startswith("must_include:"):
-            raw = line.split(":", 1)[1].strip()
-            current["must_include"] = [t.strip() for t in raw.split(",") if t.strip()]
-        elif current is not None:
-            current["text"] += (line + "\n")
-    if current:
-        beats.append(current)
-    for beat in beats:
-        beat["text"] = beat["text"].strip()
-        beat.setdefault("must_include", [])
-    if len(beats) != 14:
         raise CatalogueError(
-            f"title_id={title_id} story file must have 14 spreads, found {len(beats)}"
+            f"Missing locked story for {title_id}: {path}. "
+            "Only FINAL story docs (see brand/stories/00) are loaded — no AI manuscript."
         )
+    data = json.loads(path.read_text(encoding="utf-8"))
+    spreads = data.get("spreads") or []
+    if len(spreads) != 14:
+        raise CatalogueError(f"title_id={title_id} locked story must have 14 spreads, found {len(spreads)}")
+    for sp in spreads:
+        if "text" not in sp or "art" not in sp:
+            raise CatalogueError(f"title_id={title_id} spread {sp.get('n')} needs text + art")
+        calm = (sp.get("calm_zone") or "").strip().lower()
+        if calm not in {"left", "right"}:
+            raise CatalogueError(
+                f"title_id={title_id} spread {sp.get('n')} calm_zone must be left|right (got {calm!r})"
+            )
+    data["title_id"] = title_id
+    data["path"] = str(path)
+    return data
+
+
+def load_story_beats(title_id: str) -> dict:
+    """Compatibility wrapper: locked JSON → beats-shaped dict for older helpers/tests."""
+    locked = load_locked_story(title_id)
+    beats = [
+        {
+            "n": int(sp["n"]),
+            "text": sp.get("text") or "",
+            "art": sp.get("art") or "",
+            "anchor": sp.get("anchor") or "",
+            "calm_zone": sp.get("calm_zone"),
+            "calm_zone_note": sp.get("calm_zone_note") or "",
+            "must_include": list(sp.get("must_include") or []),
+        }
+        for sp in locked["spreads"]
+    ]
     meta = {
-        "approved": False,
-        "sets": [],
-        "carer_signature": "",
-        "last_line": "",
+        "approved": bool(locked.get("approved")),
+        "sets": list(locked.get("sets") or []),
+        "carer_signature": locked.get("carer_signature") or "",
+        "last_line": locked.get("last_line") or "",
         "title_id": title_id,
+        "version": locked.get("version"),
     }
-    for line in text.splitlines()[:20]:
-        if line.startswith("approved:"):
-            meta["approved"] = line.split(":", 1)[1].strip().lower() in {"true", "yes", "1"}
-        if line.startswith("sets:"):
-            raw = line.split(":", 1)[1].strip()
-            meta["sets"] = [s.strip() for s in raw.split(",") if s.strip()]
-        if line.startswith("carer_signature:"):
-            meta["carer_signature"] = line.split(":", 1)[1].strip()
-        if line.startswith("last_line:"):
-            meta["last_line"] = line.split(":", 1)[1].strip()
-    return {"meta": meta, "beats": beats, "path": str(path)}
+    return {"meta": meta, "beats": beats, "path": locked.get("path"), "locked": locked}
+
+
+def list_factory_titles() -> list[dict]:
+    """Titles ready for Book Factory (approved + locked story JSON on disk)."""
+    out = []
+    for entry in list_titles():
+        tid = entry["title_id"]
+        if not entry.get("approved"):
+            continue
+        if not locked_story_path(tid).is_file():
+            continue
+        out.append(entry)
+    return out
 
 
 def resolve_carer_text(text: str, inputs: dict) -> str:

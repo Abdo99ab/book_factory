@@ -17,7 +17,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 from flask import Flask, abort, flash, redirect, render_template, request, send_file, url_for
 from werkzeug.utils import secure_filename
 
-from pipeline.catalogue import get_title, list_titles
+from pipeline.catalogue import get_title, list_factory_titles
 from pipeline.constants import (
     ALLOWED_IMAGE_EXTENSIONS,
     ARCHIVE_ROOT,
@@ -28,13 +28,16 @@ from pipeline.constants import (
     SPREAD_COUNT,
 )
 from pipeline.job_log import append_event, read_events, read_json, write_json
+from pipeline.content import calm_zone_for
 from pipeline.runner import (
+    compose_missing_spread_ui_previews,
     run_build,
     run_edit_cover,
     run_edit_spread,
     run_edit_text,
     run_prepare,
     run_preview,
+    spreads_missing_composed_preview,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -55,7 +58,8 @@ def create_app() -> Flask:
 
     @app.get("/create")
     def create_form():
-        return render_template("create.html", titles=list_titles())
+        # Only FINAL locked stories (doc 00 → story 01 standard). Drafts stay out of the UI.
+        return render_template("create.html", titles=list_factory_titles())
 
     @app.post("/jobs")
     def create_job():
@@ -65,6 +69,7 @@ def create_app() -> Flask:
         pronouns = (request.form.get("pronouns") or "").strip().lower()
         carer_name = (request.form.get("carer_name") or "").strip()
         carer_role = (request.form.get("carer_role") or "").strip()
+        giver = (request.form.get("giver") or "").strip() or carer_name
         home_type = (request.form.get("home_type") or "house").strip().lower()
         comfort_object = (request.form.get("comfort_object") or "").strip()
         dedication_text = (request.form.get("dedication_text") or "").strip()
@@ -80,13 +85,16 @@ def create_app() -> Flask:
         if not reference or not reference.filename:
             flash("Upload a child photo.", "error")
             return redirect(url_for("create_form"))
-        if not os.getenv("_OPENAI_API_KEY"):
-            flash("_OPENAI_API_KEY is not configured.", "error")
+        if not (os.getenv("OPENAI_API_KEY") or os.getenv("_OPENAI_API_KEY")):
+            flash("OPENAI_API_KEY is not configured.", "error")
             return redirect(url_for("create_form"))
         try:
             title = get_title(title_id)
         except Exception:
             flash("Unknown title.", "error")
+            return redirect(url_for("create_form"))
+        if not title.get("approved") or title_id not in {t["title_id"] for t in list_factory_titles()}:
+            flash("That title is not ready for Book Factory yet (needs a FINAL locked story).", "error")
             return redirect(url_for("create_form"))
 
         slots = {}
@@ -116,6 +124,7 @@ def create_app() -> Flask:
             "age": age,
             "pronouns": pronouns,
             "carer": {"name": carer_name, "role": carer_role},
+            "giver": giver,
             "home_type": home_type if home_type in {"flat", "house"} else "house",
             "comfort_object": comfort_object,
             "slots": slots,
@@ -151,21 +160,41 @@ def create_app() -> Flask:
         inputs = read_json(job_dir / "inputs.json") or {}
         story = read_json(job_dir / "story" / "manuscript.json") or {}
         events = read_events(job_dir)[-40:]
+        # Backfill composed previews (art + story text) for any spread that still lacks one.
+        busy = job.get("status") in {
+            "queued",
+            "generating_content",
+            "generating_character",
+            "generating_preview",
+            "building",
+            "building_pdf",
+            "editing",
+        }
+        if not busy and inputs.get("title_id") and spreads_missing_composed_preview(job_dir):
+            job_executor.submit(_safe, compose_missing_spread_ui_previews, job_dir, inputs, story)
+
         spreads = []
         for n in range(1, SPREAD_COUNT + 1):
             art = job_dir / "spreads" / f"spread-{n:02d}" / "art.png"
             preview = job_dir / "spreads" / f"spread-{n:02d}" / "preview.png"
+            printed = job_dir / "print" / "spreads" / f"spread-{n:02d}.jpg"
             meta = read_json(job_dir / "spreads" / f"spread-{n:02d}" / "spread.json") or {}
-            # Prefer composed preview (art + calm-half text) when present.
-            show = preview if preview.is_file() else art
+            sp = next((s for s in story.get("spreads") or [] if int(s["n"]) == n), {}) or {}
+            # Prefer composed preview (art + calm-half text), then print stitch, then raw art.
+            if preview.is_file():
+                show = preview
+            elif printed.is_file():
+                show = printed
+            else:
+                show = art
             spreads.append(
                 {
                     "n": n,
-                    "has_art": art.is_file() or preview.is_file(),
+                    "has_art": art.is_file() or preview.is_file() or printed.is_file(),
                     "art_rel": show.relative_to(job_dir).as_posix() if show.is_file() else f"spreads/spread-{n:02d}/art.png",
-                    "has_composed": preview.is_file(),
-                    "calm_zone": meta.get("calm_zone"),
-                    "text": (next((s for s in story.get("spreads") or [] if int(s["n"]) == n), {}) or {}).get("text"),
+                    "has_composed": preview.is_file() or printed.is_file(),
+                    "calm_zone": meta.get("calm_zone") or sp.get("calm_zone") or calm_zone_for(n),
+                    "text": sp.get("text") or "",
                 }
             )
         title_meta = None

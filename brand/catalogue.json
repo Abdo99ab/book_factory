@@ -1,11 +1,11 @@
 {
   "version": 1,
   "order": [
+    "dinosaur_egg",
     "big_kid_list",
     "nursery_day",
     "bed_boat",
     "night_rocket",
-    "dinosaur_egg",
     "ocean_map",
     "tells_truth",
     "worry_jar",
@@ -286,50 +286,30 @@
       "title_template": "{name} and the Lost Dinosaur Egg",
       "age_band": "3-6",
       "route": "morning_light",
-      "outfit": "green jumper and sturdy boots",
+      "outfit": "teal jumper, navy trousers, rust wellies",
       "anchor": {
-        "description": "Pip the baby dinosaur (design locked on spread 2); shiny shell from spread 12",
-        "state_schedule": null
+        "description": "Pip: cat-sized, round body, sage-green with butter-yellow speckles, cream tummy, three soft rounded back spikes, short tail, large dark eyes; lock on spread 2. Egg (spread 1) same speckles; curly shell (spreads 13-14) oat and butter, pearly.",
+        "state_schedule": null,
+        "lock_spread": 2
       },
       "must_not_show": [
         "predators",
         "fights",
-        "chase",
-        "fierce dinosaurs"
+        "chases",
+        "teeth",
+        "deep or fast water",
+        "the child crying or in danger"
       ],
-      "personalisation_slots": [
-        {
-          "id": "setting",
-          "label": "Garden or park",
-          "type": "select",
-          "options": [
-            "garden",
-            "park"
-          ],
-          "required": true
-        },
-        {
-          "id": "pip_name",
-          "label": "Pip's name",
-          "type": "text",
-          "required": false
-        },
-        {
-          "id": "family_song",
-          "label": "Family song title",
-          "type": "text",
-          "required": false
-        }
-      ],
-      "blurb": "The child finds a lost egg, meets gentle Pip, and helps someone smaller get home.",
+      "personalisation_slots": [],
+      "blurb": "One morning in the garden, {name} digs up a big speckled egg. Out pops Pip, a baby dinosaur a long way from home. Over ferns, across a river and through the rain, {name} helps Pip find the way back to a very big mum.",
       "parent_spread": {
-        "you_could_say": "Helping can be quiet and kind.",
-        "try_together": "What would you have packed for Pip?",
-        "in_real_life": "Do one kind help for someone smaller this week.",
-        "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
+        "you_could_say": "\"Pip had a good nose, and you had good ideas. Together you found the way.\"",
+        "try_together": "\"What would you have packed for Pip?\"",
+        "in_real_life": "Next time it rains, look together for a leaf big enough to be a dinosaur umbrella.",
+        "read_it_again": "Read it a few nights in a row, and again whenever {name} asks."
       },
-      "last_line": "Today I helped someone small find their way.",
-      "approved": false,
+      "last_line": "\"Goodnight, Pip,\" whispers {name}.",
+      "approved": true,
       "post_grade": null
     },
     "ocean_map": {

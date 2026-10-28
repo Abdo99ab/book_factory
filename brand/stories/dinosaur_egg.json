@@ -1,0 +1,160 @@
+{
+  "title_id": "dinosaur_egg",
+  "approved": true,
+  "version": "v2-final-check",
+  "status": "final",
+  "source": "01 · [Name] and the Lost Dinosaur Egg — FINAL CHECK (v2).docx",
+  "family": "adventures",
+  "colour": "teal",
+  "age_band": "3-6",
+  "route": "morning_light",
+  "front_band": "READY FOR ADVENTURE",
+  "title_template": "[Name] and the Lost Dinosaur Egg",
+  "back_question": "Ready for adventure, [Name]?",
+  "back_blurb": "One morning in the garden, [Name] digs up a big speckled egg. Out pops Pip, a baby dinosaur a long way from home. Over ferns, across a river and through the rain, [Name] helps Pip find the way back to a very big mum.",
+  "honesty_line": "Illustrated from [Name]'s photo and checked by a person before print.",
+  "spine_title": "[Name] and the Lost Dinosaur Egg",
+  "outfit": "teal jumper, navy trousers, rust wellies",
+  "cover_art": "[Name] at the gap in the hedge, Pip on [their] back, giant ferns behind; face large and front-on, upper third kept calm for the title. Morning Light.",
+  "title_page": {
+    "band": "READY FOR ADVENTURE",
+    "line": "Illustrated from [Name]'s photo",
+    "spot": "The speckled egg half-dug in garden soil, a child's spade beside it. No child on this page. Morning Light."
+  },
+  "anchor": {
+    "description": "Pip: cat-sized, round body, sage-green with butter-yellow speckles down the back, cream tummy, three soft rounded back spikes, short tail, large dark eyes. Lock on spread 2. The egg (title page, spread 1) carries the same speckles; the curly shell (spreads 13–14) is small, oat and butter, pearly. Pip's mum: same colours and speckles, house-sized, rounded and gentle; no teeth or claws.",
+    "lock_spread": 2
+  },
+  "must_not_show": [
+    "predators",
+    "fights",
+    "chases",
+    "teeth",
+    "deep or fast water",
+    "the child crying or in danger"
+  ],
+  "personalisation_slots": [],
+  "spreads": [
+    {
+      "n": 1,
+      "text": "Dig, dig, dig goes [Name]'s spade at the bottom of the garden. Clunk! It hits something big. Something round. Something speckled all over, like a giant's breakfast egg. [Name] brushes away the soil. \"It's an egg!\"",
+      "art": "Back garden of a UK terrace on a bright morning: shed, swing, washing line. [Name] kneels at the bottom of the garden, spade in hand, brushing soil off a huge speckled egg; face lit with surprise.",
+      "anchor": "The egg (Pip's speckles).",
+      "calm_zone": "right",
+      "calm_zone_note": "Open sky over the right-hand page — keep low-detail; story text sits there."
+    },
+    {
+      "n": 2,
+      "text": "The egg goes wibble. The egg goes wobble. Crick… crack… CRUNCH! Out pops a baby dinosaur, small as a cat, with speckles all the way down. \"Pip!\" squeaks the baby dinosaur. \"Pip, pip!\" \"Hello, Pip,\" says [Name].",
+      "art": "Same spot. The egg split open; Pip sits in the shell halves, blinking. [Name] crouches close, one hand held out, smiling.",
+      "anchor": "Pip, first full view. Lock the design here.",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper left: hedge and sky — keep low-detail; story text sits there."
+    },
+    {
+      "n": 3,
+      "text": "Pip sniffs the grass. Pip sniffs the shed. Pip sniffs [Name]'s wellies. But there is no nest here, and no dinosaur mum. Pip's chin begins to wobble. [Name] kneels down. \"Don't worry, Pip. I'll help you find your way home.\"",
+      "art": "Pip sniffs [Name]'s wellie, chin wobbling; [Name] kneels at Pip's level, one hand gently on Pip's back. Shed, swing and washing line behind.",
+      "anchor": "Pip.",
+      "calm_zone": "right",
+      "calm_zone_note": "Lawn, lower right — keep low-detail; story text sits there."
+    },
+    {
+      "n": 4,
+      "text": "Pip sniffs the air, then points that nose at the hedge. Behind it, where the garden usually stops, giant ferns sway, tall as houses. \"Back by teatime!\" [Name] calls to the kitchen window. Then the two of them squeeze through the gap.",
+      "art": "Bottom of the garden: a gap in the hedge glows with green light; giant ferns beyond. [Name] waves back towards the kitchen window, where a grown-up's hand waves back (hand only, no face). Pip points at the gap.",
+      "anchor": "Pip.",
+      "calm_zone": "left",
+      "calm_zone_note": "Sky above the house, left-hand page — keep low-detail; story text sits there."
+    },
+    {
+      "n": 5,
+      "text": "Bump! A fallen log lies across the path, far too high for little dinosaur legs. Pip jumps and slides down. Flump. [Name] has an idea. One flat stone, two flat stones, three flat stones, piled up like a step. Up goes Pip. Over goes Pip.",
+      "art": "Fern forest, warm green light. [Name] places the third flat stone on a small pile against a mossy log; Pip is mid-climb, one foot on the step.",
+      "anchor": "Pip.",
+      "calm_zone": "right",
+      "calm_zone_note": "Pale fern canopy, top right — keep low-detail; story text sits there."
+    },
+    {
+      "n": 6,
+      "text": "By the river, Pip sits down with a hungry rumble. [Name] finds two biscuits in [their] pocket. \"One for you, and one for me.\" Crunch, crunch, crunch. Pip's tail begins to wag, and off they go again.",
+      "art": "Grassy riverbank. [Name] sits cross-legged holding out a biscuit; Pip, sitting opposite, takes the other. Crumbs, wagging tail.",
+      "anchor": "Pip.",
+      "calm_zone": "left",
+      "calm_zone_note": "Calm water, lower left — keep low-detail; story text sits there."
+    },
+    {
+      "n": 7,
+      "text": "The river is wide and splashy. \"How do we get across?\" wonders [Name]. Then a long, long neck rises out of the reeds. A gentle giant lays it over the water like a bridge. \"Thank you!\" calls [Name], and over they tiptoe, one careful step at a time.",
+      "art": "Wide, shallow, sparkling river. A gentle long-necked dinosaur (soft grey-blue, eyes kind) lays its neck across like a bridge. [Name] tiptoes along it, arms out for balance; Pip follows. Water stays low and calm.",
+      "anchor": "Pip.",
+      "calm_zone": "right",
+      "calm_zone_note": "Sky over the far bank, top half of the right page — keep low-detail; story text sits there."
+    },
+    {
+      "n": 8,
+      "text": "On the other side, Pip's little legs go slower… and slower… and stop. Pip gives an enormous yawn. \"Up you come,\" says [Name], and lifts Pip onto [their] back. Pip is heavier than a bag of shopping. Step, step, step.",
+      "art": "Path through tall grass. [Name] walks forward carrying Pip piggyback, Pip's chin on [Name]'s shoulder, eyes half closed. [Name] looks determined, cheeks a little puffed. Face fully visible.",
+      "anchor": "Pip.",
+      "calm_zone": "right",
+      "calm_zone_note": "Sky, upper right — keep low-detail; story text sits there."
+    },
+    {
+      "n": 9,
+      "text": "Pitter. Patter. Then a grey cloud tips out a whole bucket of rain. Pip wriggles down and scampers off, nose first, to the biggest leaf of all. Underneath, it's dry. [Name] hums the bedtime song from home, and Pip snuggles close.",
+      "art": "Light rain. Under the huge leaf Pip has found, [Name] sits humming, eyes soft; Pip snuggles close, nose up. Raindrops bounce on the leaf, nothing dark or stormy.",
+      "anchor": "Pip.",
+      "calm_zone": "left",
+      "calm_zone_note": "Grey-pale rain sky, top left — keep low-detail; story text sits there."
+    },
+    {
+      "n": 10,
+      "text": "When the rain stops, the path splits three ways. Which way now? [Name] isn't sure. But Pip sniffs… and sniffs… and runs to a footprint so big that [Name] can stand in it with both wellies. Three round toes. It smells like home.",
+      "art": "After rain, the path splits three ways through the ferns. Pip, nose to the ground, has found a giant three-toed footprint; [Name] stands in it with both wellies, laughing.",
+      "anchor": "Pip.",
+      "calm_zone": "right",
+      "calm_zone_note": "Clear sky, upper half of the right page — keep low-detail; story text sits there."
+    },
+    {
+      "n": 11,
+      "text": "Past the last ferns is a nest as wide as a paddling pool. Beside it stands the biggest dinosaur [Name] has ever seen, speckled all down her back, just like Pip. \"Pip!\" she calls, in a voice as deep and soft as a drum. \"Pip, pip!\" squeaks Pip, and runs.",
+      "art": "Clearing with a nest as wide as a paddling pool. Pip's mum stands beside it, looking down with warm eyes. Pip runs to her; [Name] watches, smiling, from the ferns. Keep the scale gentle: low angle but no looming.",
+      "anchor": "Pip and Pip's mum.",
+      "calm_zone": "left",
+      "calm_zone_note": "Open sky between mum's head and the ferns — keep low-detail; story text sits there."
+    },
+    {
+      "n": 12,
+      "text": "Pip's mum looks at [Name] for a long moment. Then she lowers her great head, slowly, gently, all the way down, until her nose is right next to [Name]. [Name] reaches out and strokes it. It is warm and a little bit bumpy. That is a dinosaur thank-you.",
+      "art": "Close-up. Pip's mum has lowered her head to [Name]'s height; [Name] strokes her nose with one hand. Pip peeks from under her chin. Soft, calm light.",
+      "anchor": "Pip.",
+      "calm_zone": "left",
+      "calm_zone_note": "Mum's back and sky, top left — keep low-detail; story text sits there."
+    },
+    {
+      "n": 13,
+      "text": "Pip drops a small curly shell into [Name]'s hand. \"Pip,\" says Pip. That means thank you. Then Pip's mum carries [Name] home, five giant steps to the hedge. She lowers her long neck, and whoosh! [Name] slides down onto the lawn.",
+      "art": "Arrival at the hedge, close framing: Pip's mum has lowered her long neck to the lawn and [Name] slides down the last bit, feet almost on the grass, curly shell held up in one hand, face front and fully visible. Pip peeks over mum's back, waving. Show the arrival only, never a wide shot of the ride. One child figure only.",
+      "anchor": "Pip; the curly shell first appears.",
+      "calm_zone": "right",
+      "calm_zone_note": "Sky over the hedge, top right — keep low-detail; story text sits there."
+    },
+    {
+      "n": 14,
+      "text": "Back in the garden it is nearly teatime, and the washing is still flapping on the line. That night, the curly shell shines on [Name]'s windowsill. Somewhere past the hedge, a little dinosaur is snuggling down too. \"Goodnight, Pip,\" whispers [Name].",
+      "art": "[Name]'s bedroom at night, [Name] tucked in bed, eyes closing with a smile. The curly shell shines on the windowsill in the moonlight (a shine, not a magic glow); through the window, moonlit garden with the washing line and the hedge. A grown-up's hand on the duvet, optional. One child figure only.",
+      "anchor": "The curly shell.",
+      "calm_zone": "right",
+      "calm_zone_note": "Night sky through the window, upper right — keep low-detail; story text sits there."
+    }
+  ],
+  "parent_spread": {
+    "you_could_say": "\"Pip had a good nose, and you had good ideas. Together you found the way.\"",
+    "try_together": "\"What would you have packed for Pip?\"",
+    "in_real_life": "Next time it rains, look together for a leaf big enough to be a dinosaur umbrella.",
+    "read_it_again": "Read it a few nights in a row, and again whenever [Name] asks."
+  },
+  "parent_art": "Small spot of Pip asleep in the nest with the curly shell beside it.",
+  "dedication_template": "For [Name], from [Giver]",
+  "last_line": "\"Goodnight, Pip,\" whispers [Name]."
+}

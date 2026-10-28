@@ -700,7 +700,9 @@ def _draw_parent_page(ctx: _Ctx, page: dict, side: str) -> None:
         _draw_lines(c, lines, reportlab_name("body"), body_size, left, cursor, body_size * 1.45, INK)
         cursor += slot_h
     if side == "right":
-        anchor = ctx.job_dir / "title_page" / "spot.png"
+        anchor = ctx.job_dir / "parent" / "spot.png"
+        if not anchor.is_file():
+            anchor = ctx.job_dir / "title_page" / "spot.png"
         if anchor.is_file():
             art = _Art(anchor, ctx.work_dir, None, tag="parent-spot")
             spot = float(SIZE_SCALE.get("parent_spot_mm", 90))
@@ -731,7 +733,12 @@ def _draw_dedication_page(ctx: _Ctx, page: dict) -> None:
     else:
         lines = []
     cursor += len(lines) * (size + 2) * 1.45 * 25.4 / 72 + 12
-    note = _wrap(READ_IT_AGAIN_LINE, reportlab_name("body"), size, mm_to_pt(width))
+    read_again = (
+        ((ctx.story.get("locked") or {}).get("read_it_again"))
+        or ((ctx.story.get("parent_spread") or {}).get("read_it_again"))
+        or READ_IT_AGAIN_LINE
+    )
+    note = _wrap(read_again, reportlab_name("body"), size, mm_to_pt(width))
     _draw_lines(c, note, reportlab_name("body"), size, left, cursor, size * 1.45, INK)
     bottom = PAGE_WITH_BLEED_MM - BLEED_MM - SAFE_MM["trim"]
     logo_w = 34.0
@@ -756,7 +763,11 @@ def _draw_dedication_page(ctx: _Ctx, page: dict) -> None:
 
 
 def _cover_blurb(ctx: _Ctx) -> str:
-    return (ctx.title.get("blurb") or "").replace("{name}", ctx.name).strip()
+    return (
+        (ctx.story.get("back_blurb") or ctx.title.get("blurb") or "")
+        .replace("{name}", ctx.name)
+        .strip()
+    )
 
 
 def _strip_art(ctx, c, art: _Art, strip: tuple[float, float, float, float], align: str) -> None:
@@ -810,7 +821,7 @@ def _draw_back(ctx: _Ctx, c, art: _Art, panel: tuple[float, float], strip, align
     question_lines = _wrap(ctx.story["locked"]["back_question"], q_font, q_size, mm_to_pt(width))
     blurb_size, blurb_lead = SIZE_SCALE["back_blurb"][0], 16
     blurb_lines = _wrap(_cover_blurb(ctx), reportlab_name("body"), blurb_size, mm_to_pt(width))
-    honesty = HONESTY_LINE.format(name=ctx.name)
+    honesty = (ctx.story.get("honesty_line") or HONESTY_LINE.format(name=ctx.name)).strip()
     honesty_lines = _wrap(honesty, reportlab_name("body"), 10, mm_to_pt(width))
     q_h = len(question_lines) * q_size * 1.2 * 25.4 / 72
     b_h = len(blurb_lines) * blurb_lead * 25.4 / 72

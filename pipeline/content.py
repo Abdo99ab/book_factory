@@ -1,184 +1,186 @@
-"""One-shot manuscript generation from catalogue beats (v2).
+"""Build the job manuscript from a locked story doc — no AI rewrite.
 
-No validation loop and no separate humanize pass — UK English + brand voice are
-part of the single OpenAI call. Beats stay binding: same events, same order, exact last line.
+Story 01 (Lost Dinosaur Egg FINAL CHECK) is the standard: take spread text,
+art briefs, calm-zone notes, parent pages and blurbs as written; only fill
+placeholders ([Name], [their], [Carer], [Giver], [Object], slots).
 """
 
 from __future__ import annotations
 
-import json
-import re
 from pathlib import Path
 
-from .brand import HONESTY_LINE, READ_IT_AGAIN_LINE, UK_SPELLING, word_cap_for_age_band
-from .catalogue import get_title, load_story_beats, resolve_route
+from .catalogue import get_title, load_locked_story, resolve_route
 from .job_log import append_event, write_json
-from .openai_util import chat_json
 
 SPREAD_COUNT = 14
 
-
-def _fill(template: str, inputs: dict) -> str:
-    name = inputs["name"]
-    carer = inputs["carer"]["name"]
-    role = inputs["carer"]["role"]
-    text = (
-        template.replace("{name}", name)
-        .replace("{carer}", carer)
-        .replace("{Carer}", carer)
-        .replace("{role}", role)
-    )
-    for key, value in (inputs.get("slots") or {}).items():
-        text = text.replace(f"{{{key}}}", str(value))
-        text = text.replace(f"slot:{key}", str(value))
-    return text
-
-
-def _apply_uk(text: str) -> str:
-    out = text
-    for us, uk in UK_SPELLING.items():
-        out = re.sub(rf"\b{us}\b", uk, out, flags=re.IGNORECASE)
-    return out
+# Doc 00: only [Name] and [their] carry the child; map [their] from order pronouns.
+_POSSESSIVE = {"she": "her", "he": "his", "they": "their"}
 
 
 def calm_zone_for(n: int) -> str:
-    """Spread 1 left, 2 right, 3 left…"""
-    return "left" if int(n) % 2 == 1 else "right"
+    """Fallback only when a locked story omits calm_zone (spread 1 right, 2 left…)."""
+    return "right" if int(n) % 2 == 1 else "left"
 
 
-SYSTEM = """You write Raised Ready personalised picture-book manuscripts.
+def personalize(template: str, inputs: dict) -> str:
+    """Fill story placeholders. Leave unknown ``[Token]`` untouched."""
+    if not template:
+        return ""
+    name = (inputs.get("name") or "").strip()
+    pronouns = (inputs.get("pronouns") or "they").strip().lower()
+    their = _POSSESSIVE.get(pronouns, "their")
+    carer = inputs.get("carer") or {}
+    carer_role = (carer.get("role") or carer.get("name") or "Mum").strip()
+    carer_name = (carer.get("name") or carer_role).strip()
+    giver = (inputs.get("giver") or carer_name).strip()
+    comfort = (inputs.get("comfort_object") or "").strip()
 
-VOICE: warm UK nursery key worker — calm, specific, never preachy. Story voice for spreads
-(short sentences, the child acting). Parent voice for the closing spread (plain, practical).
+    text = template
+    for old, new in (
+        ("[Name]", name),
+        ("[name]", name),
+        ("{name}", name),
+        ("[their]", their),
+        ("[Their]", their[:1].upper() + their[1:] if their else their),
+        ("[Carer]", carer_role),
+        ("[carer]", carer_role),
+        ("{carer}", carer_name),
+        ("{Carer}", carer_role),
+        ("[Giver]", giver),
+        ("[giver]", giver),
+        ("[Object]", comfort),
+        ("[object]", comfort),
+    ):
+        text = text.replace(old, new)
 
-BINDING RULES:
-- Keep the SAME events in the SAME order as the beats. Do not invent new plot beats.
-- The last spread's last line MUST be exactly the catalogue last_line provided.
-- UK English only (colour, practise as verb, nappies, nursery, mum not mom).
-- Humanise: natural spoken rhythm, no lecture, no outcome claims ("fixes", "in 3 days").
-- No deficit words about the child (naughty, behind, struggling).
-- Word count per spread at or under the given cap.
-
-Return JSON only with this shape:
-{
-  "title": string,
-  "front_band": string,
-  "back_question": string,
-  "back_blurb": string,
-  "honesty_line": string,
-  "spreads": [
-    {"n": 1, "text": string, "scene": string, "calm_zone": "left"|"right"}
-  ],
-  "parent_spread": {
-    "you_could_say": string,
-    "try_together": string,
-    "in_real_life": string,
-    "read_it_again": string
-  },
-  "dedication": string
-}
-
-Exactly 14 spreads. calm_zone MUST alternate: 1 left, 2 right, 3 left…
-scene = short illustrator brief (no text in the picture). text = words printed on the calm half.
-read_it_again MUST be the fixed line provided. honesty_line MUST be the fixed honesty line provided.
-"""
+    slots = inputs.get("slots") or {}
+    for key, value in slots.items():
+        val = str(value)
+        text = text.replace(f"[{key}]", val)
+        text = text.replace(f"{{{key}}}", val)
+        # Doc 00 token names
+        pretty = key.replace("_", " ").title().replace(" ", "")
+        text = text.replace(f"[{pretty}]", val)
+        for token in (
+            "Nursery",
+            "School",
+            "Teacher",
+            "Exit line",
+            "Broken thing",
+            "Praise words",
+            "Giver",
+        ):
+            if key.replace("_", " ").lower() == token.lower():
+                text = text.replace(f"[{token}]", val)
+    return text
 
 
-def generate_content(client, job_dir: Path, inputs: dict) -> dict:
+def generate_content(job_dir: Path, inputs: dict, client=None) -> dict:
+    """Materialise the locked story for this order. ``client`` is unused (API compat)."""
+    del client  # no text model — manuscript comes from the story doc
     title = get_title(inputs["title_id"])
-    beats = load_story_beats(inputs["title_id"])
-    route = resolve_route(title)
-    cap = word_cap_for_age_band(title["age_band"])
+    locked = load_locked_story(inputs["title_id"])
+    route = resolve_route(title) if title.get("route") else locked.get("route") or "morning_light"
     name = inputs["name"]
-    last_line = _fill(title["last_line"] or beats["meta"].get("last_line") or "", inputs)
-    honesty = HONESTY_LINE.format(name=name)
-    band = title["band"]
-    question = _fill(title["question_form"], inputs)
-    book_title = _fill(title["title_template"], inputs)
-    parent_src = title.get("parent_spread") or {}
+    giver = (inputs.get("giver") or (inputs.get("carer") or {}).get("name") or "").strip()
 
-    beat_block = []
-    for beat in beats["beats"]:
-        beat_block.append(f"### Spread {beat['n']}\n{_fill(beat['text'], inputs)}")
+    append_event(
+        job_dir,
+        "content_start",
+        f"Loading locked story {inputs['title_id']} ({locked.get('version') or 'doc'}) — no AI rewrite.",
+    )
 
-    user = f"""Title id: {inputs['title_id']}
-Child: {name}, age {inputs['age']}, pronouns {inputs['pronouns']}
-Carer: {inputs['carer']['name']} ({inputs['carer']['role']})
-Home: {inputs.get('home_type')}
-Comfort object: {inputs.get('comfort_object')}
-Slots: {json.dumps(inputs.get('slots') or {})}
-Outfit (from catalogue): {title.get('outfit')}
-Anchor: {json.dumps(title.get('anchor') or {})}
-Must not show: {json.dumps(title.get('must_not_show') or [])}
-Route: {route}
-Word cap per spread: {cap}
-Fixed last_line: {last_line!r}
-Fixed front_band: {band!r}
-Fixed back_question: {question!r}
-Fixed title: {book_title!r}
-Fixed honesty_line: {honesty!r}
-Fixed read_it_again: {READ_IT_AGAIN_LINE!r}
-Catalogue parent blocks (rewrite into brand voice, keep intent):
-{json.dumps(parent_src, indent=2)}
-Dedication hint from form: {(inputs.get('dedication_text') or '').strip() or f'For {name}, from {inputs["carer"]["name"]}'}
-Blurb seed: {_fill(title.get('blurb') or '', inputs)}
+    book_title = personalize(locked.get("title_template") or title["title_template"], inputs)
+    band = locked.get("front_band") or title["band"]
+    question = personalize(locked.get("back_question") or title["question_form"], inputs)
+    blurb = personalize(locked.get("back_blurb") or title.get("blurb") or "", inputs)
+    honesty = personalize(
+        locked.get("honesty_line")
+        or "Illustrated from [Name]'s photo and checked by a person before print.",
+        inputs,
+    )
+    parent_src = locked.get("parent_spread") or title.get("parent_spread") or {}
+    parent = {k: personalize(str(v), inputs) for k, v in parent_src.items()}
+    read_again = personalize(
+        parent.get("read_it_again")
+        or "Read it a few nights in a row, and again whenever [Name] asks.",
+        inputs,
+    )
+    parent["read_it_again"] = read_again
 
-BEATS (binding — same events, same order):
-{chr(10).join(beat_block)}
-"""
+    dedication_hint = (inputs.get("dedication_text") or "").strip()
+    if dedication_hint:
+        dedication = dedication_hint
+    else:
+        base = personalize(locked.get("dedication_template") or "For [Name], from [Giver]", inputs)
+        dedication = base if giver else personalize("For [Name]", inputs)
 
-    append_event(job_dir, "content_start", "Generating full manuscript in one call.")
-    raw = chat_json(client, SYSTEM, user, description="Manuscript")
-    data = json.loads(raw)
+    spreads_out = []
+    for raw in locked.get("spreads") or []:
+        n = int(raw["n"])
+        calm = (raw.get("calm_zone") or "").strip().lower()
+        if calm not in {"left", "right"}:
+            calm = calm_zone_for(n)
+        spreads_out.append(
+            {
+                "n": n,
+                "text": personalize(raw.get("text") or "", inputs).strip(),
+                "scene": personalize(raw.get("art") or raw.get("scene") or "", inputs).strip(),
+                "art": personalize(raw.get("art") or "", inputs).strip(),
+                "anchor": personalize(raw.get("anchor") or "", inputs).strip(),
+                "calm_zone": calm,
+                "calm_zone_note": personalize(raw.get("calm_zone_note") or "", inputs).strip(),
+            }
+        )
+    if len(spreads_out) != SPREAD_COUNT:
+        raise ValueError(
+            f"Locked story {inputs['title_id']} must have {SPREAD_COUNT} spreads, found {len(spreads_out)}"
+        )
 
-    # Deterministic locks the model must not drift on
-    data["title"] = book_title
-    data["front_band"] = band
-    data["back_question"] = question
-    data["honesty_line"] = honesty
-    data.setdefault("parent_spread", {})
-    data["parent_spread"]["read_it_again"] = READ_IT_AGAIN_LINE
-    data["route"] = route
-    data["family"] = title["family"]
-    data["title_id"] = inputs["title_id"]
-    data["locked"] = {
+    data = {
         "title": book_title,
         "front_band": band,
         "back_question": question,
+        "back_blurb": blurb,
         "honesty_line": honesty,
-        "last_line": last_line,
-        "parent_spread": data["parent_spread"],
+        "spreads": spreads_out,
+        "parent_spread": parent,
+        "parent_art": personalize(locked.get("parent_art") or "", inputs).strip(),
+        "dedication": dedication,
+        "cover_art": personalize(locked.get("cover_art") or "", inputs).strip(),
+        "title_page": {
+            k: personalize(str(v), inputs) if isinstance(v, str) else v
+            for k, v in (locked.get("title_page") or {}).items()
+        },
+        "route": route,
+        "family": locked.get("family") or title["family"],
+        "title_id": inputs["title_id"],
+        "outfit": locked.get("outfit") or title.get("outfit"),
+        "anchor": locked.get("anchor") or title.get("anchor"),
+        "must_not_show": locked.get("must_not_show") or title.get("must_not_show") or [],
+        "source_version": locked.get("version"),
+        "locked": {
+            "title": book_title,
+            "front_band": band,
+            "back_question": question,
+            "honesty_line": honesty,
+            "last_line": personalize(locked.get("last_line") or "", inputs),
+            "parent_spread": parent,
+            "read_it_again": read_again,
+        },
     }
-
-    spreads = list(data.get("spreads") or [])
-    by_n = {int(s["n"]): s for s in spreads if "n" in s}
-    normalised = []
-    for n in range(1, SPREAD_COUNT + 1):
-        sp = by_n.get(n) or {"n": n, "text": _fill(beats["beats"][n - 1]["text"], inputs), "scene": ""}
-        sp["n"] = n
-        sp["calm_zone"] = calm_zone_for(n)
-        sp["text"] = _apply_uk((sp.get("text") or "").strip())
-        sp["scene"] = (sp.get("scene") or "").strip()
-        if n == SPREAD_COUNT and last_line and last_line not in sp["text"]:
-            sp["text"] = (sp["text"].rstrip(".") + ". " + last_line).strip()
-        normalised.append(sp)
-    data["spreads"] = normalised
-    data["back_blurb"] = _apply_uk((data.get("back_blurb") or "").strip())
-    data["dedication"] = _apply_uk(
-        (data.get("dedication") or inputs.get("dedication_text") or f"For {name}, from {inputs['carer']['name']}").strip()
-    )
 
     story_dir = job_dir / "story"
     story_dir.mkdir(parents=True, exist_ok=True)
     write_json(story_dir / "manuscript.json", data)
-    # Flat page list for PDF (32 content pages)
-    pages = _pages_from_manuscript(data, inputs)
-    write_json(story_dir / "pages.json", {"pages": pages})
-    append_event(job_dir, "content_done", f"Manuscript ready: {book_title}")
+    write_json(story_dir / "pages.json", {"pages": _pages_from_manuscript(data, inputs)})
+    append_event(job_dir, "content_done", f"Manuscript ready from locked story: {book_title}")
     return data
 
 
 def _pages_from_manuscript(data: dict, inputs: dict) -> list[dict]:
+    del inputs  # reserved for future page-level personalisation
     pages = [
         {
             "number": 1,
@@ -188,29 +190,27 @@ def _pages_from_manuscript(data: dict, inputs: dict) -> list[dict]:
     ]
     for sp in data["spreads"]:
         n = int(sp["n"])
-        left_num = 2 * n
-        right_num = 2 * n + 1
         calm = sp["calm_zone"]
         pages.append(
             {
-                "number": left_num,
+                "number": 2 * n,
                 "kind": "spread_half",
                 "spread": n,
                 "side": "left",
                 "calm_zone": calm,
                 "text": sp["text"] if calm == "left" else "",
-                "scene": sp["scene"],
+                "scene": sp.get("scene") or sp.get("art") or "",
             }
         )
         pages.append(
             {
-                "number": right_num,
+                "number": 2 * n + 1,
                 "kind": "spread_half",
                 "spread": n,
                 "side": "right",
                 "calm_zone": calm,
                 "text": sp["text"] if calm == "right" else "",
-                "scene": sp["scene"],
+                "scene": sp.get("scene") or sp.get("art") or "",
             }
         )
     parent = data.get("parent_spread") or {}

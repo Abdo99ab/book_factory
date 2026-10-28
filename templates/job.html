@@ -100,7 +100,7 @@
   <section class="panel">
     <p class="eyebrow">Interior</p>
     <h2>Spreads</h2>
-    <p class="meta">Calm half alternates left / right. Preview shows art with the story text plate; edit text without regenerating art, or regenerate one spread’s picture.</p>
+    <p class="meta">Every spread shows its story text on the calm half. Edit text without regenerating art, or regenerate one spread’s picture.</p>
   </section>
 
   <div class="spread-list">
@@ -113,11 +113,14 @@
           {% if s.has_composed %}<span class="status-pill">text on</span>{% endif %}
         </div>
       </div>
-      <div class="media-frame wide">
+      <div class="media-frame wide spread-preview calm-{{ s.calm_zone or 'left' }}">
         {% if s.has_art %}
         <img src="{{ url_for('job_file', job_id=job.job_id, rel=s.art_rel) }}" alt="Spread {{ s.n }}">
         {% else %}
         <p class="placeholder">Art not generated yet</p>
+        {% endif %}
+        {% if s.text and not s.has_composed %}
+        <div class="story-plate" aria-hidden="true">{{ s.text }}</div>
         {% endif %}
       </div>
       <div class="spread-tools">
