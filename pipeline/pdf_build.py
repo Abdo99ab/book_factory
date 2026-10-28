@@ -26,7 +26,6 @@ from .brand import (
     FAMILY_COLOUR,
     HONESTY_LINE,
     LOGO_FILES,
-    READ_IT_AGAIN_LINE,
     ROUTE_PRESETS,
     SAFE_MM,
     SIZE_SCALE,
@@ -53,6 +52,7 @@ from .constants import (
 from .fonts import normalize_font_id, register_brand_fonts, reportlab_name
 from .illustrate import split_spread, spread_art_path
 from .job_log import append_event, read_json, write_json
+from .text_wrap import fit_lines_for_story, wrap_text
 
 
 def spread_art_rel(n: int) -> str:
@@ -65,8 +65,9 @@ def assert_print_resolution(job_dir: Path) -> float | None:
 
 SITE_URL = "raisedready.co.uk"
 CONTRAST_TARGET = 7.0  # story text on art: p10-based navy vs paper must clear 7:1
-PLATE_ALPHA = 0.92
-PLATE_LAYERS = 8
+PLATE_ALPHA = 0.55  # more see-through feathered plate
+PLATE_LAYERS = 12
+STORY_PLATE_PAD_MM = 7.0  # tight pad around the text bounding box
 BAND_DEPTH_MM = float(SIZE_SCALE["band_depth_mm"])
 TITLE_SIZE_FLOOR = float(SIZE_SCALE["front_title_rest"][0])  # 44 pt
 # Default lockup used on covers, title page, dedication.
@@ -231,19 +232,19 @@ def _fill_rect(c, x, y, w, h, rgb) -> None:
 
 
 def _soft_plate(c, x, y, w, h) -> None:
-    """Soft-edged white plate under text or logo: feathered layers, no hard rectangle."""
+    """Soft see-through feathered plate under text or logo — no hard white block."""
     per_layer = 1 - (1 - PLATE_ALPHA) ** (1 / PLATE_LAYERS)
     c.saveState()
     c.setFillColorRGB(*_c01(PLATE))
     for i in range(PLATE_LAYERS):
-        grow = (PLATE_LAYERS - 1 - i) * 0.8
-        c.setFillAlpha(per_layer)
+        grow = (PLATE_LAYERS - 1 - i) * 1.1
+        c.setFillAlpha(per_layer * (0.55 + 0.45 * (i / max(1, PLATE_LAYERS - 1))))
         c.roundRect(
             _x(x - grow),
             _y(c, y + h + grow),
             mm_to_pt(w + 2 * grow),
             mm_to_pt(h + 2 * grow),
-            mm_to_pt(5 + grow),
+            mm_to_pt(6 + grow),
             stroke=0,
             fill=1,
         )
@@ -287,80 +288,9 @@ def _decide_ink(
     return INK, True
 
 
-_SOFT_BREAK = frozenset({",", ";", ":", "—", "–", "and", "or", "but"})
-
-
-def _rebalance_orphan_pair(first: list[str], second: list[str]) -> tuple[list[str], list[str]]:
-    """Never leave a line with fewer than three words when the pair can be rebalanced."""
-    if len(second) >= 3 or len(first) + len(second) < 6:
-        return first, second
-    # Aim for two roughly even lines, each ≥ 3 words.
-    total = first + second
-    best = len(first)
-    for cut in range(3, len(total) - 2):
-        if abs(cut - len(total) / 2) < abs(best - len(total) / 2):
-            best = cut
-    return total[:best], total[best:]
-
-
 def _wrap(text: str, font: str, size: float, width_pt: float) -> list[str]:
-    """Word-wrap; prefer breaks after punctuation / conjunctions; rebalance orphans (<3 words)."""
-    lines: list[str] = []
-    for paragraph in (text or "").split("\n"):
-        words = paragraph.split()
-        if not words:
-            lines.append("")
-            continue
-        current: list[str] = []
-        for word in words:
-            trial = current + [word]
-            if current and pdfmetrics.stringWidth(" ".join(trial), font, size) > width_pt:
-                # Prefer the latest soft-break point inside current.
-                break_at = len(current)
-                for index in range(len(current) - 1, 2, -1):
-                    token = current[index - 1].rstrip(".,;:!?…\"'").lower()
-                    punct = current[index - 1][-1:] in {",", ";", ":", "—", "–"}
-                    if punct or token in _SOFT_BREAK:
-                        if pdfmetrics.stringWidth(" ".join(current[:index]), font, size) <= width_pt:
-                            break_at = index
-                            break
-                first, rest = current[:break_at], current[break_at:]
-                rest = rest + [word]
-                first, rest = _rebalance_orphan_pair(first, rest)
-                # If rest still too wide, flush first and keep rest cooking.
-                if pdfmetrics.stringWidth(" ".join(rest), font, size) <= width_pt or len(first) < 1:
-                    lines.append(" ".join(first))
-                    current = rest
-                else:
-                    lines.append(" ".join(first))
-                    current = rest
-            else:
-                current = trial
-        if current:
-            if len(current) < 3 and lines:
-                prev = lines[-1].split()
-                first, rest = _rebalance_orphan_pair(prev, current)
-                if len(rest) >= 3 or len(first) + len(rest) < 6:
-                    lines[-1] = " ".join(first)
-                    current = rest
-            lines.append(" ".join(current))
-    return lines
-
-
-def _sentences(text: str) -> list[str]:
-    parts = re.split(r"(?<=[.!?…])\s+", (text or "").strip())
-    return [p for p in parts if p]
-
-
-def fit_lines_for_story(text: str, font: str, size: float, width_pt: float) -> list[str]:
-    """One sentence per line when it fits; otherwise wrap with orphan-aware rebalance."""
-    lines: list[str] = []
-    for sentence in _sentences(text) or [text]:
-        if pdfmetrics.stringWidth(sentence, font, size) <= width_pt:
-            lines.append(sentence)
-        else:
-            lines.extend(_wrap(sentence, font, size, width_pt))
-    return lines
+    """Phrase-aware wrap (shared with story text)."""
+    return wrap_text(text, font, size, width_pt, honour_newlines=True)
 
 
 def _draw_lines(c, lines, font, size, x_mm, top_mm, leading_pt, rgb, align="left", width_mm=None):
@@ -525,16 +455,26 @@ def _fit_story_text(ctx: _Ctx, text: str, width_mm: float, max_height_mm: float)
     leading = float(route["leading"])
     floor = 14.0
     size = start
-    sentence_per_line = ctx.inputs.get("route") != "field_guide"
+    forced: list[str] = []
+
+    def _on_forced(line: str) -> None:
+        forced.append(line)
+
     while True:
-        if sentence_per_line:
-            lines = fit_lines_for_story(text, font, size, mm_to_pt(width_mm))
-        else:
-            lines = _wrap(text, font, size, mm_to_pt(width_mm))
+        lines = fit_lines_for_story(
+            text, font, size, mm_to_pt(width_mm), on_forced_wrap=_on_forced
+        )
         height_mm = len(lines) * size * leading * 25.4 / 72
         if height_mm <= max_height_mm or size <= floor:
+            for line in forced:
+                append_event(
+                    ctx.job_dir,
+                    "text_break_warning",
+                    f"Explicit story line still too wide at {size:g} pt; wrapped further: {line[:80]}",
+                )
             return lines, size, leading, height_mm
         size -= 1
+        forced.clear()
 
 
 def story_text_box_mm(side: str, height_mm: float) -> tuple[float, float, float, float]:
@@ -600,10 +540,13 @@ def _draw_spread_page(ctx: _Ctx, page: dict, art_path: Path, side: str, index: i
             )
         left, top, width, height_mm = story_text_box_mm(side, height_mm)
         box = (left, top, left + width, top + height_mm)
-        ink, plate = _decide_ink(ctx, art, box, label=f"Page {page['number']}")
+        # Same auto policy as the front title: plate only when contrast fails.
+        ink, plate = _decide_ink(
+            ctx, art, box, label=f"Page {page['number']}", plate_policy="auto"
+        )
         if plate:
-            # Soft plate under the text box only (+ 6 mm padding), never a whole panel.
-            _soft_plate(c, left - 6, top - 6, width + 12, height_mm + 12)
+            pad = STORY_PLATE_PAD_MM
+            _soft_plate(c, left - pad, top - pad, width + 2 * pad, height_mm + 2 * pad)
         _draw_lines(
             c,
             lines,
@@ -672,48 +615,45 @@ def _parent_blocks(ctx: _Ctx) -> list[tuple[str, str]]:
 
 
 def _draw_parent_page(ctx: _Ctx, page: dict, side: str) -> None:
+    """Clear 2-column parent spread: heading + blocks left; blocks + final-spread crop right."""
     c = ctx.canvas
     c.setPageSize((mm_to_pt(PAGE_WITH_BLEED_MM),) * 2)
     _paper_page(ctx)
     left, width = _page_text_box(side)
     blocks = _parent_blocks(ctx)
+    # Balanced 2-column: first two blocks on left, last two on right.
     half = (len(blocks) + 1) // 2
     mine = blocks[:half] if side == "left" else blocks[half:]
-    top_safe = BLEED_MM + SAFE_MM["trim"] + 4
+    top_safe = BLEED_MM + SAFE_MM["trim"] + 6
     bottom_safe = PAGE_WITH_BLEED_MM - BLEED_MM - SAFE_MM["trim"]
-    body_size = SIZE_SCALE["parent_body"]
-    label_size = SIZE_SCALE.get("parent_label", 10)
-    # Even vertical spacing of the blocks down the safe column.
-    block_slots = len(mine) + (1 if side == "left" else 0)
-    slot_h = (bottom_safe - top_safe) / max(1, block_slots + 1)
+    heading_size = float(SIZE_SCALE.get("parent_heading", 15))
+    body_size = float(SIZE_SCALE["parent_body"])
+    label_size = float(SIZE_SCALE.get("parent_label", 9))
     cursor = top_safe
     if side == "left":
         heading = "WORDS FOR THE REAL MOMENT"
-        size = 24
-        lines = _wrap(heading, reportlab_name("title"), size, mm_to_pt(width))
-        _draw_lines(c, lines, reportlab_name("title"), size, left, cursor, size * 1.2, INK)
-        cursor += slot_h
+        lines = _wrap(heading, reportlab_name("title"), heading_size, mm_to_pt(width))
+        _draw_lines(c, lines, reportlab_name("title"), heading_size, left, cursor, heading_size * 1.25, INK)
+        cursor += len(lines) * heading_size * 1.25 * 25.4 / 72 + 10
+    gap_after_block = 14.0
     for label, body in mine:
-        _draw_lines(c, [label], reportlab_name("label"), label_size, left, cursor, label_size * 1.3, INK)
-        cursor += label_size * 1.3 * 25.4 / 72 + 2
+        _draw_lines(c, [label], reportlab_name("label"), label_size, left, cursor, label_size * 1.35, INK)
+        cursor += label_size * 1.35 * 25.4 / 72 + 3
         lines = _wrap(body, reportlab_name("body"), body_size, mm_to_pt(width))
         _draw_lines(c, lines, reportlab_name("body"), body_size, left, cursor, body_size * 1.45, INK)
-        cursor += slot_h
+        cursor += len(lines) * body_size * 1.45 * 25.4 / 72 + gap_after_block
     if side == "right":
+        from .illustrate import crop_parent_from_final_spread
+
+        crop_parent_from_final_spread(ctx.job_dir, ctx.story)
         anchor = ctx.job_dir / "parent" / "spot.png"
-        if not anchor.is_file():
-            anchor = ctx.job_dir / "title_page" / "spot.png"
         if anchor.is_file():
             art = _Art(anchor, ctx.work_dir, None, tag="parent-spot")
-            spot = float(SIZE_SCALE.get("parent_spot_mm", 90))
-            _place(
-                c,
-                art,
-                PAGE_WITH_BLEED_MM - BLEED_MM - SAFE_MM["trim"] - spot,
-                PAGE_WITH_BLEED_MM - BLEED_MM - SAFE_MM["trim"] - spot,
-                spot,
-                spot,
-            )
+            spot = float(SIZE_SCALE.get("parent_spot_mm", 88))
+            # Sit the crop in the lower half of the right column, balanced with the text above.
+            ax = left + max(0.0, (width - spot) / 2)
+            ay = min(bottom_safe - spot, max(cursor + 4, PAGE_WITH_BLEED_MM * 0.48))
+            _place(c, art, ax, ay, spot, spot)
     ctx.layout_log.append({"page": page["number"], "kind": page["kind"], "text": True, "plate": False})
     c.showPage()
 
@@ -722,25 +662,28 @@ def _draw_dedication_page(ctx: _Ctx, page: dict) -> None:
     c = ctx.canvas
     c.setPageSize((mm_to_pt(PAGE_WITH_BLEED_MM),) * 2)
     _paper_page(ctx)
+    page_w = PAGE_WITH_BLEED_MM
     left, width = _page_text_box("left")  # last page is a verso: gutter on the right
-    # Printed verbatim as typed — no automatic "For {name}" prefix.
     dedication = (page.get("text") or "").strip()
-    size = SIZE_SCALE["dedication"]
-    cursor = PAGE_WITH_BLEED_MM * 0.30
+    size = float(SIZE_SCALE["dedication"])
+    # Larger "For {name}, from {giver}" — centred horizontally, slightly above vertical middle.
     if dedication:
-        lines = _wrap(dedication, reportlab_name("body"), size + 2, mm_to_pt(width))
-        _draw_lines(c, lines, reportlab_name("body"), size + 2, left, cursor, (size + 2) * 1.45, INK)
-    else:
-        lines = []
-    cursor += len(lines) * (size + 2) * 1.45 * 25.4 / 72 + 12
-    read_again = (
-        ((ctx.story.get("locked") or {}).get("read_it_again"))
-        or ((ctx.story.get("parent_spread") or {}).get("read_it_again"))
-        or READ_IT_AGAIN_LINE
-    )
-    note = _wrap(read_again, reportlab_name("body"), size, mm_to_pt(width))
-    _draw_lines(c, note, reportlab_name("body"), size, left, cursor, size * 1.45, INK)
-    bottom = PAGE_WITH_BLEED_MM - BLEED_MM - SAFE_MM["trim"]
+        lines = _wrap(dedication, reportlab_name("title"), size, mm_to_pt(width))
+        block_h = len(lines) * size * 1.35 * 25.4 / 72
+        cursor = page_w * 0.42 - block_h / 2
+        _draw_lines(
+            c,
+            lines,
+            reportlab_name("title"),
+            size,
+            left,
+            cursor,
+            size * 1.35,
+            INK,
+            align="center",
+            width_mm=width,
+        )
+    bottom = page_w - BLEED_MM - SAFE_MM["trim"]
     logo_w = 34.0
     _draw_logo(c, LOGO_KEY, left, bottom - 22, logo_w)
     _draw_lines(
@@ -810,41 +753,50 @@ def _draw_front(ctx: _Ctx, c, art: _Art, panel: tuple[float, float], strip, alig
 
 
 def _draw_back(ctx: _Ctx, c, art: _Art, panel: tuple[float, float], strip, align: str) -> None:
-    """Back cover: one white plate at the bottom holding copy + logo + QR keep-clear."""
+    """Back cover: tight plate sized to content, kept within the bottom third of the art."""
     px, py = panel
     _strip_art(ctx, c, art, strip, align)
     trim_x, trim_y = px + BLEED_MM, py + BLEED_MM
     trim_w = PAGE_WITH_BLEED_MM - 2 * BLEED_MM
     left = trim_x + 18
     width = trim_w - 36
-    q_font, q_size = reportlab_name("title"), SIZE_SCALE["back_question"][0]
-    question_lines = _wrap(ctx.story["locked"]["back_question"], q_font, q_size, mm_to_pt(width))
-    blurb_size, blurb_lead = SIZE_SCALE["back_blurb"][0], 16
-    blurb_lines = _wrap(_cover_blurb(ctx), reportlab_name("body"), blurb_size, mm_to_pt(width))
-    honesty = (ctx.story.get("honesty_line") or HONESTY_LINE.format(name=ctx.name)).strip()
-    honesty_lines = _wrap(honesty, reportlab_name("body"), 10, mm_to_pt(width))
-    q_h = len(question_lines) * q_size * 1.2 * 25.4 / 72
-    b_h = len(blurb_lines) * blurb_lead * 25.4 / 72
-    h_h = len(honesty_lines) * 13 * 25.4 / 72
-    logo_w = 48.0
+    q_font = reportlab_name("title")
+    q_size = float(SIZE_SCALE["back_question"][0])
+    blurb_size = float(SIZE_SCALE["back_blurb"][0])
+    blurb_lead = blurb_size * 1.25
+    max_plate_h = trim_w / 3.0  # bottom third
+    pad_x, pad_y = 7.0, 5.0
+    qr = BACK_QR_SAFE_MM
+    gap = 4.0
+    url_h = 5.0
+    logo_w = 40.0
     with Image.open(LOGO_FILES[LOGO_KEY]) as im:
         logo_h = logo_w * im.size[1] / im.size[0]
-
-    qr = BACK_QR_SAFE_MM
-    gap = 6.0
-    url_h = 6.0
-    # Text stack, then a footer row: QR (bottom-left) + logo to its right.
-    text_h = q_h + gap + b_h + gap + h_h + gap + url_h
     footer_h = max(qr, logo_h)
-    stack_h = text_h + gap + footer_h
-    pad_x, pad_y = 8.0, 6.0
-    # Sit the plate on the bottom of the trim, clear of the wrap.
-    bottom = trim_y + trim_w - 12
+
+    # Shrink copy until the content plate fits the bottom third.
+    for _ in range(8):
+        question_lines = _wrap(ctx.story["locked"]["back_question"], q_font, q_size, mm_to_pt(width))
+        blurb_lines = _wrap(_cover_blurb(ctx), reportlab_name("body"), blurb_size, mm_to_pt(width))
+        honesty = (ctx.story.get("honesty_line") or HONESTY_LINE.format(name=ctx.name)).strip()
+        honesty_lines = _wrap(honesty, reportlab_name("body"), 9, mm_to_pt(width))
+        q_h = len(question_lines) * q_size * 1.15 * 25.4 / 72
+        b_h = len(blurb_lines) * blurb_lead * 25.4 / 72
+        h_h = len(honesty_lines) * 11 * 25.4 / 72
+        text_h = q_h + gap + b_h + gap + h_h + gap + url_h
+        stack_h = text_h + gap + footer_h
+        plate_h = stack_h + 2 * pad_y
+        if plate_h <= max_plate_h or (q_size <= 16 and blurb_size <= 10):
+            break
+        q_size = max(16.0, q_size - 1)
+        blurb_size = max(10.0, blurb_size - 0.5)
+        blurb_lead = blurb_size * 1.25
+
+    bottom = trim_y + trim_w - 10
     top = bottom - stack_h
     plate_x = left - pad_x
     plate_y = top - pad_y
     plate_w = width + 2 * pad_x
-    plate_h = stack_h + 2 * pad_y
     ink = INK
     if TEXT_PLATE != "none":
         _soft_plate(c, plate_x, plate_y, plate_w, plate_h)
@@ -854,7 +806,7 @@ def _draw_back(ctx: _Ctx, c, art: _Art, panel: tuple[float, float], strip, align
     cursor += q_h + gap
     _draw_lines(c, blurb_lines, reportlab_name("body"), blurb_size, left, cursor, blurb_lead, ink)
     cursor += b_h + gap
-    _draw_lines(c, honesty_lines, reportlab_name("body"), 10, left, cursor, 13, ink)
+    _draw_lines(c, honesty_lines, reportlab_name("body"), 9, left, cursor, 11, ink)
     cursor += h_h + gap
     _draw_lines(c, [SITE_URL], reportlab_name("body_bold"), 11, left, cursor, 14, ink)
     if PRINTED_IN_UK_LINE:  # OPEN flag, default off (needs a signed UK printer contract)

@@ -17,7 +17,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 from flask import Flask, abort, flash, redirect, render_template, request, send_file, url_for
 from werkzeug.utils import secure_filename
 
-from pipeline.catalogue import get_title, list_factory_titles, load_locked_story, order_inputs_for_story
+from pipeline.catalogue import get_title, list_factory_titles, list_titles, load_locked_story, order_inputs_for_story
 from pipeline.constants import (
     ALLOWED_IMAGE_EXTENSIONS,
     ARCHIVE_ROOT,
@@ -29,6 +29,7 @@ from pipeline.constants import (
 )
 from pipeline.job_log import append_event, read_events, read_json, write_json
 from pipeline.content import calm_zone_for
+from pipeline.openai_util import create_client
 from pipeline.runner import (
     compose_missing_spread_ui_previews,
     run_build,
@@ -38,6 +39,12 @@ from pipeline.runner import (
     run_prepare,
     run_preview,
     spreads_missing_composed_preview,
+)
+from pipeline.story_characters import (
+    approve_character_sheet,
+    generate_character_sheet,
+    list_story_characters,
+    resolve_sheet_path,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -291,6 +298,54 @@ def create_app() -> Flask:
                 if job:
                     jobs.append(job)
         return render_template("jobs.html", jobs=jobs[:50])
+
+    @app.get("/admin/characters")
+    def admin_characters():
+        rows = []
+        for title in list_titles():
+            tid = title["title_id"]
+            try:
+                chars = list_story_characters(tid)
+            except Exception:
+                continue
+            if not chars:
+                continue
+            for entry in chars:
+                path = resolve_sheet_path(entry, tid)
+                rows.append(
+                    {
+                        "title_id": tid,
+                        "title": title.get("title_template") or tid,
+                        "id": entry.get("id"),
+                        "name": entry.get("name"),
+                        "approved": bool(entry.get("approved")),
+                        "approved_by": entry.get("approved_by"),
+                        "sheet": entry.get("sheet"),
+                        "has_file": path.is_file(),
+                        "spreads": entry.get("spreads") or [],
+                    }
+                )
+        return render_template("admin_characters.html", rows=rows)
+
+    @app.post("/admin/characters/<title_id>/<character_id>/generate")
+    def admin_generate_character(title_id, character_id):
+        try:
+            client = create_client()
+            path = generate_character_sheet(client, title_id, character_id)
+            flash(f"Generated {path.name} — review then approve.", "success")
+        except Exception as error:  # noqa: BLE001
+            flash(str(error), "error")
+        return redirect(url_for("admin_characters"))
+
+    @app.post("/admin/characters/<title_id>/<character_id>/approve")
+    def admin_approve_character(title_id, character_id):
+        who = (request.form.get("approved_by") or "operator").strip()
+        try:
+            approve_character_sheet(title_id, character_id, who)
+            flash(f"Approved {character_id} for {title_id}.", "success")
+        except Exception as error:  # noqa: BLE001
+            flash(str(error), "error")
+        return redirect(url_for("admin_characters"))
 
     return app
 

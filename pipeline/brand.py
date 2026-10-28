@@ -65,11 +65,12 @@ SIZE_SCALE = {
     "morning_light_leading": 1.35,
     "field_guide_story": (16, 18),
     "field_guide_leading": 1.4,
-    "parent_body": 14,
-    "parent_label": 10,
-    "parent_spot_mm": 90,
+    "parent_heading": 15,
+    "parent_body": 11.5,
+    "parent_label": 9,
+    "parent_spot_mm": 88,
     "page_furniture": 9,
-    "dedication": 12,
+    "dedication": 18,
     "order_code": 9,
     "illustrated_from": 12,
 }
@@ -213,6 +214,11 @@ ROUTE_PRESETS = {
             "profile views of the same child, full body, neutral pose, everyday outfit, "
             "anchor object beside the child, soft gouache, warm daylight."
         ),
+        "face_sheet": (
+            "Reference face sheet in Morning Light style: large close-up head-and-shoulders "
+            "portraits of the same child, front view and three-quarter view, faces filling "
+            "most of the frame, plain light background, soft gouache, warm daylight."
+        ),
         "story_pt": 23,
         "leading": 1.35,
         "negatives": (
@@ -234,6 +240,11 @@ ROUTE_PRESETS = {
             "Reference character sheet in Field Guide style: front, three-quarter and "
             "profile views of the same child, full body, observed proportions, everyday "
             "outfit, anchor object beside the child, ink line and watercolour wash."
+        ),
+        "face_sheet": (
+            "Reference face sheet in Field Guide style: large close-up head-and-shoulders "
+            "portraits of the same child, front view and three-quarter view, faces filling "
+            "most of the frame, plain light background, ink line and watercolour wash."
         ),
         "story_pt": 17,
         "leading": 1.4,

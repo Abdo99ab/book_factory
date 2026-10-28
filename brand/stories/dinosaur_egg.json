@@ -33,6 +33,28 @@
     "deep or fast water",
     "the child crying or in danger"
   ],
+  "characters": [
+    {
+      "id": "pip",
+      "name": "Pip",
+      "description": "Baby dinosaur, small as a cat next to a child's outline for scale. Round body, sage-green with butter-yellow speckles down the back, cream tummy, three soft rounded back spikes, short tail, large dark eyes. Neutral standing pose. Front view and side view on a plain blank background.",
+      "sheet": "brand/stories/dinosaur_egg/pip.png",
+      "approved": true,
+      "approved_by": "bootstrap",
+      "approved_at": "2026-10-28T00:00:00Z",
+      "spreads": [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+    },
+    {
+      "id": "pip_mum",
+      "name": "Pip's mum",
+      "description": "Pip's mum: same colours and speckles as Pip (sage-green, butter-yellow speckles, cream tummy), house-sized but rounded and gentle; no teeth or claws. Soft kind eyes. Neutral standing pose. Front view and side view on a plain blank background. Show a small child's outline for scale.",
+      "sheet": "brand/stories/dinosaur_egg/pip_mum.png",
+      "approved": true,
+      "approved_by": "bootstrap",
+      "approved_at": "2026-10-28T00:00:00Z",
+      "spreads": [11, 12, 13]
+    }
+  ],
   "personalisation_slots": [],
   "order_inputs": {
     "carer": false,

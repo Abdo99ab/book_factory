@@ -5,17 +5,18 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from .character import generate_character
+from .character import character_paths, generate_character
 from .constants import PREVIEW_SPREAD_COUNT, SPREAD_COUNT
 from .content import generate_content
 from .illustrate import (
+    crop_parent_from_final_spread,
     ensure_spreads,
     generate_cover_panels,
-    generate_parent_spot,
     generate_title_spot,
     regenerate_cover,
     regenerate_spread,
 )
+from .story_characters import StoryCharacterError, assert_characters_ready
 from .job_log import append_event, read_json, write_json
 from .openai_util import create_client
 from .pdf_build import build_pdf, render_front_preview, render_preview_spreads, render_spread_preview
@@ -121,12 +122,19 @@ def _ensure_manuscript(client, job_dir: Path, inputs: dict) -> dict:
 
 
 def _ensure_character(client, job_dir: Path, inputs: dict) -> Path:
-    """Return character.png, generating it from the reference photo if needed."""
-    path = job_dir / "character" / "character.png"
-    if path.is_file():
-        return path
+    """Ensure body + face sheets exist; return the full-body path (legacy call sites)."""
+    paths = character_paths(job_dir)
+    if paths["body"].is_file() and paths["face"].is_file():
+        return paths["body"]
     _update_job(job_dir, status="generating_character", error=None)
-    return generate_character(client, job_dir, _reference(job_dir), inputs)
+    generated = generate_character(client, job_dir, _reference(job_dir), inputs)
+    return generated["body"]
+
+
+def _gate_story_characters(inputs: dict) -> None:
+    title_id = (inputs or {}).get("title_id")
+    if title_id:
+        assert_characters_ready(title_id)
 
 
 def run_prepare(job_id: str, job_dir: Path) -> None:
@@ -167,6 +175,7 @@ def run_preview(job_id: str, job_dir: Path) -> None:
     _update_job(job_dir, status="generating_preview", error=None)
     client = create_client()
     try:
+        _gate_story_characters(inputs)
         story = _ensure_manuscript(client, job_dir, inputs)
         inputs = read_json(job_dir / "inputs.json") or inputs
         character = _ensure_character(client, job_dir, inputs)
@@ -198,6 +207,11 @@ def run_preview(job_id: str, job_dir: Path) -> None:
             error=None,
         )
         append_event(job_dir, "preview_ready", "Front cover + spreads 1–2 ready (art + text).")
+    except StoryCharacterError as error:
+        logger.warning("Preview blocked %s: %s", job_id, error)
+        _update_job(job_dir, status="blocked", error=str(error))
+        append_event(job_dir, "story_characters_blocked", str(error))
+        raise
     except Exception as error:
         logger.exception("Preview failed %s", job_id)
         _update_job(job_dir, status="failed", error=str(error))
@@ -212,14 +226,15 @@ def run_build(job_id: str, job_dir: Path) -> Path:
     _update_job(job_dir, status="building", error=None)
     client = create_client()
     try:
+        _gate_story_characters(inputs)
         story = _ensure_manuscript(client, job_dir, inputs)
         inputs = read_json(job_dir / "inputs.json") or inputs
         pages = _load_pages(job_dir)
         character = _ensure_character(client, job_dir, inputs)
         generate_title_spot(client, job_dir, inputs, story)
-        generate_parent_spot(client, job_dir, inputs, story)
         generate_cover_panels(client, job_dir, inputs, story, character, front_only=False)
         ensure_spreads(client, job_dir, inputs, story, character, list(range(1, SPREAD_COUNT + 1)))
+        crop_parent_from_final_spread(job_dir, story)
         _update_job(job_dir, status="building_pdf")
         pdf_path = build_pdf(job_dir, story, pages, inputs)
         composed = compose_spread_ui_previews(job_dir, inputs, story, pages)
@@ -236,6 +251,11 @@ def run_build(job_id: str, job_dir: Path) -> Path:
         )
         append_event(job_dir, "job_complete", f"Book ready: {pdf_path.name}")
         return pdf_path
+    except StoryCharacterError as error:
+        logger.warning("Build blocked %s: %s", job_id, error)
+        _update_job(job_dir, status="blocked", error=str(error))
+        append_event(job_dir, "story_characters_blocked", str(error))
+        raise
     except Exception as error:
         logger.exception("Build failed %s", job_id)
         _update_job(job_dir, status="failed", error=str(error))

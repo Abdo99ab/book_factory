@@ -23,13 +23,10 @@ TITLE_PLATE_PAD_MM = 5.0
 LOGO_W_MM = 62.0
 LOGO_BOTTOM_CLEAR_MM = 10.0
 LOGO_PLATE_PAD_MM = 8.0
-BACK_TEXT_BAND_FRAC = 0.40  # bottom 40 % reserved for the white plate
+BACK_TEXT_BAND_FRAC = 0.33  # bottom third reserved for the (tight) text plate
 
-# Deterministic reframe limits (fractions of art height).
-# Allow up to ~32% so a face centred near 28% can still reach ~58% without a model call;
-# beyond that we regenerate once.
-MAX_REFRAME_SHIFT = 0.32
-MAX_REFRAME_SCALE = 0.15  # scale down at most 15 %
+# Shift-only reframe: beyond 20% of height/width we regenerate instead of scaling down.
+MAX_REFRAME_SHIFT = 0.20
 CENTRE_TOL = 0.04  # how close face-union centre must sit to the target
 
 
@@ -268,118 +265,78 @@ def reframe_cover_art(
     zones: dict,
     *,
     max_shift: float = MAX_REFRAME_SHIFT,
-    max_scale: float = MAX_REFRAME_SCALE,
+    client=None,
 ) -> dict:
-    """Shift/scale art so the face-union centre lands on the clear-zone target.
+    """Shift-only reframe so the face-union centre lands on the clear-zone target.
 
-    Fills exposed edges by extending edge colours with a soft blend. Returns
-    ``{shifted, too_far, shift_x, shift_y, scale, faces}``.
+    Never scales the art down. Exposed edges are filled by a masked background
+    extend (``images.edit``) when ``client`` is set, else a soft edge blend.
+    Returns ``{shifted, too_far, shift_x, shift_y, scale, faces, extended}``.
     """
+    from .image_extend import apply_shift_only
+
     union = union_face_box(faces)
     if not union:
-        return {"shifted": False, "too_far": False, "shift_x": 0.0, "shift_y": 0.0, "scale": 1.0, "faces": faces}
+        return {
+            "shifted": False,
+            "too_far": False,
+            "shift_x": 0.0,
+            "shift_y": 0.0,
+            "scale": 1.0,
+            "extended": False,
+            "faces": faces,
+        }
 
     cx = float(union["x"]) + float(union["w"]) / 2
     cy = float(union["y"]) + float(union["h"]) / 2
     tx, ty = zones["face_centre_x"], zones["face_centre_y"]
-    # Positive shift_y moves content down (face moves down in the frame).
     shift_x = tx - cx
     shift_y = ty - cy
 
-    # Optional scale-down so the union fits inside the clear band.
-    scale = 1.0
-    clear_h = zones["clear_bottom"] - zones["clear_top"]
-    if float(union["h"]) > clear_h * 0.85:
-        scale = max(1.0 - max_scale, clear_h * 0.80 / max(float(union["h"]), 1e-6))
-
-    if abs(shift_y) <= 0.01 and abs(shift_x) <= 0.01 and scale >= 0.99:
-        return {"shifted": False, "too_far": False, "shift_x": 0.0, "shift_y": 0.0, "scale": 1.0, "faces": faces}
+    if abs(shift_y) <= 0.01 and abs(shift_x) <= 0.01:
+        return {
+            "shifted": False,
+            "too_far": False,
+            "shift_x": 0.0,
+            "shift_y": 0.0,
+            "scale": 1.0,
+            "extended": False,
+            "faces": faces,
+        }
     if abs(shift_y) > max_shift or abs(shift_x) > max_shift:
         return {
             "shifted": False,
             "too_far": True,
             "shift_x": shift_x,
             "shift_y": shift_y,
-            "scale": scale,
+            "scale": 1.0,
+            "extended": False,
             "faces": faces,
         }
 
-    path = Path(art_path)
-    with Image.open(path) as source:
-        rgb = source.convert("RGB")
-        width, height = rgb.size
-        if scale < 0.999:
-            new_w = max(1, int(round(width * scale)))
-            new_h = max(1, int(round(height * scale)))
-            scaled = rgb.resize((new_w, new_h), Image.Resampling.LANCZOS)
-            fill = _mean_rgb(list(rgb.crop((0, 0, width, max(1, height // 40))).getdata()))
-            canvas = Image.new("RGB", (width, height), fill)
-            ox = (width - new_w) // 2
-            oy = (height - new_h) // 2
-            canvas.paste(scaled, (ox, oy))
-            rgb = canvas
-            cx = 0.5 + (cx - 0.5) * scale
-            cy = 0.5 + (cy - 0.5) * scale
-            shift_x = tx - cx
-            shift_y = ty - cy
-
-        dx = int(round(shift_x * width))
-        dy = int(round(shift_y * height))
-        top_fill = _mean_rgb(list(rgb.crop((0, 0, width, max(1, min(8, height // 40)))).getdata()))
-        bot_fill = _mean_rgb(
-            list(rgb.crop((0, max(0, height - max(1, min(8, height // 40))), width, height)).getdata())
-        )
-        base_fill = top_fill if dy >= 0 else bot_fill
-        out = Image.new("RGB", (width, height), base_fill)
-        # Paste with clipping for negative offsets.
-        src_x0 = max(0, -dx)
-        src_y0 = max(0, -dy)
-        dst_x0 = max(0, dx)
-        dst_y0 = max(0, dy)
-        src_x1 = min(width, width - dx)
-        src_y1 = min(height, height - dy)
-        if src_x1 > src_x0 and src_y1 > src_y0:
-            cropped = rgb.crop((src_x0, src_y0, src_x1, src_y1))
-            out.paste(cropped, (dst_x0, dst_y0))
-        if dy > 0:
-            blend = max(4, min(dy, height // 40))
-            for row in range(blend):
-                t = (row + 1) / (blend + 1)
-                y_out = dy + row
-                if y_out >= height:
-                    break
-                for x in range(width):
-                    src_x = x - dx
-                    if 0 <= src_x < width and row < height:
-                        pixel = rgb.getpixel((src_x, row))
-                        out.putpixel(
-                            (x, y_out),
-                            (
-                                int(top_fill[0] * (1 - t) + pixel[0] * t),
-                                int(top_fill[1] * (1 - t) + pixel[1] * t),
-                                int(top_fill[2] * (1 - t) + pixel[2] * t),
-                            ),
-                        )
-        out.save(path, format="PNG")
-
-    new_faces = []
-    for f in faces:
-        nx = float(f["x"])
-        ny = float(f["y"])
-        nw = float(f["w"])
-        nh = float(f["h"])
-        if scale < 0.999:
-            nx = 0.5 + (nx - 0.5) * scale
-            ny = 0.5 + (ny - 0.5) * scale
-            nw *= scale
-            nh *= scale
-        new_faces.append({"x": nx + shift_x, "y": ny + shift_y, "w": nw, "h": nh})
+    result = apply_shift_only(
+        Path(art_path),
+        shift_x,
+        shift_y,
+        client=client,
+        extend_prompt="Extend the background seamlessly. No new characters, faces, or objects. Match style and lighting.",
+    )
+    new_faces = [
+        {
+            "x": float(f["x"]) + shift_x,
+            "y": float(f["y"]) + shift_y,
+            "w": float(f["w"]),
+            "h": float(f["h"]),
+        }
+        for f in faces
+    ]
     return {
-        "shifted": True,
+        "shifted": bool(result.get("shifted")),
         "too_far": False,
         "shift_x": shift_x,
         "shift_y": shift_y,
-        "scale": scale,
+        "scale": 1.0,
+        "extended": bool(result.get("extended")),
         "faces": new_faces,
     }
 
@@ -416,8 +373,8 @@ def soften_zone(art_path: Path, zone: tuple[float, float, float, float]) -> None
 
 
 def soften_front_keepclear(art_path: Path, zones: dict) -> None:
+    """Flatten only the title zone — logo plate alone is enough at the bottom (no cut-out)."""
     soften_zone(art_path, (0.0, 0.0, 1.0, zones["clear_top"]))
-    soften_zone(art_path, (0.25, zones["clear_bottom"], 0.75, 1.0))
 
 
 def soften_back_text_band(art_path: Path, zones: dict | None = None) -> None:
@@ -458,8 +415,8 @@ def enforce_cover_layout(
     *,
     regenerate_fn,
 ) -> dict:
-    """Detect faces → reframe → optional one regen → force plate + warn. Never fails the job."""
-    del client  # face detect is local OpenCV; regen uses regenerate_fn
+    """Detect faces → shift-only reframe (+ extend) → optional one regen → force plate + warn."""
+    del character_path
     book_title = story.get("title") or story.get("locked", {}).get("title") or ""
     name = inputs.get("name") or ""
     zones = front_cover_zones(book_title, name) if kind == "front" else back_cover_zones()
@@ -496,16 +453,22 @@ def enforce_cover_layout(
         return layout
 
     if kind == "front" and faces:
-        reframe = reframe_cover_art(path, faces, zones)
+        reframe = reframe_cover_art(path, faces, zones, client=client)
         if reframe.get("shifted"):
             faces = reframe["faces"]
             check = check_front_faces(faces, zones)
             soften_front_keepclear(path, zones)
-            _record("reframe", faces, check, {"reframe": {k: reframe[k] for k in ("shift_x", "shift_y", "scale", "too_far")}})
+            _record(
+                "reframe",
+                faces,
+                check,
+                {"reframe": {k: reframe[k] for k in ("shift_x", "shift_y", "scale", "too_far", "extended")}},
+            )
             append_event(
                 job_dir,
                 "cover_reframe",
-                f"front: shifted dx={reframe['shift_x']:.2f} dy={reframe['shift_y']:.2f} scale={reframe['scale']:.2f}",
+                f"front: shifted dx={reframe['shift_x']:.2f} dy={reframe['shift_y']:.2f} "
+                f"(no scale; extended={reframe.get('extended')})",
                 kind=kind,
             )
             if check["passed"]:
@@ -516,18 +479,18 @@ def enforce_cover_layout(
             append_event(
                 job_dir,
                 "cover_reframe_too_far",
-                f"front: need dy={reframe['shift_y']:.2f} (> {MAX_REFRAME_SHIFT}); regenerating once.",
+                f"front: need dy={reframe['shift_y']:.2f} or dx={reframe['shift_x']:.2f} "
+                f"(> {MAX_REFRAME_SHIFT}); regenerating once.",
                 kind=kind,
             )
             _record("reframe_too_far", faces, check, {"reframe": reframe})
-            # One model regen with stronger layout emphasis.
             regenerate_fn(path)
             faces = detect_faces_local(path)
             check = check_front_faces(faces, zones)
             _record("regen", faces, check)
             append_event(job_dir, "cover_faces", f"front after regen: {len(faces)} face(s).", faces=faces)
             if not check["passed"] and faces:
-                reframe2 = reframe_cover_art(path, faces, zones)
+                reframe2 = reframe_cover_art(path, faces, zones, client=client)
                 if reframe2.get("shifted"):
                     faces = reframe2["faces"]
                     check = check_front_faces(faces, zones)
@@ -552,7 +515,6 @@ def enforce_cover_layout(
                 layout["regenerated"] = True
                 return layout
 
-    # Keep best effort; force title plate + human warning.
     layout["passed"] = False
     layout["warning"] = True
     layout["force_soft_plate"] = kind == "front"

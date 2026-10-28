@@ -1,4 +1,4 @@
-"""Cover + spread art (v2). No layout validation / regen loops — generate once and save."""
+"""Cover + spread art (v2): face + body sheets, story characters, layout checks."""
 
 from __future__ import annotations
 
@@ -9,10 +9,12 @@ from PIL import Image
 
 from .brand import ROUTE_PRESETS, SHARED_NEGATIVES
 from .catalogue import get_title, resolve_route
+from .character import character_paths
 from .constants import BACK_QR_SAFE_CORNER, BACK_QR_SAFE_MM, SPREAD_COUNT
 from .content import calm_zone_for
 from .cover_layout import (
     back_cover_zones,
+    detect_faces_local,
     enforce_cover_layout,
     front_cover_zones,
     layout_prompt_rules,
@@ -20,6 +22,14 @@ from .cover_layout import (
 )
 from .job_log import append_event, read_json, write_json
 from .openai_util import image_edit, image_generate, largest_image_size, square_image_size
+from .spread_layout import enforce_spread_fold
+from .story_characters import (
+    characters_for_spread,
+    characters_named_in_text,
+    ref_paths_for_characters,
+)
+
+MAX_REF_IMAGES = 4
 
 
 def _decode(result) -> bytes:
@@ -56,6 +66,100 @@ def settings_match(a: dict | None, b: dict | None) -> bool:
     return bool(sa and sb and sa == sb)
 
 
+def _sheet_paths(job_dir: Path, character_path: Path | None = None) -> tuple[Path, Path]:
+    """Resolve face + body sheets (legacy callers may pass only body path)."""
+    paths = character_paths(job_dir)
+    body = Path(character_path) if character_path else paths["body"]
+    face = paths["face"]
+    if not face.is_file():
+        face = body  # fall back so older jobs still illustrate
+    return face, body
+
+
+def build_reference_pack(
+    job_dir: Path,
+    inputs: dict,
+    story: dict,
+    *,
+    n: int | None = None,
+    kind: str | None = None,
+    character_path: Path | None = None,
+    include_prev_setting: bool = True,
+    include_current_if_present: bool = False,
+) -> tuple[list[Path], list[str], dict]:
+    """Face + body always; plus story characters for the spread/cover. Cap at 4.
+
+    Returns (paths, label_lines, meta).
+    """
+    title_id = inputs.get("title_id") or story.get("title_id") or ""
+    name = inputs.get("name") or "the child"
+    face, body = _sheet_paths(job_dir, character_path)
+    refs: list[Path] = []
+    labels: list[str] = []
+
+    def _add(path: Path, label: str) -> bool:
+        if len(refs) >= MAX_REF_IMAGES:
+            return False
+        if path in refs or not path.is_file():
+            return False
+        refs.append(path)
+        labels.append(label)
+        return True
+
+    _add(face, f"{name}'s face (identity)")
+    _add(body, f"{name}'s outfit and body")
+
+    story_chars: list[dict] = []
+    if kind in {"front", "back"}:
+        brief = (story.get("cover_art") or "") if kind == "front" else (story.get("back_blurb") or "")
+        story_chars = characters_named_in_text(story, brief)
+        # Front cover always benefits from Pip when listed on the story.
+        if kind == "front" and not story_chars:
+            story_chars = [c for c in (story.get("characters") or []) if c.get("id") == "pip"]
+    elif n is not None:
+        story_chars = characters_for_spread(title_id, story, int(n))
+
+    for entry, path in ref_paths_for_characters(story_chars, title_id):
+        _add(path, entry.get("name") or entry.get("id") or "companion")
+
+    used_prev = False
+    if include_prev_setting and n is not None and len(refs) < MAX_REF_IMAGES:
+        spreads = {int(s["n"]): s for s in story.get("spreads") or []}
+        current = spreads.get(int(n)) or {"n": n}
+        prev = spreads.get(int(n) - 1)
+        if settings_match(current, prev):
+            prev_path = spread_art_path(job_dir, int(n) - 1)
+            if _add(prev_path, "previous spread (same setting — continuity only)"):
+                used_prev = True
+
+    if include_current_if_present and n is not None:
+        current_path = spread_art_path(job_dir, int(n))
+        _add(current_path, "current spread (edit base)")
+    elif include_current_if_present and kind in {"front", "back"}:
+        current_path = Path(job_dir) / "cover" / f"{kind}_art.png"
+        _add(current_path, f"current {kind} cover (edit base)")
+
+    meta = {
+        "refs": [p.name for p in refs],
+        "labels": labels,
+        "prev_setting_ref": used_prev,
+        "n": n,
+        "kind": kind,
+    }
+    return refs, labels, meta
+
+
+def reference_prompt_block(labels: list[str]) -> str:
+    if not labels:
+        return ""
+    parts = [f"image {i} = {lab}" for i, lab in enumerate(labels, start=1)]
+    return (
+        "Reference images: "
+        + ", ".join(parts)
+        + ". Copy each character's design exactly; do not copy backgrounds or poses from the references."
+    )
+
+
 def _spread_prompt(
     inputs: dict,
     story: dict,
@@ -63,6 +167,7 @@ def _spread_prompt(
     character_note: str,
     *,
     prev_setting_ref: bool = False,
+    ref_labels: list[str] | None = None,
 ) -> str:
     title, preset = _route_bits(inputs)
     n = int(spread["n"])
@@ -78,7 +183,6 @@ def _spread_prompt(
         anchor_desc = str(story_anchor)
     spread_anchor = (spread.get("anchor") or "").strip() or anchor_desc
     must_not = "; ".join(story.get("must_not_show") or title.get("must_not_show") or [])
-    # Calm zone is NOT a separate image — one continuous spread; keep that area low-detail for text.
     calm_rule = (
         f"CALM ZONE ({calm.upper()}): keep this area LOW-DETAIL (soft sky / wall / lawn / canopy) "
         f"so printed story text can sit there. Do not put faces, Pip, or busy objects in that zone. "
@@ -91,10 +195,11 @@ def _spread_prompt(
     continuity = ""
     if prev_setting_ref:
         continuity = (
-            "CONTINUITY: keep the same background and location as the second reference image "
-            "(previous spread); match shed/swing/washing line or fern/river props already shown. "
-            "First reference is the character sheet for the child's face.\n"
+            "CONTINUITY: keep the same background and location as the previous-spread reference "
+            "(same setting); match shed/swing/washing line or fern/river props already shown. "
+            "Identity comes from the face sheet; outfit from the body sheet.\n"
         )
+    ref_block = reference_prompt_block(ref_labels or [])
     return (
         f"{preset['preamble']}\n"
         f"ONE CONTINUOUS double-page picture for spread {n} of '{story['title']}'. "
@@ -106,8 +211,10 @@ def _spread_prompt(
         f"Child ({inputs['name']}) in {outfit}. "
         f"Face never covered or turned away. "
         f"Spread anchor: {spread_anchor}. Story anchor lock: {anchor_desc}\n"
-        f"No face or important object on the centre fold. No text, letters or logos in the art. "
+        f"No face within 10% of the centre fold. No face or important object on the centre fold. "
+        f"No text, letters or logos in the art. "
         f"{character_note}\n"
+        f"{ref_block}\n"
         f"Must not show: {must_not}. {SHARED_NEGATIVES}. {preset['negatives']}."
     )
 
@@ -119,23 +226,20 @@ def _spread_image_refs(
     n: int,
     *,
     include_current_if_present: bool = False,
-) -> tuple[list[Path], bool]:
-    """Character sheet first; previous spread art when settings match; optional current for edits."""
-    spreads = {int(s["n"]): s for s in story.get("spreads") or []}
-    current = spreads.get(int(n)) or {"n": n}
-    prev = spreads.get(int(n) - 1)
-    refs: list[Path] = [character_path]
-    used_prev = False
-    if settings_match(current, prev):
-        prev_path = spread_art_path(job_dir, int(n) - 1)
-        if prev_path.is_file():
-            refs.append(prev_path)
-            used_prev = True
-    if include_current_if_present:
-        current_path = spread_art_path(job_dir, int(n))
-        if current_path.is_file() and current_path not in refs:
-            refs.append(current_path)
-    return refs, used_prev
+    inputs: dict | None = None,
+) -> tuple[list[Path], bool, list[str]]:
+    """Compatibility wrapper: returns (refs, used_prev, labels)."""
+    inputs = inputs or {"title_id": story.get("title_id"), "name": "Child"}
+    refs, labels, meta = build_reference_pack(
+        job_dir,
+        inputs,
+        story,
+        n=int(n),
+        character_path=character_path,
+        include_prev_setting=True,
+        include_current_if_present=include_current_if_present,
+    )
+    return refs, bool(meta.get("prev_setting_ref")), labels
 
 
 def generate_spread(client, job_dir: Path, inputs: dict, story: dict, character_path: Path, n: int) -> Path:
@@ -146,19 +250,24 @@ def generate_spread(client, job_dir: Path, inputs: dict, story: dict, character_
     spreads = {int(s["n"]): s for s in story.get("spreads") or []}
     spread = spreads.get(int(n)) or {"n": n, "scene": "", "calm_zone": calm_zone_for(n)}
     path.parent.mkdir(parents=True, exist_ok=True)
-    refs, used_prev = _spread_image_refs(job_dir, story, character_path, int(n))
+    refs, labels, meta = build_reference_pack(
+        job_dir, inputs, story, n=int(n), character_path=character_path
+    )
     prompt = _spread_prompt(
         inputs,
         story,
         spread,
-        "FACE LOCK: match the character sheet exactly.",
-        prev_setting_ref=used_prev,
+        "FACE LOCK: match the face sheet exactly; outfit from the body sheet.",
+        prev_setting_ref=bool(meta.get("prev_setting_ref")),
+        ref_labels=labels,
     )
     append_event(
         job_dir,
         "spread_start",
-        f"Generating spread {n}" + (" (with previous-setting ref)." if used_prev else "."),
+        f"Generating spread {n}; refs={meta['refs']}.",
         spread=n,
+        refs=meta["refs"],
+        labels=labels,
     )
     result = image_edit(
         client,
@@ -168,6 +277,30 @@ def generate_spread(client, job_dir: Path, inputs: dict, story: dict, character_
         description=f"Spread {n}",
     )
     path.write_bytes(_decode(result))
+
+    def _regen(_path: Path) -> None:
+        stronger = (
+            prompt
+            + "\nREGEN: previous attempt put a face on the centre fold. "
+            "Move every face clear of the middle 10% of the width."
+        )
+        again = image_edit(
+            client,
+            refs + ([_path] if _path.is_file() and _path not in refs else []),
+            stronger,
+            size=largest_image_size(aspect="landscape"),
+            description=f"Spread {n} fold regen",
+        )
+        _path.write_bytes(_decode(again))
+
+    fold = enforce_spread_fold(
+        client,
+        job_dir,
+        path,
+        (spread.get("calm_zone") or calm_zone_for(n)),
+        regenerate_fn=_regen,
+        n=int(n),
+    )
     write_json(
         path.parent / "spread.json",
         {
@@ -179,7 +312,10 @@ def generate_spread(client, job_dir: Path, inputs: dict, story: dict, character_
             "art": spread.get("art"),
             "anchor": spread.get("anchor"),
             "text": spread.get("text"),
-            "prev_setting_ref": used_prev,
+            "prev_setting_ref": bool(meta.get("prev_setting_ref")),
+            "refs": meta["refs"],
+            "labels": labels,
+            "layout": {"fold_warning": bool(fold.get("warning")), "fold_passed": bool(fold.get("passed"))},
         },
     )
     append_event(job_dir, "spread_done", f"Spread {n} saved.", spread=n)
@@ -193,18 +329,31 @@ def regenerate_spread(
     spreads = {int(s["n"]): s for s in story.get("spreads") or []}
     spread = spreads.get(int(n)) or {"n": n, "scene": "", "calm_zone": calm_zone_for(n)}
     path.parent.mkdir(parents=True, exist_ok=True)
-    refs, used_prev = _spread_image_refs(
-        job_dir, story, character_path, int(n), include_current_if_present=True
+    refs, labels, meta = build_reference_pack(
+        job_dir,
+        inputs,
+        story,
+        n=int(n),
+        character_path=character_path,
+        include_current_if_present=True,
     )
     base = _spread_prompt(
         inputs,
         story,
         spread,
-        "FACE LOCK: match the character sheet exactly.",
-        prev_setting_ref=used_prev,
+        "FACE LOCK: match the face sheet exactly; outfit from the body sheet.",
+        prev_setting_ref=bool(meta.get("prev_setting_ref")),
+        ref_labels=labels,
     )
     prompt = base + f"\nEDIT: {instruction.strip()}"
-    append_event(job_dir, "spread_edit", f"Editing spread {n}: {instruction[:120]}", spread=n)
+    append_event(
+        job_dir,
+        "spread_edit",
+        f"Editing spread {n}: {instruction[:120]}; refs={meta['refs']}",
+        spread=n,
+        refs=meta["refs"],
+        labels=labels,
+    )
     result = image_edit(
         client,
         refs,
@@ -213,15 +362,35 @@ def regenerate_spread(
         description=f"Spread {n} edit",
     )
     path.write_bytes(_decode(result))
+
+    def _regen(_path: Path) -> None:
+        again = image_edit(
+            client,
+            refs,
+            base + "\nREGEN: clear every face from the centre fold (middle 10%).",
+            size=largest_image_size(aspect="landscape"),
+            description=f"Spread {n} fold regen",
+        )
+        _path.write_bytes(_decode(again))
+
+    enforce_spread_fold(
+        client,
+        job_dir,
+        path,
+        (spread.get("calm_zone") or calm_zone_for(n)),
+        regenerate_fn=_regen,
+        n=int(n),
+    )
     append_event(job_dir, "spread_done", f"Spread {n} replaced.", spread=n)
     return path
 
 
-def _cover_prompt(kind: str, inputs: dict, story: dict) -> str:
+def _cover_prompt(kind: str, inputs: dict, story: dict, *, ref_labels: list[str] | None = None) -> str:
     title, preset = _route_bits(inputs)
     outfit = story.get("outfit") or title.get("outfit")
     book_title = story.get("title") or ""
     name = inputs.get("name") or ""
+    ref_block = reference_prompt_block(ref_labels or [])
     if kind == "front":
         zones = front_cover_zones(book_title, name)
         cover_art = (story.get("cover_art") or "").strip()
@@ -233,6 +402,7 @@ def _cover_prompt(kind: str, inputs: dict, story: dict) -> str:
             f"FRONT COVER for '{book_title}'. Square. {scene} "
             f"{layout_prompt_rules('front', zones)} "
             f"No carer face. No text in art. Outfit: {outfit}. "
+            f"{ref_block} "
             f"{SHARED_NEGATIVES}. {preset['negatives']}."
         )
     zones = back_cover_zones()
@@ -248,17 +418,29 @@ def _cover_prompt(kind: str, inputs: dict, story: dict) -> str:
         f"BACK COVER for '{book_title}'. Square.{with_carer} "
         f"{layout_prompt_rules('back', zones)} "
         f"Leave the {corner} of the text band plain (~{BACK_QR_SAFE_MM:g} mm). "
-        f"Outfit: {outfit}. {SHARED_NEGATIVES}. {preset['negatives']}."
+        f"Outfit: {outfit}. {ref_block} {SHARED_NEGATIVES}. {preset['negatives']}."
     )
 
 
 def _generate_one_cover(
     client, job_dir: Path, inputs: dict, story: dict, character_path: Path, kind: str, path: Path
 ) -> None:
+    refs, labels, meta = build_reference_pack(
+        job_dir, inputs, story, kind=kind, character_path=character_path
+    )
+    prompt = _cover_prompt(kind, inputs, story, ref_labels=labels)
+    append_event(
+        job_dir,
+        "cover_refs",
+        f"{kind} cover refs={meta['refs']}",
+        kind=kind,
+        refs=meta["refs"],
+        labels=labels,
+    )
     result = image_edit(
         client,
-        [character_path],
-        _cover_prompt(kind, inputs, story),
+        refs,
+        prompt,
         size=square_image_size(),
         description=f"{kind.title()} cover",
     )
@@ -266,13 +448,16 @@ def _generate_one_cover(
 
     def _regen(_path: Path) -> None:
         stronger = (
-            _cover_prompt(kind, inputs, story)
+            _cover_prompt(kind, inputs, story, ref_labels=labels)
             + "\nREGEN: previous attempt placed a face under the title or logo. "
             "Pull every face firmly into the middle clear band; companions beside the child only."
         )
+        again_refs = list(refs)
+        if _path.is_file() and _path not in again_refs and len(again_refs) < MAX_REF_IMAGES:
+            again_refs.append(_path)
         again = image_edit(
             client,
-            [character_path, _path] if _path.is_file() else [character_path],
+            again_refs,
             stronger,
             size=square_image_size(),
             description=f"{kind.title()} cover regen",
@@ -289,9 +474,9 @@ def _generate_one_cover(
         character_path,
         regenerate_fn=_regen,
     )
-    meta = read_json(job_dir / "cover" / "cover.json") or {}
-    meta.setdefault("title", story.get("title"))
-    write_json(job_dir / "cover" / "cover.json", meta)
+    meta_json = read_json(job_dir / "cover" / "cover.json") or {}
+    meta_json.setdefault("title", story.get("title"))
+    write_json(job_dir / "cover" / "cover.json", meta_json)
     write_cover_layout(job_dir, layout)
 
 
@@ -329,11 +514,22 @@ def regenerate_cover(
     cover_dir = job_dir / "cover"
     cover_dir.mkdir(parents=True, exist_ok=True)
     path = cover_dir / f"{kind}_art.png"
-    prompt = _cover_prompt(kind, inputs, story) + f"\nEDIT: {instruction.strip()}"
-    refs = [character_path]
-    if path.is_file():
-        refs.append(path)
-    append_event(job_dir, "cover_edit", f"Editing {kind} cover: {instruction[:120]}")
+    refs, labels, meta = build_reference_pack(
+        job_dir,
+        inputs,
+        story,
+        kind=kind,
+        character_path=character_path,
+        include_current_if_present=True,
+    )
+    prompt = _cover_prompt(kind, inputs, story, ref_labels=labels) + f"\nEDIT: {instruction.strip()}"
+    append_event(
+        job_dir,
+        "cover_edit",
+        f"Editing {kind} cover: {instruction[:120]}; refs={meta['refs']}",
+        refs=meta["refs"],
+        labels=labels,
+    )
     result = image_edit(
         client,
         refs,
@@ -346,8 +542,8 @@ def regenerate_cover(
     def _regen(_path: Path) -> None:
         again = image_edit(
             client,
-            [character_path, _path],
-            _cover_prompt(kind, inputs, story)
+            refs,
+            _cover_prompt(kind, inputs, story, ref_labels=labels)
             + "\nREGEN: move all faces into the clear middle band; companions beside the child.",
             size=square_image_size(),
             description=f"{kind.title()} cover regen",
@@ -387,27 +583,72 @@ def generate_title_spot(client, job_dir: Path, inputs: dict, story: dict) -> Pat
         return None
 
 
+def crop_parent_from_final_spread(job_dir: Path, story: dict | None = None) -> Path | None:
+    """Crop a square from the final story spread so the child's face is fully inside."""
+    out = job_dir / "parent" / "spot.png"
+    if out.is_file():
+        return out
+    n = 14
+    if story:
+        spreads = story.get("spreads") or []
+        if spreads:
+            n = max(int(s["n"]) for s in spreads)
+    src = spread_art_path(job_dir, n)
+    if not src.is_file():
+        return None
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with Image.open(src) as im:
+        rgb = im.convert("RGB")
+        w, h = rgb.size
+        faces = detect_faces_local(src)
+        side = min(w, h)
+        if faces:
+            # Prefer the largest face (child).
+            face = max(faces, key=lambda f: float(f["w"]) * float(f["h"]))
+            cx = (float(face["x"]) + float(face["w"]) / 2) * w
+            cy = (float(face["y"]) + float(face["h"]) / 2) * h
+            # Ensure full face inside crop with margin.
+            fw = float(face["w"]) * w
+            fh = float(face["h"]) * h
+            side = int(max(side * 0.55, fw * 2.4, fh * 2.4))
+            side = min(side, w, h)
+            left = int(round(cx - side / 2))
+            top = int(round(cy - side / 2))
+            left = max(0, min(left, w - side))
+            top = max(0, min(top, h - side))
+            # If face still clips, expand toward face.
+            fx0 = float(face["x"]) * w
+            fy0 = float(face["y"]) * h
+            fx1 = fx0 + fw
+            fy1 = fy0 + fh
+            if fx0 < left:
+                left = max(0, int(fx0) - 4)
+            if fy0 < top:
+                top = max(0, int(fy0) - 4)
+            if fx1 > left + side:
+                left = min(w - side, int(fx1 - side) + 4)
+            if fy1 > top + side:
+                top = min(h - side, int(fy1 - side) + 4)
+            left = max(0, min(left, w - side))
+            top = max(0, min(top, h - side))
+        else:
+            # Bedroom / final spread: prefer right half (often the bed).
+            left = max(0, w - side)
+            top = max(0, (h - side) // 2)
+        crop = rgb.crop((left, top, left + side, top + side))
+        crop.save(out, format="PNG")
+    append_event(job_dir, "parent_crop", f"Parent spot cropped from spread {n}.")
+    return out
+
+
 def generate_parent_spot(client, job_dir: Path, inputs: dict, story: dict) -> Path | None:
-    """Optional spot for words-for-the-real-moment (pp 30–31)."""
-    path = job_dir / "parent" / "spot.png"
-    if path.is_file():
-        return path
-    brief = (story.get("parent_art") or "").strip()
-    if not brief:
-        return None
-    _, preset = _route_bits(inputs)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    prompt = (
-        f"{preset['preamble']}\n"
-        f"Small spot illustration for the parent pages: {brief}. No text in art. {SHARED_NEGATIVES}."
-    )
-    try:
-        result = image_generate(client, prompt, size="1024x1024", description="Parent spot")
-        path.write_bytes(_decode(result))
-        return path
-    except Exception as error:  # noqa: BLE001
-        append_event(job_dir, "parent_spot_failed", str(error))
-        return None
+    """Prefer a crop of the final spread; fall back to generating only if no art yet."""
+    del client, inputs
+    cropped = crop_parent_from_final_spread(job_dir, story)
+    if cropped and cropped.is_file():
+        return cropped
+    # No final spread yet — leave unset; build will crop after spreads exist.
+    return None
 
 
 def ensure_spreads(

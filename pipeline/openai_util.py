@@ -294,24 +294,42 @@ def _with_size_fallback(call, size, description):
     raise last_error  # pragma: no cover
 
 
-def image_edit(client, image_path, prompt, size=None, quality=None, description="Image edit"):
-    """images.edit with one or several reference images (path or list of paths)."""
+def image_edit(
+    client,
+    image_path,
+    prompt,
+    size=None,
+    quality=None,
+    description="Image edit",
+    mask_path=None,
+):
+    """images.edit with one or several reference images (path or list of paths).
+
+    Optional ``mask_path``: PNG whose transparent pixels mark the region to edit
+    (used for background extension after a shift).
+    """
     paths = [image_path] if isinstance(image_path, (str, Path)) else list(image_path)
     quality = image_quality(quality)
 
     def call(chosen_size):
         handles = [Path(p).open("rb") for p in paths]
+        mask_handle = Path(mask_path).open("rb") if mask_path else None
         try:
-            return client.images.edit(
-                model=IMAGE_MODEL,
-                image=handles[0] if len(handles) == 1 else handles,
-                prompt=prompt,
-                quality=quality,
-                size=chosen_size,
-            )
+            kwargs = {
+                "model": IMAGE_MODEL,
+                "image": handles[0] if len(handles) == 1 else handles,
+                "prompt": prompt,
+                "quality": quality,
+                "size": chosen_size,
+            }
+            if mask_handle is not None:
+                kwargs["mask"] = mask_handle
+            return client.images.edit(**kwargs)
         finally:
             for handle in handles:
                 handle.close()
+            if mask_handle is not None:
+                mask_handle.close()
 
     return _with_size_fallback(call, size, description)
 
