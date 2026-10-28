@@ -90,6 +90,29 @@ def locked_story_path(title_id: str) -> Path:
     return STORIES_DIR / f"{title_id}.json"
 
 
+# Art briefs must stand alone — never lean on the previous spread.
+RELATIVE_ART_PATTERNS = (
+    re.compile(r"\bsame spot\b", re.I),
+    re.compile(r"\bsame place\b", re.I),
+    re.compile(r"\bsame garden\b", re.I),
+    re.compile(r"\bas before\b", re.I),
+    re.compile(r"\bagain\b", re.I),
+    re.compile(r"\bstill\b", re.I),
+    re.compile(r"\bback at\b", re.I),
+    re.compile(r"\bthe same (?:spot|place|location|garden|room)\b", re.I),
+)
+
+
+def find_relative_art_refs(text: str) -> list[str]:
+    """Return matched relative phrases in an art brief (empty if self-contained)."""
+    found: list[str] = []
+    for pat in RELATIVE_ART_PATTERNS:
+        m = pat.search(text or "")
+        if m:
+            found.append(m.group(0))
+    return found
+
+
 def load_locked_story(title_id: str) -> dict:
     """Load the FINAL locked story JSON (story 01 format). Required for Book Factory."""
     path = locked_story_path(title_id)
@@ -105,10 +128,18 @@ def load_locked_story(title_id: str) -> dict:
     for sp in spreads:
         if "text" not in sp or "art" not in sp:
             raise CatalogueError(f"title_id={title_id} spread {sp.get('n')} needs text + art")
+        if not str(sp.get("setting") or "").strip():
+            raise CatalogueError(f"title_id={title_id} spread {sp.get('n')} needs a self-contained setting")
         calm = (sp.get("calm_zone") or "").strip().lower()
         if calm not in {"left", "right"}:
             raise CatalogueError(
                 f"title_id={title_id} spread {sp.get('n')} calm_zone must be left|right (got {calm!r})"
+            )
+        rel = find_relative_art_refs(str(sp.get("art") or ""))
+        if rel:
+            raise CatalogueError(
+                f"title_id={title_id} spread {sp.get('n')} art has relative refs {rel}; "
+                "rewrite to a self-contained scene"
             )
     data["title_id"] = title_id
     data["path"] = str(path)

@@ -194,16 +194,16 @@ WORD_CAP_SOURCE = os.getenv("WORD_CAP_SOURCE", "brand").strip().lower()
 # Spec §3 — safe zones (mm)
 SAFE_MM = {"trim": 10, "gutter": 15}
 
-# Spec §8.1–8.2 — illustration route presets
+# Spec §8.1–8.2 — illustration route presets (STYLE ONLY — no locations/rooms/props/weather).
+# Place and props come exclusively from each story JSON ``setting`` / ``art`` fields.
 ROUTE_PRESETS = {
     "morning_light": {
         "label": "Morning Light",
         "age_bands": ("2-3.5", "3-6"),
         "preamble": (
             "Children's picture-book illustration, matte gouache on textured paper, "
-            "visible brush strokes, soft edges, warm morning daylight, muted palette of "
-            "oat cream, warm clay, sage green, butter yellow and ink navy, real British "
-            "terraced-house interior with coat pegs, wellies and rain on the window, "
+            "visible brush strokes, soft edges, warm soft daylight, muted palette of "
+            "oat cream, warm clay, sage green, butter yellow and ink navy, "
             "drawn from a small child's eye level, large simple shapes, calm uncluttered "
             "composition with a quiet empty area reserved for text, no text, no letters, "
             "no logos, no glossy 3D rendering, no plastic skin."
@@ -224,11 +224,11 @@ ROUTE_PRESETS = {
         "age_bands": ("5-8", "7-10"),
         "preamble": (
             "Children's book illustration in fine charcoal ink line with translucent "
-            "watercolour wash on white paper, observed real British setting, slightly "
-            "wide observational viewpoint, older child proportions, small hand-drawn "
-            "labels, arrows and map details as decoration only, accents of deep teal, "
-            "sage and butter yellow, calm composition with an open area reserved for "
-            "text, no readable text, no logos, no anime styling, no glossy colour, no clutter."
+            "watercolour wash on white paper, slightly wide observational viewpoint, "
+            "older child proportions, small hand-drawn labels, arrows and map details as "
+            "decoration only, accents of deep teal, sage and butter yellow, calm "
+            "composition with an open area reserved for text, no readable text, no logos, "
+            "no anime styling, no glossy colour, no clutter."
         ),
         "character_sheet": (
             "Reference character sheet in Field Guide style: front, three-quarter and "

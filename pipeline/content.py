@@ -128,6 +128,7 @@ def generate_content(job_dir: Path, inputs: dict, client=None) -> dict:
             {
                 "n": n,
                 "text": personalize(raw.get("text") or "", inputs).strip(),
+                "setting": personalize(raw.get("setting") or "", inputs).strip(),
                 "scene": personalize(raw.get("art") or raw.get("scene") or "", inputs).strip(),
                 "art": personalize(raw.get("art") or "", inputs).strip(),
                 "anchor": personalize(raw.get("anchor") or "", inputs).strip(),
