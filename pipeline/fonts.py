@@ -16,6 +16,7 @@ REPORTLAB_NAMES = {
     "body": "RR-Body",
     "body_bold": "RR-Body-Bold",
     "label": "RR-Label",
+    "inworld": "RR-Inworld",  # Caveat — map banner / in-world lettering only
 }
 
 DEFAULT_FONT_ID = "brand"

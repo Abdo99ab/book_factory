@@ -1,0 +1,227 @@
+{
+  "title_id": "worry_jar",
+  "approved": true,
+  "version": "v2-imported",
+  "status": "final",
+  "source": "08 · [Name]_s Worry Jar — APPROVED v2.1.docx",
+  "family": "growing_skills",
+  "colour": "sage",
+  "age_band": "5-8",
+  "route": "field_guide",
+  "front_band": "READY TO SHARE A WORRY",
+  "title_template": "[Name]'s Worry Jar",
+  "back_question": "Ready to share a worry, [Name]?",
+  "back_blurb": "[Name]'s pockets are full of worry stones that nobody else can see. With [Carer] and an old jam jar, [Name] takes them out one by one: some get a plan, some wait in the jar.",
+  "honesty_line": "Illustrated from [Name]'s photo and checked by a person before print.",
+  "spine_title": "[Name]'s Worry Jar",
+  "outfit": "soft sage hoodie and jeans",
+  "cover_art": "[Name] in the story's key scene from spread 1 — face large and front-on; upper third calm for the title. Kitchen breakfast. [Name] at the table, pockets bulging with three plain grey stones (one in the left pocket, two in the right); toast",
+  "title_page": {
+    "band": "READY TO SHARE A WORRY",
+    "line": "Illustrated from [Name]'s photo",
+    "spot": "Small spot of the jar. No child on this page."
+  },
+  "anchor": {
+    "description": "The jar (spreads 5–14, at home) and the grey stones: plain, simple, never faces. Stone tracking: 3 in pockets (1, 3, 4) and in [Name]'s palm (2); in hand and on the table (5–8); 3 in the jar (9–10); 1 new stone in a pocket (12); 4 in the jar (13–14). Stones shrink a little only when a worry is talked about (spreads 6 and 8); otherwise they just get smoother.",
+    "lock_spread": null
+  },
+  "must_not_show": [
+    "catastrophe on the page",
+    "\"don't be silly\" adult",
+    "diagnosis words",
+    "worry that simply vanishes"
+  ],
+  "characters": [
+    {
+      "id": "worry_jar",
+      "name": "Worry jar",
+      "kind": "prop",
+      "aliases": [
+        "jar",
+        "worry jar"
+      ],
+      "description": "Clear glass worry jar with a simple lid, soft oat/butter paper slips inside optional. Two clear views on a plain blank background. No child, no scary faces, no letters.",
+      "sheet": "brand/stories/worry_jar/worry_jar.png",
+      "approved": false,
+      "spreads": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+      ],
+      "title_id": "worry_jar"
+    }
+  ],
+  "personalisation_slots": [
+    {
+      "id": "school_name",
+      "label": "School name",
+      "type": "text",
+      "required": false
+    },
+    {
+      "id": "worry_1",
+      "label": "Worry one",
+      "type": "text",
+      "required": false
+    },
+    {
+      "id": "calm_move",
+      "label": "Calm-down move",
+      "type": "text",
+      "required": false
+    }
+  ],
+  "order_inputs": {
+    "carer": true,
+    "comfort_object": false,
+    "giver": true
+  },
+  "spreads": [
+    {
+      "n": 1,
+      "text": "On Monday morning, [Name]'s pockets were full of stones. Not real stones. Worry stones, grey and heavy, the kind nobody else can see. There was one in the left pocket and two in the right, and they clinked every time [Name] reached for the toast.",
+      "setting": "Kitchen breakfast. [Name] at the table, pockets bulging with three plain grey stones (one in the left pocket, two in the right)",
+      "art": "Kitchen breakfast. [Name] at the table, pockets bulging with three plain grey stones (one in the left pocket, two in the right); toast",
+      "anchor": "Stones: 3, full size",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 2,
+      "text": "Each stone had a worry inside it. One said, What if I get my spellings wrong? One said, What if [Carer] is late at home time? And the smallest one just said, What if? [Name] didn't know what that one was about. But it was heavy too.",
+      "setting": "Close: three plain grey stones on [Name]'s palm, the smallest one smallest",
+      "art": "Close: three plain grey stones on [Name]'s palm, the smallest one smallest; [Name] looks at them",
+      "anchor": "Stones: 3, full size",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 3,
+      "text": "Walking to school was slow. The stones dragged [Name]'s pockets down. [Name] didn't hop over the cracks in the pavement like usual, or count the red doors. [Name] just walked along beside [Carer] and listened to the stones go clink, clink, clink.",
+      "setting": "Pavement to school, red front doors. [Name] walks slowly beside [Carer], pockets weighed down",
+      "art": "Pavement to school, red front doors. [Name] walks slowly beside [Carer], pockets weighed down",
+      "anchor": "Stones: 3, in pockets",
+      "calm_zone": "right",
+      "calm_zone_note": "Sky — keep low-detail; story text sits there."
+    },
+    {
+      "n": 4,
+      "text": "After school, [Carer] looked at [Name] for a long moment. \"Your pockets look heavy today,\" said [Carer]. \"Do you want to show me what's in them?\" [Name] nodded, and they sat down together at the kitchen table, side by side.",
+      "setting": "Kitchen after school. [Carer] crouches to [Name]'s level, kind face",
+      "art": "Kitchen after school. [Carer] crouches to [Name]'s level, kind face",
+      "anchor": "Stones: 3, in pockets",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 5,
+      "text": "[Carer] put an empty glass jar on the table, the kind that once had jam in it, with a lid that screwed on tight. \"Let's look at them one by one,\" said [Carer]. \"No rush at all.\" [Name] took a deep breath and reached into the left pocket.",
+      "setting": "Kitchen table",
+      "art": "Kitchen table; empty jam jar and lid; [Name] reaches into the left pocket",
+      "anchor": "Jar, empty",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 6,
+      "text": "[Name] held up the first stone and said the worry out loud: \"What if I get my spellings wrong?\" The stone didn't vanish. But somehow, it felt a little less heavy. [Carer] nodded. \"That's a real worry. Thank you for telling me.\"",
+      "setting": "[Name] holds up the spelling stone, now a little smaller",
+      "art": "[Name] holds up the spelling stone, now a little smaller; [Carer] nods",
+      "anchor": "Jar, empty; spelling stone slightly smaller",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 7,
+      "text": "[Carer] drew two circles on a piece of paper. \"This one is for things we can make a plan for,\" said [Carer]. \"This one is for things we can't solve just now.\" [Name] looked hard at the spelling stone. \"We can make a plan for this one,\" said [Name].",
+      "setting": "A sheet of paper with two drawn circles, no words",
+      "art": "A sheet of paper with two drawn circles, no words; the spelling stone sits in one",
+      "anchor": "Jar, empty",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 8,
+      "text": "So they made plans. [Name] chose a spelling game: [Carer] read the words out in silly voices, and [Name] spelled them back. For the home-time stone, [Carer] said, \"Let's ask school what happens if someone's late. Then we'll know the plan.\"",
+      "setting": "Kitchen table. [Carer] reads from a list with a silly face, [Name] laughing and spelling back",
+      "art": "Kitchen table. [Carer] reads from a list with a silly face, [Name] laughing and spelling back; the home-time stone on the table, smaller. No readable words",
+      "anchor": "Jar, empty; two stones on the table",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 9,
+      "text": "The smallest stone, the plain old what-if, had no plan yet. So all three stones went into the jar. Plink, plink, plink. \"They can rest here,\" said [Carer]. \"And whenever you want to talk about them, we'll open the jar together.\"",
+      "setting": "All three stones drop into the jar",
+      "art": "All three stones drop into the jar; [Carer] holds the lid; [Name] watches",
+      "anchor": "Jar with 3 stones",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 10,
+      "text": "Then [Carer] showed [Name] a trick. \"Hold up five fingers. They're birthday candles. Blow them out, one at a time, slowly.\" [Name] blew. One. Two. Three. Four. Five. [Name]'s shoulders came down from up near [Name]'s ears, and there was room for a big yawn.",
+      "setting": "[Name] holds up five fingers and blows, shoulders down",
+      "art": "[Name] holds up five fingers and blows, shoulders down",
+      "anchor": "Jar with 3 stones on the table",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 11,
+      "text": "Next morning, [Name]'s pockets felt lighter. [Name] hopped over the cracks in the pavement and counted seven red doors, which was a record. [Carer] had to walk extra fast to keep up, and they were both a bit out of breath at the school gate.",
+      "setting": "Pavement, morning. [Name] hops over cracks",
+      "art": "Pavement, morning. [Name] hops over cracks; [Carer] hurries behind, both laughing. Pockets flat",
+      "anchor": "Jar stays at home (not shown)",
+      "calm_zone": "right",
+      "calm_zone_note": "Sky — keep low-detail; story text sits there."
+    },
+    {
+      "n": 12,
+      "text": "In the middle of maths, a new worry popped up: What if nobody sits with me at lunch? [Name] felt it start to get heavy. At lunch, [Name] took a deep breath, walked over to Ruby and asked, \"Can I sit with you?\" Ruby moved up to make room.",
+      "setting": "School lunch hall. [Name] stands by Ruby's table, asking",
+      "art": "School lunch hall. [Name] stands by Ruby's table, asking; Ruby shifting along the bench to make room. One small grey stone peeking from [Name]'s pocket",
+      "anchor": "Lunch stone in pocket",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 13,
+      "text": "That evening, [Name] and [Carer] opened the jar. [Name] dropped in the lunch stone, plink, even though lunch had turned out fine. \"It's still nice to talk about it,\" said [Name]. The three stones from yesterday looked smoother now. One was even shining a little.",
+      "setting": "Evening lamplight",
+      "art": "Evening lamplight; [Name] drops a fourth stone into the jar; the three older stones the same size but smoother, one shining a little",
+      "anchor": "Jar with 4 stones",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 14,
+      "text": "\"Same time tomorrow?\" asked [Carer], putting the jar up on the shelf, between the books and the plant. \"If I want to,\" said [Name], smiling. Then [Name] went up to bed with lighter pockets, and fell asleep before the end of the story.",
+      "setting": "The jar (4 stones) on a shelf between books and a plant",
+      "art": "The jar (4 stones) on a shelf between books and a plant; [Name] in pyjamas heads up the stairs, smiling",
+      "anchor": "Jar with 4 stones",
+      "calm_zone": "left",
+      "calm_zone_note": "Wall — keep low-detail; story text sits there."
+    }
+  ],
+  "parent_spread": {
+    "you_could_say": "\"That sounds like a real worry. Thank you for telling me.\"",
+    "try_together": "\"Is this one we can make a plan for, or one we can't solve just now?\"",
+    "in_real_life": "Find a jar or box together (an unbreakable one is best). When worries come up, you can talk about them, draw them, or put them inside to open together later.",
+    "read_it_again": "Read it a few nights in a row, and again whenever [Name] asks."
+  },
+  "parent_art": "",
+  "dedication_template": "For [Name], from [Giver]",
+  "last_line": "Then [Name] went up to bed with lighter pockets, and fell asleep before the end of the story."
+}

@@ -1,0 +1,259 @@
+{
+  "title_id": "ocean_map",
+  "approved": true,
+  "version": "v2-imported",
+  "status": "final",
+  "source": "06 · [Name]_s Ocean Map — APPROVED v2.1.docx",
+  "family": "adventures",
+  "colour": "teal",
+  "age_band": "5-8",
+  "route": "field_guide",
+  "front_band": "READY FOR ADVENTURE",
+  "title_template": "[Name]'s Ocean Map",
+  "back_question": "Ready for adventure, [Name]?",
+  "back_blurb": "A map in a bottle, with [Name]'s name on it. With Tide the turtle, [Name] dives for the treasure: a dead-end cave, a coral maze, an octopus with eight socks, and a sea-glass compass that knows the way home.",
+  "honesty_line": "Illustrated from [Name]'s photo and checked by a person before print.",
+  "spine_title": "[Name]'s Ocean Map",
+  "outfit": "rash vest and swim shorts",
+  "cover_art": "[Name] in the story's key scene from spread 1 — face large and front-on; upper third calm for the title. UK beach, sandcastle, bucket. [Name] kneels unrolling a map from a green bottle: dotted line, ship, X, and a clear blank banner at the top where Book Factory sets [Name] in code (s",
+  "title_page": {
+    "band": "READY FOR ADVENTURE",
+    "line": "Illustrated from [Name]'s photo",
+    "spot": "Small spot of the bottle. No child on this page."
+  },
+  "anchor": {
+    "description": "Tide the turtle (spreads 2–13) and the sea-glass compass (spreads 10–14). Swimwear fixed: rash vest and swim shorts. The air bubble is clear glass; the face is always visible.",
+    "lock_spread": null
+  },
+  "must_not_show": [
+    "drowning peril, no sharks, nobody stuck in distress, no diving gear or mask over the face, no rusty or sharp edges. Face check at full brightness before the underwater grade"
+  ],
+  "characters": [
+    {
+      "id": "tide",
+      "name": "Tide",
+      "description": "Tide the turtle guide: shell like a green umbrella, kind eyes, rounded flippers. Child-scale companion (not tiny). Neutral swimming/standing pose. Front view and side view on a plain blank background. No child, no map, no letters.",
+      "sheet": "brand/stories/ocean_map/tide.png",
+      "approved": false,
+      "spreads": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "title_id": "ocean_map"
+    },
+    {
+      "id": "sea_glass_compass",
+      "name": "Sea-glass compass",
+      "kind": "prop",
+      "aliases": [
+        "compass",
+        "sea-glass compass"
+      ],
+      "description": "Treasure compass made of sea glass: soft teal and oat glass, simple needle, fits in a child's palm. Two clear views on a plain blank background. No child, no turtle, no letters.",
+      "sheet": "brand/stories/ocean_map/sea_glass_compass.png",
+      "approved": false,
+      "spreads": [
+        10,
+        11,
+        12,
+        13,
+        14
+      ],
+      "title_id": "ocean_map"
+    }
+  ],
+  "personalisation_slots": [
+    {
+      "id": "opening",
+      "label": "Beach or bathtub",
+      "type": "select",
+      "options": [
+        "beach",
+        "bathtub"
+      ],
+      "required": true
+    },
+    {
+      "id": "swimsuit_colour",
+      "label": "Swimsuit colour",
+      "type": "text",
+      "required": false
+    },
+    {
+      "id": "turtle_name",
+      "label": "Turtle's name",
+      "type": "text",
+      "required": false
+    }
+  ],
+  "order_inputs": {
+    "carer": true,
+    "comfort_object": false,
+    "giver": true
+  },
+  "spreads": [
+    {
+      "n": 1,
+      "text": "[Name] was building a sandcastle when a green glass bottle rolled in with the waves and stopped right by [their] bucket. Inside was a rolled-up paper. [Name] pulled out the cork, pop, and unrolled it. It was a map of the sea, with a dotted line, a ship and a big X. And at the top, in curly writing, was [Name]'s own name.",
+      "setting": "UK beach, sandcastle, bucket. [Name] kneels unrolling a map from a green bottle: dotted line, ship, X, and a clear blank banner at the top where Book Factory sets [Name] in code (see the name overlay note). No letters drawn",
+      "art": "UK beach, sandcastle, bucket. [Name] kneels unrolling a map from a green bottle: dotted line, ship, X, and a clear blank banner at the top where Book Factory sets [Name] in code (see the name overlay note). No letters drawn",
+      "anchor": "Map",
+      "calm_zone": "right",
+      "calm_zone_note": "Sky — keep low-detail; story text sits there."
+    },
+    {
+      "n": 2,
+      "text": "Out of the waves came a turtle with a shell like a green umbrella. \"I'm Tide,\" said the turtle. \"That map has been looking for you. Hold on to my shell.\" A bubble of air, clear as glass, popped round [Name]'s head. [Carer] waved from the towel, [Name] waved back, and down they went into the cool blue sea.",
+      "setting": "Shallows. Tide (green umbrella shell) beside [Name], a clear, plainly magical air bubble round [Name]'s head",
+      "art": "Shallows. Tide (green umbrella shell) beside [Name], a clear, plainly magical air bubble round [Name]'s head; [Carer] waves from a towel in the background. No diving gear",
+      "anchor": "Tide",
+      "calm_zone": "left",
+      "calm_zone_note": "Sky — keep low-detail; story text sits there."
+    },
+    {
+      "n": 3,
+      "text": "The map said left at the tall rock. So [Name] and Tide swam left, past the tall rock and into a cave. It went round a bend and stopped at a wall of stone. A dead end! [Name] frowned at the map. \"That way didn't work,\" said Tide, not worried at all. \"Let's try another. Wrong turns are part of the map.\"",
+      "setting": "Underwater cave, dead end. [Name] holds the map, frowning but calm",
+      "art": "Underwater cave, dead end. [Name] holds the map, frowning but calm; Tide relaxed",
+      "anchor": "Tide",
+      "calm_zone": "right",
+      "calm_zone_note": "Lighter water, upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 4,
+      "text": "Next came a coral maze, pink and orange and full of tiny fish. Left, right, right, left… and back where they started! This time [Name] had an idea. [Name] put a white shell at the start of every path they had already tried. Soon only one path had no shell. \"This one,\" said [Name], and it was.",
+      "setting": "Coral maze with tiny fish. [Name] places a white shell at a path opening",
+      "art": "Coral maze with tiny fish. [Name] places a white shell at a path opening",
+      "anchor": "Tide",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 5,
+      "text": "Then the water began to push, gently but strongly, like a big hand. Every time they swam forward, they slid back again. Tide sighed. [Name] laughed. \"What if we don't swim against it? What if we swim along the reef instead?\" So they did, and the current slid right past them.",
+      "setting": "Gentle current shown with soft lines. [Name] laughing, swimming along the reef with Tide. Nothing that looks dangerous",
+      "art": "Gentle current shown with soft lines. [Name] laughing, swimming along the reef with Tide. Nothing that looks dangerous",
+      "anchor": "Tide",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 6,
+      "text": "On a rock sat an octopus, counting socks. \"One, two, three, four, five, six, seven… seven! Where is number eight?\" [Name] looked under a sponge. Not there. Behind a clam. Not there. On top of the octopus's own head! There it was. The octopus pulled on all eight socks and wiggled with joy.",
+      "setting": "Octopus on a rock wearing seven socks, the eighth on its head",
+      "art": "Octopus on a rock wearing seven socks, the eighth on its head; [Name] points, laughing",
+      "anchor": "Tide",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 7,
+      "text": "But when an octopus wiggles with joy, out puffs a little cloud of purple ink. Whoosh! It drifted right across the map and smudged the dotted line away. [Name] looked at the purple smudges and thought hard. Tall rock. Cave. Coral maze. Reef. [Name] traced the whole way with one finger on Tide's shell. \"And the X,\" said [Name], \"was past the reef, next to something big.\"",
+      "setting": "A small purple ink cloud drifting across the map",
+      "art": "A small purple ink cloud drifting across the map; the octopus looking sheepish; [Name] tracing the route with one finger on Tide's shell",
+      "anchor": "Tide, map",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 8,
+      "text": "\"Look!\" said Tide, pointing a flipper. Something big lay right ahead: an old wooden ship, resting on its side in the sand, covered in seaweed like a green blanket. Little fish swam in and out of its round windows. \"The X,\" whispered [Name]. Beside the ship, half buried in the sand, sat a small wooden chest with a stiff old lid.",
+      "setting": "Old wooden ship on its side, seaweed",
+      "art": "Old wooden ship on its side, seaweed; Tide pointing a flipper; small chest half in the sand. Smooth wood, no rust or sharp edges",
+      "anchor": "Tide",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 9,
+      "text": "[Name] pulled the lid. Nothing. [Name] pulled harder, cheeks puffed out. Nothing at all. The chest was stuck tight. [Name] sat on the sand for a moment and looked at it. Then [Name] looked at Tide. \"Shall we try it together?\" Tide grinned a slow turtle grin. \"I was hoping you'd ask.\"",
+      "setting": "[Name] pulls the chest lid, cheeks puffed",
+      "art": "[Name] pulls the chest lid, cheeks puffed; Tide grinning beside. One child figure only",
+      "anchor": "Tide",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 10,
+      "text": "[Name] pushed the lid from one side, and Tide pushed with a flipper from the other. Creak… creak… CLUNK! The lid flew open. Inside, wrapped in soft seaweed, lay a compass made of sea glass, round and blue-green, catching the light like a little piece of the sea itself. Tide whistled.",
+      "setting": "[Name] and Tide push together",
+      "art": "[Name] and Tide push together; lid flies open; sea-glass compass inside",
+      "anchor": "Tide, compass",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 11,
+      "text": "[Name] lifted the compass out and held it up. The needle spun round and round, then wobbled, then stopped, pointing nowhere in particular. \"It's waiting,\" said Tide. \"Some treasures only work when you really need them.\" [Name] held the compass tight. It felt cool and smooth, like a pebble from the bottom of the sea.",
+      "setting": "[Name] holds the compass up, needle wobbling",
+      "art": "[Name] holds the compass up, needle wobbling; Tide watching. No note, no letters",
+      "anchor": "Tide, compass",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 12,
+      "text": "Going home, they followed the white shells back through the coral maze and waved at the octopus, who waved back with eight sock-covered arms and a little purple puff. Not a single wrong turn. \"That's because we already took them all,\" said [Name], and Tide laughed so hard that bubbles came out.",
+      "setting": "Swimming back along the white-shell trail",
+      "art": "Swimming back along the white-shell trail; the octopus waves with eight socked arms, a tiny purple puff",
+      "anchor": "Tide, compass",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 13,
+      "text": "Past the last shell, the reef stretched out in every direction, all blue and all the same. [Name] held up the compass. The needle swung once and pointed, steady and sure, towards the beach. So up they swam towards the light, until the bubble popped, plip, and [Name] stood in the shallow waves by the sandcastle. [Carer] waved from the towel. \"Come back and explore again,\" said Tide.",
+      "setting": "One scene: the shallows by the sandcastle, bubble gone",
+      "art": "One scene: the shallows by the sandcastle, bubble gone; [Name] stands holding the compass up, needle pointing towards the beach; [Carer] waves from the towel; Tide sliding away into the waves",
+      "anchor": "Tide, compass",
+      "calm_zone": "right",
+      "calm_zone_note": "Sky — keep low-detail; story text sits there."
+    },
+    {
+      "n": 14,
+      "text": "That night, the sea-glass compass sat on [Name]'s windowsill, beside the map with the purple smudges. In the moonlight, its needle turned slowly, slowly, until it pointed out towards the sea. [Name] thought of Tide, swimming somewhere under the stars, and smiled. Where would the next map lead? [Name] fell asleep wondering.",
+      "setting": "Bedroom windowsill at night: the compass, needle pointing towards a moonlit sea through the window",
+      "art": "Bedroom windowsill at night: the compass, needle pointing towards a moonlit sea through the window; the smudged map beside it; [Name] in bed behind, smiling, face visible",
+      "anchor": "Compass",
+      "calm_zone": "left",
+      "calm_zone_note": "Night sky — keep low-detail; story text sits there."
+    }
+  ],
+  "parent_spread": {
+    "you_could_say": "\"That way didn't work. Let's try another.\"",
+    "try_together": "\"If you found a map in a bottle, where would you want it to lead?\"",
+    "in_real_life": "Next time you're at the beach or the park, make a trail with shells, stones or fallen leaves, then follow it back.",
+    "read_it_again": "Read it a few nights in a row, and again whenever [Name] asks."
+  },
+  "parent_art": "",
+  "dedication_template": "For [Name], from [Giver]",
+  "last_line": "[Name] fell asleep wondering.",
+  "inworld_lettering": [
+    {
+      "spread": 1,
+      "kind": "map_banner_name",
+      "font": "inworld",
+      "fallback_font": "body",
+      "side": "right",
+      "region": {
+        "x0": 0.12,
+        "y0": 0.08,
+        "x1": 0.88,
+        "y1": 0.2
+      },
+      "curve": true,
+      "note": "Caveat (OFL) for the Ocean Map name on the blank banner only — never story text, titles, bands, covers, or ads. Test short and long names curved to the banner; if it looks pasted on, use Nunito.",
+      "source_note": "Spread 1: the map art has a blank banner; Book Factory sets [Name] in code in a hand-lettered style, curved to the banner, tested with short and long names. The name must always be legible: there is no squiggle fallback. If the hand-lettered style fails the test, the name is set in Nunito on the banner, so text and image always agree. The hand-lettered font needs Taoufik's brand OK."
+    }
+  ]
+}

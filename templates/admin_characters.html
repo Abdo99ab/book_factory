@@ -4,46 +4,56 @@
 <section class="char-admin">
   <p class="eyebrow">Admin</p>
   <h1>Story characters</h1>
-  <p class="lede">Sheets are drawn once per story (no customer data). Preview and approve here before orders can illustrate.</p>
+  <p class="lede">Each sheet belongs to one locked story (no customer data). Preview and approve here before that title can illustrate.</p>
 
-  {% if not rows %}
+  {% if not groups %}
   <div class="err-banner">No story characters found. Check that the locked story JSON has a <code>characters</code> list and that this server has pulled the latest branch.</div>
   {% endif %}
 
-  <div class="char-grid">
-    {% for row in rows %}
-    <article class="char-card">
-      <div class="char-sheet">
-        {% if row.has_file %}
-        <img src="{{ url_for('admin_character_sheet', title_id=row.title_id, character_id=row.id) }}" alt="{{ row.name }} sheet">
-        {% else %}
-        <div class="char-missing">No sheet yet</div>
-        {% endif %}
-      </div>
-      <div class="char-meta">
-        <h2>{{ row.name }}</h2>
-        <p class="char-ids"><code>{{ row.title_id }}</code> · <code>{{ row.id }}</code></p>
-        <p>Spreads: {{ row.spreads|join(", ") or "—" }}</p>
-        <p>
-          {% if row.approved %}
-          <span class="pill ok">Approved{% if row.approved_by %} · {{ row.approved_by }}{% endif %}</span>
+  {% for group in groups %}
+  <section class="char-story" id="story-{{ group.title_id }}">
+    <header class="char-story-head">
+      <p class="char-story-label">Story</p>
+      <h2 class="char-story-title">{{ group.title }}</h2>
+      <p class="char-story-ids"><code>{{ group.title_id }}</code>{% if group.family %} · {{ group.family|replace('_', ' ') }}{% endif %} · {{ group.rows|length }} sheet{{ 's' if group.rows|length != 1 else '' }}</p>
+    </header>
+    <div class="char-grid">
+      {% for row in group.rows %}
+      <article class="char-card">
+        <div class="char-sheet">
+          {% if row.has_file %}
+          <img src="{{ url_for('admin_character_sheet', title_id=row.title_id, character_id=row.id) }}" alt="{{ row.name }} sheet for {{ row.title }}">
           {% else %}
-          <span class="pill warn">Needs approval</span>
+          <div class="char-missing">No sheet yet</div>
           {% endif %}
-          {% if not row.has_file %}<span class="pill warn">File missing</span>{% endif %}
-        </p>
-        <div class="char-actions">
-          <form method="post" action="{{ url_for('admin_generate_character', title_id=row.title_id, character_id=row.id) }}">
-            <button type="submit" class="btn">Generate / regenerate</button>
-          </form>
-          <form method="post" action="{{ url_for('admin_approve_character', title_id=row.title_id, character_id=row.id) }}" class="approve-form">
-            <input type="text" name="approved_by" placeholder="Your name" required>
-            <button type="submit" class="btn primary">Approve</button>
-          </form>
         </div>
-      </div>
-    </article>
-    {% endfor %}
-  </div>
+        <div class="char-meta">
+          <p class="char-for-story">For <strong>{{ row.title }}</strong></p>
+          <h3>{{ row.name }}</h3>
+          <p class="char-ids"><code>{{ row.id }}</code> · {{ row.kind }}</p>
+          <p>Spreads: {{ row.spreads|join(", ") or "—" }}</p>
+          <p>
+            {% if row.approved %}
+            <span class="pill ok">Approved{% if row.approved_by %} · {{ row.approved_by }}{% endif %}</span>
+            {% else %}
+            <span class="pill warn">Needs approval</span>
+            {% endif %}
+            {% if not row.has_file %}<span class="pill warn">File missing</span>{% endif %}
+          </p>
+          <div class="char-actions">
+            <form method="post" action="{{ url_for('admin_generate_character', title_id=row.title_id, character_id=row.id) }}">
+              <button type="submit" class="btn">Generate / regenerate</button>
+            </form>
+            <form method="post" action="{{ url_for('admin_approve_character', title_id=row.title_id, character_id=row.id) }}" class="approve-form">
+              <input type="text" name="approved_by" placeholder="Your name" required>
+              <button type="submit" class="btn primary">Approve</button>
+            </form>
+          </div>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
 </section>
 {% endblock %}

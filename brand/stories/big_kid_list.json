@@ -1,0 +1,239 @@
+{
+  "title_id": "big_kid_list",
+  "approved": true,
+  "version": "v2-imported",
+  "status": "final",
+  "source": "02 · [Name] and the Big-Kid List — APPROVED v2.docx",
+  "family": "next_steps",
+  "colour": "rust",
+  "age_band": "2-3.5",
+  "route": "morning_light",
+  "front_band": "READY FOR THE POTTY",
+  "title_template": "[Name] and the Big-Kid List",
+  "back_question": "Ready for the potty, [Name]?",
+  "back_blurb": "Shoes, coat, cup, hands… and the potty. [Name]'s big-kid list lives on the fridge, one try at a time. Some days nothing comes, some days it's oops, and that's fine. A gentle potty story, with the words for the real moment inside.",
+  "honesty_line": "Illustrated from [Name]'s photo and checked by a person before print.",
+  "spine_title": "[Name] and the Big-Kid List",
+  "outfit": "rust jumper and star-print trousers with white trainers",
+  "cover_art": "[Name] in the story's key scene from spread 1 — face large and front-on; upper third calm for the title. Kitchen of a UK terrace. [Name] points at the list on the fridge; [Carer] crouches beside",
+  "title_page": {
+    "band": "READY FOR THE POTTY",
+    "line": "Illustrated from [Name]'s photo",
+    "spot": "Small spot of the list. No child on this page."
+  },
+  "anchor": {
+    "description": "Fridge list drawn on spreads 1, 2, 6, 9 and 12 with 0, 1, 4, 5 and 5 ticks. The fifth tick lands on spread 9, after an empty sit, never after a wee. [Object] on every other spread. Child's outfit fixed.",
+    "lock_spread": null
+  },
+  "must_not_show": [
+    "deadline or countdown",
+    "unhappy adult face at the accident",
+    "sticker, chart, present or reward",
+    "nappy shaming",
+    "toilet humour. The child is never drawn using the potty mid-wee"
+  ],
+  "characters": [
+    {
+      "id": "fridge_list",
+      "name": "Fridge list",
+      "kind": "prop",
+      "aliases": [
+        "list",
+        "big-kid list",
+        "fridge list"
+      ],
+      "description": "Paper list on a fridge with five simple picture icons: shoes, coat, cup, hands, potty. Blank ticks (no ticks filled). Two clear views on a plain blank background. No child, no letters beyond simple icons.",
+      "sheet": "brand/stories/big_kid_list/fridge_list.png",
+      "approved": false,
+      "spreads": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+      ],
+      "title_id": "big_kid_list"
+    }
+  ],
+  "personalisation_slots": [
+    {
+      "id": "school_name",
+      "label": "Nursery or school name",
+      "type": "text",
+      "required": false
+    },
+    {
+      "id": "sibling_friend",
+      "label": "Sibling or friend name",
+      "type": "text",
+      "required": false
+    },
+    {
+      "id": "potty_or_seat",
+      "label": "Potty or toilet seat",
+      "type": "select",
+      "options": [
+        "potty",
+        "toilet seat"
+      ],
+      "required": true
+    },
+    {
+      "id": "underwear",
+      "label": "Underwear colour or pattern",
+      "type": "text",
+      "required": false
+    }
+  ],
+  "order_inputs": {
+    "carer": true,
+    "comfort_object": true,
+    "giver": true
+  },
+  "spreads": [
+    {
+      "n": 1,
+      "text": "This is [Name]'s big-kid list. It lives on the fridge. Shoes. Coat. Cup. Hands. Potty. \"Big-kid things to try,\" says [Carer]. \"One at a time.\"",
+      "setting": "Kitchen of a UK terrace. [Name] points at the list on the fridge",
+      "art": "Kitchen of a UK terrace. [Name] points at the list on the fridge; [Carer] crouches beside",
+      "anchor": "List, 0 ticks",
+      "calm_zone": "right",
+      "calm_zone_note": "Wall above the fridge — keep low-detail; story text sits there."
+    },
+    {
+      "n": 2,
+      "text": "Shoes first. [Name] pulls them on. Left foot in the right shoe. Wobble, wobble! [Name] laughs and swaps them. Now they fit. One more tick on the big-kid list.",
+      "setting": "Hall by the front door, coat pegs and wellies. [Name] on the bottom stair, shoes on the wrong feet, laughing",
+      "art": "Hall by the front door, coat pegs and wellies. [Name] on the bottom stair, shoes on the wrong feet, laughing",
+      "anchor": "List through the kitchen door, 1 tick",
+      "calm_zone": "left",
+      "calm_zone_note": "Above the coat pegs — keep low-detail; story text sits there."
+    },
+    {
+      "n": 3,
+      "text": "Coat next. The zip is tricky. [Carer] holds the bottom. [Name] pulls up, up, up. Zzzip! One more tick on the big-kid list.",
+      "setting": "Hall. [Carer] holds the bottom of the zip",
+      "art": "Hall. [Carer] holds the bottom of the zip; [Name] pulls it up, chin tucked, concentrating",
+      "anchor": "[Object] on the stair",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper left wall — keep low-detail; story text sits there."
+    },
+    {
+      "n": 4,
+      "text": "Then the cup. No lid! Slurp. Splosh. A little spill. [Name] wipes it with a cloth. Slurp again. One more tick on the big-kid list.",
+      "setting": "Kitchen table. [Name] drinks from an open cup, a small spill, cloth in the other hand",
+      "art": "Kitchen table. [Name] drinks from an open cup, a small spill, cloth in the other hand",
+      "anchor": "[Object] on a chair",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper right — keep low-detail; story text sits there."
+    },
+    {
+      "n": 5,
+      "text": "Then hands. Soap. Bubbles. Rub, rub, rub. [Name] sings the hand-washing song right to the end. One more tick on the big-kid list.",
+      "setting": "Bathroom basin with a step stool. [Name] rubs soapy hands, mouth open, singing",
+      "art": "Bathroom basin with a step stool. [Name] rubs soapy hands, mouth open, singing",
+      "anchor": "[Object] on the stool",
+      "calm_zone": "left",
+      "calm_zone_note": "Tiled wall, upper left — keep low-detail; story text sits there."
+    },
+    {
+      "n": 6,
+      "text": "Last on the list is the potty. [Name] looks at it. \"Not today.\" \"That's fine,\" says [Carer]. \"We can try another time. It's your turn to choose.\"",
+      "setting": "Bathroom. [Name] looks at a blue potty by the door, relaxed",
+      "art": "Bathroom. [Name] looks at a blue potty by the door, relaxed; [Carer] kneels, smiling",
+      "anchor": "List seen through the door, 4 ticks",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper right — keep low-detail; story text sits there."
+    },
+    {
+      "n": 7,
+      "text": "Another day, [Name] sits on the potty. Clothes on. Just to see. [Object] stays close beside [Name]. \"Comfy?\" asks [Carer]. [Name] nods.",
+      "setting": "[Name] sits fully dressed on the potty, curious",
+      "art": "[Name] sits fully dressed on the potty, curious; [Object] close beside (drawn to suit the object: on the floor, in a lap, over a shoulder)",
+      "anchor": "[Object]",
+      "calm_zone": "right",
+      "calm_zone_note": "Wall above — keep low-detail; story text sits there."
+    },
+    {
+      "n": 8,
+      "text": "\"I need a wee!\" says [Name]. [Carer] smiles. \"You noticed! That's the big-kid part.\" Off they go to the potty together.",
+      "setting": "Living room. [Name] stops playing, hand up, alert face",
+      "art": "Living room. [Name] stops playing, hand up, alert face; [Carer] smiles",
+      "anchor": "[Object] on the rug",
+      "calm_zone": "left",
+      "calm_zone_note": "Window area — keep low-detail; story text sits there."
+    },
+    {
+      "n": 9,
+      "text": "[Name] sits and waits. And waits. Nothing comes. \"Sitting counts,\" says [Carer]. Wash hands. And one more tick on the big-kid list.",
+      "setting": "Kitchen, just after handwashing (hands still a little damp, towel nearby). [Name] reaches up and adds a tick to the fridge list",
+      "art": "Kitchen, just after handwashing (hands still a little damp, towel nearby). [Name] reaches up and adds a tick to the fridge list; [Carer] holds it steady. The potty itself is not shown",
+      "anchor": "List, 5 ticks",
+      "calm_zone": "right",
+      "calm_zone_note": "Wall above the fridge — keep low-detail; story text sits there."
+    },
+    {
+      "n": 10,
+      "text": "Oh! A wet patch, right in the middle of playing. \"Oops,\" says [Name]. \"Oops is fine,\" says [Carer]. \"Clean clothes. Carry on.\" So [Name] carries on.",
+      "setting": "Living-room play mat. A small darker patch on the trousers only, not the focus",
+      "art": "Living-room play mat. A small darker patch on the trousers only, not the focus; [Name] neutral, says oops; [Carer] calm, holding clean clothes",
+      "anchor": "[Object]",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper left — keep low-detail; story text sits there."
+    },
+    {
+      "n": 11,
+      "text": "Some days, nothing comes. Some days… tinkle, tinkle! A wee in the potty! [Name] and [Carer] wash hands and sing the song together, loud.",
+      "setting": "Bathroom basin. [Name] and [Carer] wash hands together, both singing loud, big smiles. The potty itself is not shown",
+      "art": "Bathroom basin. [Name] and [Carer] wash hands together, both singing loud, big smiles. The potty itself is not shown",
+      "anchor": "[Object]",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 12,
+      "text": "[Name] counts the ticks. One, two, three, four, five! [Carer] holds the list steady. \"What's next?\" asks [Carer]. \"Big-kid pants!\" says [Name].",
+      "setting": "Kitchen. [Name] counts on fingers in front of the list",
+      "art": "Kitchen. [Name] counts on fingers in front of the list; [Carer] holds it steady",
+      "anchor": "List, 5 ticks",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper right — keep low-detail; story text sits there."
+    },
+    {
+      "n": 13,
+      "text": "Into the bag go spare pants and spare trousers. \"Just in case,\" says [Carer]. \"Oops is fine at [Place] too.\"",
+      "setting": "Bedroom. [Name] packs spare pants and trousers into a small day bag that [Carer] holds open",
+      "art": "Bedroom. [Name] packs spare pants and trousers into a small day bag that [Carer] holds open",
+      "anchor": "[Object]",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 14,
+      "text": "This morning at [Place]. [Name] waves to [Carer]. Coat on the peg. Spare pants in the bag. [Name] is ready.",
+      "setting": "Entrance of [Place], two set variants: a nursery (coat pegs) or a childminder's home (hooks by the door). [Name] hangs a coat, bag on back, waving",
+      "art": "Entrance of [Place], two set variants: a nursery (coat pegs) or a childminder's home (hooks by the door). [Name] hangs a coat, bag on back, waving; [Carer]'s hand at the frame edge",
+      "anchor": "[Object] peeking from the bag",
+      "calm_zone": "left",
+      "calm_zone_note": "Wall above the pegs or hooks — keep low-detail; story text sits there."
+    }
+  ],
+  "parent_spread": {
+    "you_could_say": "\"Sitting counts. Oops is fine. We can try another time.\"",
+    "try_together": "\"What's on your big-kid list?\"",
+    "in_real_life": "Make a picture list together with whatever [Name] is trying right now, and keep spare clothes in the bag.",
+    "read_it_again": "Read it a few nights in a row, and again whenever [Name] asks."
+  },
+  "parent_art": "",
+  "dedication_template": "For [Name], from [Giver]",
+  "last_line": "[Name] is ready."
+}

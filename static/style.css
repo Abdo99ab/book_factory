@@ -332,11 +332,34 @@ fieldset legend {
 }
 
 .char-admin .lede { color: var(--muted); max-width: 40rem; }
+.char-story {
+  margin-top: 2.25rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
+}
+.char-story:first-of-type { border-top: 0; padding-top: 0; }
+.char-story-head { margin-bottom: 0.35rem; max-width: 42rem; }
+.char-story-label {
+  margin: 0 0 0.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.char-story-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 1.55rem;
+  line-height: 1.25;
+  color: var(--ink);
+}
+.char-story-ids { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.88rem; }
 .char-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 1.25rem;
-  margin-top: 1.75rem;
+  margin-top: 1.1rem;
 }
 .char-card {
   background: var(--white);
@@ -366,7 +389,14 @@ fieldset legend {
   font-size: 0.85rem;
 }
 .char-meta { padding: 1rem 1.1rem 1.2rem; display: grid; gap: 0.45rem; }
-.char-meta h2 {
+.char-for-story {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+.char-for-story strong { color: var(--ink); font-weight: 600; }
+.char-meta h3 {
   margin: 0;
   font-family: var(--font-serif);
   font-size: 1.25rem;

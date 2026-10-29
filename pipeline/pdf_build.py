@@ -2,7 +2,8 @@
 
 Text is never drawn into an image. Each spread is ONE wide image (``spreads/spread-NN/art.png``)
 that is opened once, split into a left and a right half (``pages.split_spread``) and placed at the
-half's native pixels in the 216 mm (trim + bleed) box; nothing is resampled up. Fonts are the four brand TTFs only.
+half's native pixels in the 216 mm (trim + bleed) box; nothing is resampled up. Fonts are the brand
+TTFs (Noto Serif, Nunito, DM Mono) plus Caveat for in-world lettering only (never story/title/band/cover).
 
 Packaging comes from the printer profile (constants.PRINTER_PROFILES):
   * ``single_pdf_cover_flat_first``      — TJ Books: cover flat, [endpaper], p1-32, [endpaper]
@@ -551,6 +552,128 @@ def _spread_half(ctx: _Ctx, art_path: Path, n: int, side: str) -> Image.Image:
     return cache[side]
 
 
+def _inworld_specs(ctx: _Ctx) -> list[dict]:
+    """In-world lettering from the manuscript or locked story (Caveat banner names, etc.)."""
+    specs = ctx.story.get("inworld_lettering")
+    if specs is None:
+        locked_meta = ctx.story.get("locked") or {}
+        specs = locked_meta.get("inworld_lettering")
+    if specs is None:
+        try:
+            from .catalogue import load_locked_story
+
+            tid = ctx.inputs.get("title_id") or ctx.story.get("title_id")
+            if tid:
+                specs = load_locked_story(tid).get("inworld_lettering") or []
+            else:
+                specs = []
+        except Exception:  # noqa: BLE001
+            specs = []
+    return list(specs or [])
+
+
+def _draw_curved_chars(
+    c: canvas.Canvas,
+    text: str,
+    font: str,
+    size: float,
+    cx_mm: float,
+    cy_mm: float,
+    radius_mm: float,
+    ink: tuple[int, int, int],
+) -> None:
+    """Draw ``text`` along a shallow upward-opening arc (hand-lettered map banner)."""
+    import math
+
+    if not text:
+        return
+    widths = [pdfmetrics.stringWidth(ch, font, size) for ch in text]
+    total = sum(widths) + max(0, len(text) - 1) * size * 0.02
+    # Arc length ≈ total; theta span in radians
+    span = min(1.1, max(0.35, total / max(radius_mm * 0.3527, 1.0)))  # pt→approx mm via size
+    # Prefer radius that fits the string
+    radius_pt = max(mm_to_pt(radius_mm), total / max(span, 0.2))
+    start = -span / 2
+    cursor = 0.0
+    c.saveState()
+    c.setFillColorRGB(*_c01(ink))
+    for ch, w in zip(text, widths):
+        mid = start + (cursor + w / 2) / radius_pt
+        x = mm_to_pt(cx_mm) + radius_pt * math.sin(mid)
+        y = _y(c, cy_mm) - radius_pt * (1 - math.cos(mid))
+        c.saveState()
+        c.translate(x, y)
+        c.rotate(-math.degrees(mid))
+        c.setFont(font, size)
+        c.drawCentredString(0, -size * 0.35, ch)
+        c.restoreState()
+        cursor += w + size * 0.02
+    c.restoreState()
+
+
+def _draw_inworld_on_page(ctx: _Ctx, n: int, side: str, art: "_Art") -> dict | None:
+    """Draw Caveat (or Nunito fallback) name overlays for this spread half. Never story text."""
+    name = (ctx.name or "").strip()
+    if not name:
+        return None
+    drawn = None
+    for spec in _inworld_specs(ctx):
+        if int(spec.get("spread") or 0) != int(n):
+            continue
+        if spec.get("kind") != "map_banner_name":
+            continue
+        pref_side = (spec.get("side") or "right").lower()
+        if pref_side not in {"left", "right"}:
+            pref_side = "right"
+        if side != pref_side:
+            continue
+        region = spec.get("region") or {"x0": 0.12, "y0": 0.08, "x1": 0.88, "y1": 0.20}
+        page = PAGE_WITH_BLEED_MM
+        x0 = float(region.get("x0", 0.12)) * page
+        y0 = float(region.get("y0", 0.08)) * page
+        x1 = float(region.get("x1", 0.88)) * page
+        y1 = float(region.get("y1", 0.20)) * page
+        box_w = max(10.0, x1 - x0)
+        box_h = max(6.0, y1 - y0)
+        cx = (x0 + x1) / 2
+        cy = (y0 + y1) / 2
+
+        primary = reportlab_name(spec.get("font") or "inworld")
+        fallback = reportlab_name(spec.get("fallback_font") or "body")
+        # Fit size: start large, shrink; fall back to Nunito if Caveat still overflows (pasted-on look).
+        size = min(36.0, box_h * 2.2)
+        font = primary
+        while size >= 14 and pdfmetrics.stringWidth(name, font, size) > mm_to_pt(box_w * 0.95):
+            size -= 1
+        if pdfmetrics.stringWidth(name, font, size) > mm_to_pt(box_w * 0.95):
+            font = fallback
+            size = min(28.0, box_h * 2.0)
+            while size >= 12 and pdfmetrics.stringWidth(name, font, size) > mm_to_pt(box_w * 0.95):
+                size -= 1
+
+        ink, _ = _decide_ink(ctx, art, (x0, y0, x1, y1), label=f"Inworld s{n}", plate_policy="none")
+        use_curve = bool(spec.get("curve", True)) and font == primary
+        c = ctx.canvas
+        if use_curve:
+            _draw_curved_chars(c, name, font, size, cx, cy + box_h * 0.15, radius_mm=box_w * 0.85, ink=ink)
+        else:
+            c.saveState()
+            c.setFillColorRGB(*_c01(ink))
+            c.setFont(font, size)
+            c.drawCentredString(_x(cx), _y(c, cy) - size * 0.35, name)
+            c.restoreState()
+        drawn = {
+            "inworld": True,
+            "kind": spec.get("kind"),
+            "font": font,
+            "fallback_used": font == fallback,
+            "size_pt": size,
+            "side": side,
+            "box_mm": [x0, y0, box_w, box_h],
+        }
+    return drawn
+
+
 def _draw_spread_page(ctx: _Ctx, page: dict, art_path: Path, side: str, index: int) -> None:
     c = ctx.canvas
     c.setPageSize((mm_to_pt(PAGE_WITH_BLEED_MM),) * 2)
@@ -569,6 +692,9 @@ def _draw_spread_page(ctx: _Ctx, page: dict, art_path: Path, side: str, index: i
         "text": False,
         "plate": False,
     }
+    inworld = _draw_inworld_on_page(ctx, n, side, art)
+    if inworld:
+        record["inworld"] = inworld
     if page.get("calm_zone") == side and (page.get("text") or "").strip():
         left, width = _page_text_box(side)
         top_safe = BLEED_MM + SAFE_MM["trim"]

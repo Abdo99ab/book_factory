@@ -1,0 +1,211 @@
+{
+  "title_id": "nursery_day",
+  "approved": true,
+  "version": "v2-imported",
+  "status": "final",
+  "source": "03 · [Name]_s Nursery Day — APPROVED v2.docx",
+  "family": "next_steps",
+  "colour": "rust",
+  "age_band": "3-6",
+  "route": "morning_light",
+  "front_band": "READY FOR NURSERY",
+  "title_template": "[Name]'s Nursery Day",
+  "back_question": "Ready for nursery, [Name]?",
+  "back_blurb": "From the goodbye at the door to the moment [Carer] walks back in, [Name] spends a whole day at [Nursery]: buses, puddles, songs and snack. And at home time, the door opens, just like always.",
+  "honesty_line": "Illustrated from [Name]'s photo and checked by a person before print.",
+  "spine_title": "[Name]'s Nursery Day",
+  "outfit": "soft navy jumper, grey trousers, and a yellow coat",
+  "cover_art": "[Name] in the story's key scene from spread 1 — face large and front-on; upper third calm for the title. Hall at home. [Name] tucks [Object] into a small backpack; [Carer] holds spare socks",
+  "title_page": {
+    "band": "READY FOR NURSERY",
+    "line": "Illustrated from [Name]'s photo",
+    "spot": "Small spot of [Object]. No child on this page."
+  },
+  "anchor": {
+    "description": "[Object] on every spread it fits (10 of 14). Lock one nursery interior sheet (door, window, peg wall, carpet, book corner, table). Ada and [Teacher] drawn identically throughout. Spreads 2 and 14 use the same street.",
+    "lock_spread": null
+  },
+  "must_not_show": [
+    "crying child alone",
+    "adult looking sad at the window",
+    "late carer",
+    "clock faces or times",
+    "\"big boys/girls don't cry\"",
+    "napping requirement"
+  ],
+  "characters": [],
+  "personalisation_slots": [
+    {
+      "id": "second_carer",
+      "label": "Pick-up carer name",
+      "type": "text",
+      "required": false
+    },
+    {
+      "id": "nursery_name",
+      "label": "Nursery name",
+      "type": "text",
+      "required": true
+    },
+    {
+      "id": "teacher_name",
+      "label": "Teacher name",
+      "type": "text",
+      "required": false
+    },
+    {
+      "id": "goodbye_ritual",
+      "label": "Goodbye ritual",
+      "type": "text",
+      "required": false
+    },
+    {
+      "id": "peg_symbol",
+      "label": "Peg symbol",
+      "type": "text",
+      "required": false
+    }
+  ],
+  "order_inputs": {
+    "carer": true,
+    "comfort_object": true,
+    "giver": true
+  },
+  "spreads": [
+    {
+      "n": 1,
+      "text": "Morning. [Name] and [Carer] pack the nursery bag. Spare socks. A water bottle. And [Object]. \"[Object] comes too,\" says [Name].",
+      "setting": "Hall at home. [Name] tucks [Object] into a small backpack",
+      "art": "Hall at home. [Name] tucks [Object] into a small backpack; [Carer] holds spare socks",
+      "anchor": "[Object]",
+      "calm_zone": "right",
+      "calm_zone_note": "Wall above — keep low-detail; story text sits there."
+    },
+    {
+      "n": 2,
+      "text": "Out of the front door. Along the same pavement as always. Past the postbox. Past the big tree. And here is [Nursery].",
+      "setting": "Terraced street, postbox, big tree. [Name] holds [Carer]'s hand",
+      "art": "Terraced street, postbox, big tree. [Name] holds [Carer]'s hand; [Object] peeks from the bag",
+      "anchor": "[Object]",
+      "calm_zone": "left",
+      "calm_zone_note": "Sky — keep low-detail; story text sits there."
+    },
+    {
+      "n": 3,
+      "text": "[Teacher] is at the door. Time for the goodbye. Two kisses. One big hug. \"I always come back at home time,\" says [Carer].",
+      "setting": "Nursery front door. [Teacher] smiles in the doorway",
+      "art": "Nursery front door. [Teacher] smiles in the doorway; [Carer] crouches for the hug",
+      "anchor": "[Object] in the bag",
+      "calm_zone": "right",
+      "calm_zone_note": "Above the door — keep low-detail; story text sits there."
+    },
+    {
+      "n": 4,
+      "text": "[Carer] goes. [Name] waves at the window, and [Carer] waves back. [Teacher] holds [Name]'s hand. \"[Carer] always comes back at home time.\"",
+      "setting": "Inside by the window. [Name] waves",
+      "art": "Inside by the window. [Name] waves; [Carer], outside, waves back smiling; [Teacher] holds [Name]'s hand",
+      "anchor": "[Object] in the bag on the floor",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper wall — keep low-detail; story text sits there."
+    },
+    {
+      "n": 5,
+      "text": "Coat on the peg. [Name]'s peg has [Name]'s own picture on it. Wellies on the rack. Bag in the tray.",
+      "setting": "Peg wall. [Name] hangs a coat on a peg marked with a small picture (no letters)",
+      "art": "Peg wall. [Name] hangs a coat on a peg marked with a small picture (no letters); wellies on the rack",
+      "anchor": "[Object] peeking from the bag on the tray",
+      "calm_zone": "right",
+      "calm_zone_note": "Above the pegs — keep low-detail; story text sits there."
+    },
+    {
+      "n": 6,
+      "text": "Play time! A girl called Ada has the red bus. [Name] has the blue bus. Brrm, brrm. They swap. Brrm, brrm.",
+      "setting": "Play area. [Name] and Ada swap a red and a blue toy bus, both grinning",
+      "art": "Play area. [Name] and Ada swap a red and a blue toy bus, both grinning",
+      "anchor": "Buses; Ada",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper right — keep low-detail; story text sits there."
+    },
+    {
+      "n": 7,
+      "text": "Morning snack at the little table. Toast and banana. [Name] sits next to Ada. Munch, munch, munch. Ada has a banana moustache!",
+      "setting": "Little table, toast and banana. Ada has a banana smear on her lip",
+      "art": "Little table, toast and banana. Ada has a banana smear on her lip; [Name] laughs",
+      "anchor": "Ada",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 8,
+      "text": "Outside time. It's raining! Wellies on. [Name] finds the biggest puddle. \"Ada! Come and splash!\" Splash goes [Name]. Splash goes Ada. [Teacher] laughs.",
+      "setting": "Nursery garden in the rain, wellies and raincoats. [Name] beckons Ada towards a big puddle",
+      "art": "Nursery garden in the rain, wellies and raincoats. [Name] beckons Ada towards a big puddle; both mid-splash; [Teacher] laughing behind",
+      "anchor": "Ada, [Teacher]",
+      "calm_zone": "left",
+      "calm_zone_note": "Grey sky — keep low-detail; story text sits there."
+    },
+    {
+      "n": 9,
+      "text": "[Name] misses [Carer]. [Teacher] sits close. \"You miss [Carer],\" says [Teacher]. \"I know. [Carer] comes back at home time.\" [Name] holds [Object] close.",
+      "setting": "Quiet corner. [Teacher] sits close beside [Name] at child height",
+      "art": "Quiet corner. [Teacher] sits close beside [Name] at child height; [Name] thoughtful, a little sad but calm, holding [Object] close. No tears, no window",
+      "anchor": "[Object]",
+      "calm_zone": "right",
+      "calm_zone_note": "Wall above — keep low-detail; story text sits there."
+    },
+    {
+      "n": 10,
+      "text": "Song time on the carpet. Everyone sits in a circle. [Name] watches first. Then comes a bit [Name] knows. Clap, clap! [Name] joins in.",
+      "setting": "Carpet circle. [Name] sits a little back, watching, then clapping along with a small smile",
+      "art": "Carpet circle. [Name] sits a little back, watching, then clapping along with a small smile; other children around",
+      "anchor": "Ada, [Teacher]",
+      "calm_zone": "left",
+      "calm_zone_note": "Wall above — keep low-detail; story text sits there."
+    },
+    {
+      "n": 11,
+      "text": "Quiet time. [Name] curls up in the cosy corner with [Object] and a picture book. The room goes still. Shhh.",
+      "setting": "Cosy book corner with cushions. [Name] curled up with [Object] and an open picture book (no readable text)",
+      "art": "Cosy book corner with cushions. [Name] curled up with [Object] and an open picture book (no readable text); face lit",
+      "anchor": "[Object]",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper half — keep low-detail; story text sits there."
+    },
+    {
+      "n": 12,
+      "text": "Afternoon snack! Crackers and apple. [Name] looks at the door. Coats on soon. Nearly home time. Crunch, crunch, crunch. Last crumb!",
+      "setting": "Little table, crackers and apple",
+      "art": "Little table, crackers and apple; coats visible on the pegs behind. [Name] glances towards the door",
+      "anchor": "[Object] on the table",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 13,
+      "text": "The door opens. Who is it? It's [Carer]! [Name] runs. Big hug. \"You came back!\" \"I always come back,\" says [Carer].",
+      "setting": "Door opens",
+      "art": "Door opens; [Carer] in the doorway; [Name] runs into a hug, face visible over [Carer]'s shoulder",
+      "anchor": "[Object]",
+      "calm_zone": "right",
+      "calm_zone_note": "Above the door — keep low-detail; story text sits there."
+    },
+    {
+      "n": 14,
+      "text": "Walking home, [Name] tells [Carer] about Ada and the big puddle. Past the big tree. Past the postbox. And there is home.",
+      "setting": "The same street as spread 2, late-afternoon light: big tree, postbox, then the family's front door. [Name] talks, arms wide",
+      "art": "The same street as spread 2, late-afternoon light: big tree, postbox, then the family's front door. [Name] talks, arms wide; [Carer] listens, carrying the bag",
+      "anchor": "[Object] in [Carer]'s hand",
+      "calm_zone": "left",
+      "calm_zone_note": "Sky — keep low-detail; story text sits there."
+    }
+  ],
+  "parent_spread": {
+    "you_could_say": "\"I always come back at home time.\"",
+    "try_together": "\"Who could you ask for a hug or help at nursery?\"",
+    "in_real_life": "Choose a short goodbye you can repeat. It might be two kisses and a big hug, like in the story. Tell [Name] who is coming back, and when.",
+    "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
+  },
+  "parent_art": "",
+  "dedication_template": "For [Name], from [Giver]",
+  "last_line": "And there is home."
+}

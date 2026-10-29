@@ -1,0 +1,236 @@
+{
+  "title_id": "too_good_picture",
+  "approved": true,
+  "version": "v2-imported",
+  "status": "final",
+  "source": "10 · [Name] and the Too-Good-To-Be-True Picture — APPROVED v2.1.docx",
+  "family": "tomorrows_world",
+  "colour": "butter",
+  "age_band": "7-10",
+  "route": "field_guide",
+  "front_band": "READY TO ASK \"IS IT REAL?\"",
+  "title_template": "[Name] and the Too-Good-To-Be-True Picture",
+  "back_question": "Ready to ask \"is it real?\", [Name]?",
+  "back_blurb": "A cat flying over the town clock tower? Everyone says it's real. [Name] isn't so sure. With a notebook, a magnifying glass and four simple checks, [Name] cracks Case One: The Flying Cat.",
+  "honesty_line": "Illustrated from [Name]'s photo and checked by a person before print.",
+  "spine_title": "[Name] and the Too-Good-To-Be-True Picture",
+  "outfit": "denim jacket over a plain tee",
+  "cover_art": "[Name] in the story's key scene from spread 1 — face large and front-on; upper third calm for the title. Living-room sofa. [Name] and [Carer] look at a tablet showing the flying-cat picture (a convincing photo-style composite set inside the Field Guide art, identical every time it app",
+  "title_page": {
+    "band": "READY TO ASK \"IS IT REAL?\"",
+    "line": "Illustrated from [Name]'s photo",
+    "spot": "Small spot of the notebook and magnifying glass. No child on this page."
+  },
+  "anchor": {
+    "description": "The Truth Detective notebook (spreads 3–14) and the flying-cat picture (spreads 1–7).",
+    "lock_spread": null
+  },
+  "must_not_show": [
+    "deepfakes of real people, no scams, no named apps or platforms, no readable interface",
+    "the child never uses an AI tool"
+  ],
+  "characters": [
+    {
+      "id": "picture",
+      "name": "Too-good picture",
+      "kind": "prop",
+      "aliases": [
+        "picture",
+        "photo",
+        "screen"
+      ],
+      "description": "A bright too-good-to-be-true picture / tablet screen showing a perfect scene (generic, no brand logos). Two clear views on a plain blank background. No child.",
+      "sheet": "brand/stories/too_good_picture/picture.png",
+      "approved": false,
+      "spreads": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+      ],
+      "title_id": "too_good_picture"
+    }
+  ],
+  "personalisation_slots": [
+    {
+      "id": "school_name",
+      "label": "School name",
+      "type": "text",
+      "required": false
+    },
+    {
+      "id": "friend_1",
+      "label": "Friend one",
+      "type": "text",
+      "required": false
+    },
+    {
+      "id": "friend_2",
+      "label": "Friend two",
+      "type": "text",
+      "required": false
+    },
+    {
+      "id": "device",
+      "label": "Tablet or computer",
+      "type": "select",
+      "options": [
+        "tablet",
+        "computer"
+      ],
+      "required": true
+    }
+  ],
+  "order_inputs": {
+    "carer": true,
+    "comfort_object": false,
+    "giver": true
+  },
+  "spreads": [
+    {
+      "n": 1,
+      "text": "On Friday evening, [Name] was looking at the family tablet with [Carer] when a picture popped up that made [Name] sit straight up. It looked just like a photo: a ginger cat flying over the clock tower in the town square, ears flapping, tail streaming out like a scarf. Hundreds of people had shared it. \"A flying cat!\" said [Name]. \"In our town!\" [Carer] raised one eyebrow. \"Hmm.\"",
+      "setting": "Living-room sofa. [Name] and [Carer] look at a tablet showing the flying-cat picture (a convincing photo-style composite set inside the Field Guide art, identical every time it appears). No interface, no readable text",
+      "art": "Living-room sofa. [Name] and [Carer] look at a tablet showing the flying-cat picture (a convincing photo-style composite set inside the Field Guide art, identical every time it appears). No interface, no readable text",
+      "anchor": "Flying-cat picture",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 2,
+      "text": "On Monday, everyone at [School] was talking about it. \"It's real,\" said Ruby. \"My cousin's friend saw it.\" \"Everyone shared it,\" said Jay, \"so it must be true.\" [Name] wanted to say yes, it's real, it's amazing. But that \"Hmm\" kept coming back. And another question came with it: if it wasn't real, why did so many people believe it?",
+      "setting": "Classroom. Children crowd round [Name]'s table",
+      "art": "Classroom. Children crowd round [Name]'s table; Ruby and Jay talking; the printed picture on the desk",
+      "anchor": "Flying-cat picture (printout)",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 3,
+      "text": "After school, [Name] found an old notebook with a blue cover and wrote Truth Detective on the first page. [Carer] found a magnifying glass in the kitchen drawer. \"Every detective needs one,\" said [Carer]. Together they wrote four checks: Who made it? Does it make sense? Can we check somewhere else? And last of all: ask someone you trust.",
+      "setting": "Kitchen table. [Name] with a blue notebook and pencil",
+      "art": "Kitchen table. [Name] with a blue notebook and pencil; [Carer] holds out a magnifying glass. Notebook pages show four small drawn symbols (a person, a question mark, a book, two figures), no words",
+      "anchor": "Notebook",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 4,
+      "text": "Check one: Who made it? [Name] looked at the picture again. There was no name on it. No photographer. No newspaper. It had been shared and shared and shared, and somewhere along the way, the person who made it had dropped off. [Name] wrote in the notebook: Made by somebody we don't know… yet. Then [Name] underlined yet, twice.",
+      "setting": "[Name] studies the printed picture, notebook open beside it",
+      "art": "[Name] studies the printed picture, notebook open beside it",
+      "anchor": "Notebook, picture",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 5,
+      "text": "Check two: Does it make sense? Cats can climb, and jump, and squeeze through tiny gaps. Cats cannot fly. And under the magnifying glass there was something odd: the cat's shadow pointed one way, and the clock tower's shadow pointed the other. \"That's a clue,\" said [Carer]. \"Not proof yet. Good detectives need more than one clue.\"",
+      "setting": "Magnifying glass over the picture: the cat's and the tower's shadows point opposite ways",
+      "art": "Magnifying glass over the picture: the cat's and the tower's shadows point opposite ways",
+      "anchor": "Notebook, picture",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 6,
+      "text": "Check three: Can we check somewhere else? On Saturday, [Name] and [Carer] took the notebook to the library. [Name] showed the librarian the picture, and she smiled straight away. \"I know this one,\" she said. \"Come with me.\" She led them upstairs, past the reading corner, to a long wall covered in paintings and photos.",
+      "setting": "Library desk",
+      "art": "Library desk; the librarian smiling, recognising the printout; [Name] and [Carer]",
+      "anchor": "Notebook",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 7,
+      "text": "There, in a frame, was the flying cat. Underneath, a card said: Imagine Our Town. A real photo of our clock tower, with a painted cat. \"A local artist made it for our art show,\" said the librarian. \"Someone must have taken a picture of it and shared it without the card.\" [Name] gasped. \"So it's art. It was never meant to trick anyone.\"",
+      "setting": "Library wall of local art. The original framed flying-cat picture, with a small card beside it (no readable text)",
+      "art": "Library wall of local art. The original framed flying-cat picture, with a small card beside it (no readable text); [Name] amazed; librarian and [Carer] beside",
+      "anchor": "Notebook, picture (framed original)",
+      "calm_zone": "right",
+      "calm_zone_note": "Wall above the frames — keep low-detail; story text sits there."
+    },
+    {
+      "n": 8,
+      "text": "On the way home, [Name] thought about the other question. Why did so many people believe it? Because the clock tower was real. Because it looked just like a photo. Because so many people shared it. And because the card that said it was art had been left behind. \"And check four?\" asked [Carer]. \"Done,\" said [Name]. \"I asked the librarian.\"",
+      "setting": "Pavement home, late afternoon",
+      "art": "Pavement home, late afternoon; [Name] thinking, notebook under arm; [Carer] alongside; the clock tower visible in the distance",
+      "anchor": "Notebook",
+      "calm_zone": "left",
+      "calm_zone_note": "Sky — keep low-detail; story text sits there."
+    },
+    {
+      "n": 9,
+      "text": "On Monday, [Name] brought the notebook to school and told the class the whole case. Nobody was called silly for believing it. \"I nearly believed it too,\" said [Name]. \"It looked real. That's why we check.\" Ruby grinned. \"So the flying cat is a painting?\" \"A really good one,\" said [Name]. \"It just lost its label.\"",
+      "setting": "Classroom. [Name] standing with the notebook open",
+      "art": "Classroom. [Name] standing with the notebook open; classmates listening; Ruby grinning",
+      "anchor": "Notebook",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 10,
+      "text": "At break time, Jay remembered a video he had seen at home, of a dog that could talk. \"Check?\" said Ruby. They tried some of the checks. Who made it? Nobody knew. Does it make sense? Dogs bark, but they don't say whole sentences. \"We can't close that case yet,\" said [Name]. \"So we won't share it as true.\"",
+      "setting": "Playground bench. Ruby, Jay and [Name] heads together over the notebook",
+      "art": "Playground bench. Ruby, Jay and [Name] heads together over the notebook",
+      "anchor": "Notebook",
+      "calm_zone": "left",
+      "calm_zone_note": "Sky — keep low-detail; story text sits there."
+    },
+    {
+      "n": 11,
+      "text": "Then Ruby said, \"My grandad says octopuses have three hearts. Is that made up too?\" It sounded even sillier than a flying cat. \"Let's check,\" said [Name]. They found it in the library's big book of sea animals, and later on a museum website that [Carer] helped find. It was true! Three hearts, all beating at once. \"Sometimes,\" said [Name], \"the real thing is the most amazing.\"",
+      "setting": "Library. Children over a big book of sea animals open at an octopus",
+      "art": "Library. Children over a big book of sea animals open at an octopus",
+      "anchor": "Notebook",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 12,
+      "text": "The next week, the teacher asked [Name] to make a poster of the four checks. [Name] drew four little pictures: a person, a question mark, a book and two friends talking. At the bottom sat a ginger cat, feet firmly on the ground. Later, when somebody said, \"Everyone says…\", Ruby pointed at the poster. \"Shall we check?\" she asked.",
+      "setting": "Classroom wall. [Name] pins up a poster with four little drawn symbols (a person, a question mark, a book, two friends talking) and a ginger cat sitting on the ground at the bottom. No words. Ruby pointing at it, smiling",
+      "art": "Classroom wall. [Name] pins up a poster with four little drawn symbols (a person, a question mark, a book, two friends talking) and a ginger cat sitting on the ground at the bottom. No words. Ruby pointing at it, smiling",
+      "anchor": "Notebook",
+      "calm_zone": "left",
+      "calm_zone_note": "Wall — keep low-detail; story text sits there."
+    },
+    {
+      "n": 13,
+      "text": "At home, [Name] opened the Truth Detective notebook. Under Case One: The Flying Cat, [Name] wrote: Made by an artist. Shared without its label. Then [Name] stuck a gold star next to it. Case closed. [Carer] looked over [Name]'s shoulder. \"What do you think Case Two will be?\" \"Don't know yet,\" said [Name]. \"But I'll check it.\"",
+      "setting": "Bedroom desk. A gold star sticker in the notebook",
+      "art": "Bedroom desk. A gold star sticker in the notebook; [Carer] looks over [Name]'s shoulder",
+      "anchor": "Notebook",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 14,
+      "text": "That night, the flying-cat picture was still being shared somewhere, without its label, for anyone who wanted to believe it. In bed, [Name] thought about the painted cat on the library wall, and about real octopuses with three hearts. \"I don't have to believe everything I see,\" [Name] whispered. \"I can check.\" Then [Name] fell fast asleep.",
+      "setting": "Bedroom at night. Notebook on the bedside table",
+      "art": "Bedroom at night. Notebook on the bedside table; [Name] drifting off",
+      "anchor": "Notebook",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    }
+  ],
+  "parent_spread": {
+    "you_could_say": "\"Good question. Let's check together.\"",
+    "try_together": "\"Which of the four checks would you use first?\"",
+    "in_real_life": "Next time you see a surprising picture online, pause before sharing it, and find out together where it came from.",
+    "read_it_again": "Read it a few nights in a row, and again whenever [Name] asks."
+  },
+  "parent_art": "",
+  "dedication_template": "For [Name], from [Giver]",
+  "last_line": "Then [Name] fell fast asleep."
+}

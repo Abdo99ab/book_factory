@@ -1,0 +1,224 @@
+{
+  "title_id": "night_rocket",
+  "approved": true,
+  "version": "v2-imported",
+  "status": "final",
+  "source": "05 · [Name] and the Night Rocket — APPROVED v2.1.docx",
+  "family": "adventures",
+  "colour": "teal",
+  "age_band": "5-8",
+  "route": "field_guide",
+  "front_band": "READY FOR ADVENTURE",
+  "title_template": "[Name] and the Night Rocket",
+  "back_question": "Ready for adventure, [Name]?",
+  "back_blurb": "One night a small round rocket floats up to [Name]'s window, looking for a captain who asks good questions. Three planets, three puzzles, and a meteor shower on the way home.",
+  "honesty_line": "Illustrated from [Name]'s photo and checked by a person before print.",
+  "spine_title": "[Name] and the Night Rocket",
+  "outfit": "pyjamas with a small rocket print",
+  "cover_art": "[Name] in the story's key scene from spread 1 — face large and front-on; upper third calm for the title. Bedroom at night. [Name] at the window in pyjamas, inside the room; three small stars in a row in the sky; a small round rocket floats outside, door open, soft light",
+  "title_page": {
+    "band": "READY FOR ADVENTURE",
+    "line": "Illustrated from [Name]'s photo",
+    "spot": "Small spot of the rocket. No child on this page."
+  },
+  "anchor": {
+    "description": "The rocket (round, round door), the helmet with the visor always up, the three stars in a row (spreads 1 and 10); toy rocket and star-shaped bolt from spread 12. Pyjamas fixed.",
+    "lock_spread": null
+  },
+  "must_not_show": [
+    "scary aliens, no being lost, no fire or crash, no real space-agency logos, no letters on the rocket, no child climbing on or through a window, no small sharp parts"
+  ],
+  "characters": [
+    {
+      "id": "night_rocket",
+      "name": "Night rocket",
+      "kind": "prop",
+      "aliases": [
+        "rocket",
+        "night rocket"
+      ],
+      "description": "Friendly cardboard-and-paint night rocket for a child's bedroom adventure: rounded, soft colours (oat, teal accents), no sharp fins, visor never covering a face. Two clear views on a plain blank background. No child, no logos, no letters.",
+      "sheet": "brand/stories/night_rocket/night_rocket.png",
+      "approved": false,
+      "spreads": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+      ],
+      "title_id": "night_rocket"
+    }
+  ],
+  "personalisation_slots": [
+    {
+      "id": "rocket_initial",
+      "label": "Initial on the rocket",
+      "type": "text",
+      "required": false
+    },
+    {
+      "id": "skyline",
+      "label": "City skyline set",
+      "type": "text",
+      "required": false
+    },
+    {
+      "id": "pyjama_colour",
+      "label": "Pyjama colour",
+      "type": "text",
+      "required": false
+    }
+  ],
+  "order_inputs": {
+    "carer": true,
+    "comfort_object": true,
+    "giver": true
+  },
+  "spreads": [
+    {
+      "n": 1,
+      "text": "One night, when [Name] was meant to be asleep, a soft hum came from outside. [Name] tiptoed to the window. There were the three little stars in a row, the ones [Name] could always see from bed. And floating right beside them was a small round rocket with a round door. \"Captain wanted,\" said a friendly voice. \"Must ask good questions.\"",
+      "setting": "Bedroom at night. [Name] at the window in pyjamas, inside the room",
+      "art": "Bedroom at night. [Name] at the window in pyjamas, inside the room; three small stars in a row in the sky; a small round rocket floats outside, door open, soft light",
+      "anchor": "Rocket; three stars",
+      "calm_zone": "right",
+      "calm_zone_note": "Night sky, upper right — keep low-detail; story text sits there."
+    },
+    {
+      "n": 2,
+      "text": "A round, glowing doorway opened right there in the bedroom, straight into the rocket, and [Name] stepped through with [Object] tucked under one arm. Inside, everything glowed. There was a round helmet that fitted perfectly, visor up, and one big green button. \"What does it do?\" asked [Name]. \"Press it and see,\" said the rocket. Ding! \"What do you want to know?\"",
+      "setting": "A round glowing doorway inside the bedroom, opening straight into the rocket",
+      "art": "A round glowing doorway inside the bedroom, opening straight into the rocket; [Name] steps through it, [Object] under one arm, nowhere near the window. Rocket interior beyond the doorway: helmet, big green button with no labels",
+      "anchor": "Rocket, helmet",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 3,
+      "text": "[Name] buckled up, with [Object] safe in the seat beside. Three, two, one… whoosh! Up past the chimneys, up past the streetlights, up past the clouds. Below, the town looked like a map, every window a tiny yellow square. Somewhere down there was [Name]'s own window, with the little light still on and [their] bed still warm.",
+      "setting": "Rocket close in the foreground with [Name] at the round window, helmet visor up",
+      "art": "Rocket close in the foreground with [Name] at the round window, helmet visor up; terraced rooftops and chimneys below; [Object] on the seat beside",
+      "anchor": "Rocket, helmet",
+      "calm_zone": "right",
+      "calm_zone_note": "Sky — keep low-detail; story text sits there."
+    },
+    {
+      "n": 4,
+      "text": "The first planet was upside down. Trees grew downwards. Rivers ran uphill. The planet people walked on their hands and looked very fed up. [Name] guessed. \"Maybe you should turn round?\" They tried. It got worse. So [Name] stopped guessing and pressed the green button. Ding! \"Why is everything upside down?\" asked [Name].",
+      "setting": "Upside-down planet: trees growing down, friendly round people walking on their hands. The rocket parked close behind, door open",
+      "art": "Upside-down planet: trees growing down, friendly round people walking on their hands. The rocket parked close behind, door open; [Name] reaches in to press the green button",
+      "anchor": "Helmet, rocket",
+      "calm_zone": "left",
+      "calm_zone_note": "Sky — keep low-detail; story text sits there."
+    },
+    {
+      "n": 5,
+      "text": "The planet people pointed to a lever on a hill. \"Somebody bumped the gravity switch,\" they said, \"and nobody asked us what was wrong.\" [Name] set [Object] down on a soft rock, climbed the hill and pulled the lever with both hands. Click! Trees flipped. Rivers flowed down. Everybody landed the right way up, laughing, in a heap.",
+      "setting": "Hill with a big lever",
+      "art": "Hill with a big lever; [Name] pulls it with both hands; [Object] resting on a soft rock below; everyone lands in a laughing heap",
+      "anchor": "Helmet",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 6,
+      "text": "On the second planet, a tall robot stood beside a rope bridge over a ditch full of soft moss. It did not move at all. [Name] tried pushing. Nothing. [Name] tried pulling. Nothing. Then [Name] pressed the green button. Ding! \"What do you need?\" asked [Name]. The robot's lights blinked. \"A hand to hold,\" it said. \"The bridge is very wobbly.\"",
+      "setting": "Tall friendly robot beside a low rope bridge over a mossy ditch",
+      "art": "Tall friendly robot beside a low rope bridge over a mossy ditch; the rocket parked close behind, door open; [Name] reaches in to press the green button; robot's lights blinking",
+      "anchor": "Helmet",
+      "calm_zone": "left",
+      "calm_zone_note": "Sky — keep low-detail; story text sits there."
+    },
+    {
+      "n": 7,
+      "text": "So [Name] tucked [Object] under one arm and held the robot's big metal hand. One step. Wobble. Two steps. Wobble, wobble. \"Still OK?\" asked [Name]. \"Still OK,\" said the robot, holding on tight. On the far side, it did a happy dance of clanks and beeps and gave [Name] a shiny star-shaped bolt, as big as a biscuit.",
+      "setting": "[Name] crosses the bridge holding the robot's hand, [Object] under the other arm",
+      "art": "[Name] crosses the bridge holding the robot's hand, [Object] under the other arm; the bridge is low over moss. The star-shaped bolt is big and rounded, nothing small or sharp",
+      "anchor": "Helmet, bolt",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 8,
+      "text": "The third planet was very quiet. Small round creatures sat in a ring, glowing a sleepy grey. [Name] said hello. No answer. For a moment, [Name] thought of the green button… but then came a tiny sound. As [Name] tiptoed past, the smallest creature hummed. Hmmm. Just a little hum, so quiet that only a captain who was listening would hear it.",
+      "setting": "Quiet planet, a ring of small round grey creatures (cute, not eerie)",
+      "art": "Quiet planet, a ring of small round grey creatures (cute, not eerie); [Name] tiptoeing past, head tilted, listening to the smallest creature. No button on this spread",
+      "anchor": "Helmet",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 9,
+      "text": "[Name] listened. Then [Name] hummed back, the bedtime tune from home. Hmmm. The small creature glowed pink. Then another hummed, and glowed gold, and another glowed green. Soon the whole ring was humming, and the whole planet shone like a night-light. Even the rocket joined in, a bit out of tune.",
+      "setting": "The creatures glow pink, gold and green in a ring",
+      "art": "The creatures glow pink, gold and green in a ring; [Name] humming, eyes half closed, smiling",
+      "anchor": "Helmet",
+      "calm_zone": "right",
+      "calm_zone_note": "Sky — keep low-detail; story text sits there."
+    },
+    {
+      "n": 10,
+      "text": "On the way home, a meteor shower sparkled past, and the rocket slowed right down. \"Captain,\" it said, \"I know the way. But captains choose. Which way is home?\" [Name] looked out at the stars and found them: three little stars in a row, the very same ones from [their] bedroom window. \"That way,\" said [Name], and pointed.",
+      "setting": "Inside the rocket, meteor shower outside",
+      "art": "Inside the rocket, meteor shower outside; [Name] points at the same three stars in a row from spread 1",
+      "anchor": "Rocket, helmet; three stars",
+      "calm_zone": "left",
+      "calm_zone_note": "Window sky — keep low-detail; story text sits there."
+    },
+    {
+      "n": 11,
+      "text": "They flew back past the first planet, now the right way up, where everybody waved. Past the robot, who flashed all its lights. Past the humming planet, still glowing pink and gold and green. [Name] waved back at every one of them until they were tiny dots, and then just stars.",
+      "setting": "Rocket flies past the three planets",
+      "art": "Rocket flies past the three planets; small figures wave; [Name] waves at the window",
+      "anchor": "Rocket, helmet",
+      "calm_zone": "right",
+      "calm_zone_note": "Space — keep low-detail; story text sits there."
+    },
+    {
+      "n": 12,
+      "text": "The rocket stopped by [Name]'s window, as softly as a bubble, and the round doorway opened back into the bedroom. [Name] climbed back into bed with [Object] and pulled the duvet up. When [Name] looked again, the rocket had gone. But on the windowsill sat a small toy rocket, round, with a round door, and a shiny star-shaped bolt beside it.",
+      "setting": "Bedroom at night. The round doorway fading on the wall",
+      "art": "Bedroom at night. The round doorway fading on the wall; [Name] back in bed with [Object]; toy rocket and the big star-shaped bolt on the windowsill",
+      "anchor": "Toy rocket",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 13,
+      "text": "In the morning, [Carer] opened the curtains. \"Morning, sleepyhead. How did you sleep?\" [Name] sat up, holding the shiny bolt tight and looking at the sky. \"Can I ask you a question?\" said [Name]. \"How does the moon stay up there without falling down?\" [Carer] laughed and sat down on the bed. \"Good question.\"",
+      "setting": "Morning. [Carer] opens the curtains",
+      "art": "Morning. [Carer] opens the curtains; [Name] sits up holding the bolt",
+      "anchor": "Toy rocket",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 14,
+      "text": "After breakfast, [Name] and [Carer] looked it up together in a big book about space, with the toy rocket parked on the table next to the toast. Then [Name] had another question. And another. And another. Even [Carer] didn't know them all. \"Good question,\" said [Carer], every single time. And they kept on finding out.",
+      "setting": "Kitchen table",
+      "art": "Kitchen table; big space book open (no readable text), toy rocket by the toast; [Name] and [Carer] heads together",
+      "anchor": "Toy rocket",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    }
+  ],
+  "parent_spread": {
+    "you_could_say": "\"Good question! Let's find out together.\"",
+    "try_together": "\"If you had a rocket, what would you ask the first planet?\"",
+    "in_real_life": "Look up at the night sky together and invent a name for a new planet.",
+    "read_it_again": "Read it a few nights in a row, and again whenever [Name] asks."
+  },
+  "parent_art": "",
+  "dedication_template": "For [Name], from [Giver]",
+  "last_line": "And they kept on finding out."
+}

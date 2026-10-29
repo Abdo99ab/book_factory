@@ -91,14 +91,14 @@ def locked_story_path(title_id: str) -> Path:
 
 
 # Art briefs must stand alone — never lean on the previous spread.
+# Do not use bare "still" / "again" (false positives: "stands still", "Evening again", "try again").
 RELATIVE_ART_PATTERNS = (
     re.compile(r"\bsame spot\b", re.I),
     re.compile(r"\bsame place\b", re.I),
     re.compile(r"\bsame garden\b", re.I),
     re.compile(r"\bas before\b", re.I),
-    re.compile(r"\bagain\b", re.I),
-    re.compile(r"\bstill\b", re.I),
-    re.compile(r"\bback at\b", re.I),
+    re.compile(r"\bstill (?:there|here|at|in the same)\b", re.I),
+    re.compile(r"\bback at (?:the )?(?:same )?(?:spot|place|garden|room)\b", re.I),
     re.compile(r"\bthe same (?:spot|place|location|garden|room)\b", re.I),
 )
 

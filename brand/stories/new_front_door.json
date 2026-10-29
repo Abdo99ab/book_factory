@@ -1,0 +1,211 @@
+{
+  "title_id": "new_front_door",
+  "approved": true,
+  "version": "v2-imported",
+  "status": "final",
+  "source": "09 · [Name]_s New Front Door — APPROVED v2.1.docx",
+  "family": "growing_skills",
+  "colour": "sage",
+  "age_band": "5-8",
+  "route": "morning_light",
+  "front_band": "READY FOR A NEW HOME",
+  "title_template": "[Name]'s New Front Door",
+  "back_question": "Ready for a new home, [Name]?",
+  "back_blurb": "Boxes everywhere, and a goodbye to every room. [Name] packs the first-night box, holds the key to a new front door, and finds that the best bits of bedtime come too.",
+  "honesty_line": "Illustrated from [Name]'s photo and checked by a person before print.",
+  "spine_title": "[Name]'s New Front Door",
+  "outfit": "travel jumper and a backpack",
+  "cover_art": "[Name] in the story's key scene from spread 1 — face large and front-on; upper third calm for the title. Old home hall full of boxes, drawn from the inside only. [Name] holds [Object] tight; [Carer] crouches beside",
+  "title_page": {
+    "band": "READY FOR A NEW HOME",
+    "line": "Illustrated from [Name]'s photo",
+    "spot": "Small spot of the first-night box. No child on this page."
+  },
+  "anchor": {
+    "description": "The first-night box (spreads 4–10) and [Object].",
+    "lock_spread": null
+  },
+  "must_not_show": [
+    "crying alone, no lost pet, no arguments, no \"you'll forget your old friends\"",
+    "child holding a box in the car",
+    "bed under a window or near blind cords",
+    "invented family members in photos"
+  ],
+  "characters": [],
+  "personalisation_slots": [
+    {
+      "id": "old_home_type",
+      "label": "Old home type",
+      "type": "select",
+      "options": [
+        "flat",
+        "house"
+      ],
+      "required": true
+    },
+    {
+      "id": "new_home_type",
+      "label": "New home type",
+      "type": "select",
+      "options": [
+        "flat",
+        "house"
+      ],
+      "required": true
+    },
+    {
+      "id": "new_place_name",
+      "label": "New place name",
+      "type": "text",
+      "required": false
+    },
+    {
+      "id": "box_item",
+      "label": "First-night box item",
+      "type": "text",
+      "required": false
+    }
+  ],
+  "order_inputs": {
+    "carer": true,
+    "comfort_object": true,
+    "giver": true
+  },
+  "spreads": [
+    {
+      "n": 1,
+      "text": "Boxes in the hall. Boxes in the kitchen. Boxes on [Name]'s bed. Home sounds different, all echoey. \"We're moving to a new home,\" says [Carer]. [Name] holds [Object] tight.",
+      "setting": "Old home hall full of boxes, drawn from the inside only. [Name] holds [Object] tight",
+      "art": "Old home hall full of boxes, drawn from the inside only. [Name] holds [Object] tight; [Carer] crouches beside",
+      "anchor": "[Object]",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 2,
+      "text": "\"Let's say goodbye properly,\" says [Carer]. So they do. \"Goodbye, kitchen.\" \"Goodbye, bath.\" \"Goodbye, the step where I put my wellies on.\"",
+      "setting": "Old kitchen, half packed. [Name] waves goodbye",
+      "art": "Old kitchen, half packed. [Name] waves goodbye; [Carer] beside",
+      "anchor": "[Object]",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 3,
+      "text": "[Name]'s bedroom is last. \"Goodbye, window. Goodbye, wall where my drawings were.\" Then [Carer] takes a photo of [Name] by the old front door.",
+      "setting": "Old front door, seen close from the hall or doorstep (works for a house or a flat). [Name] on the step",
+      "art": "Old front door, seen close from the hall or doorstep (works for a house or a flat). [Name] on the step; [Carer] takes a photo with a phone (blank screen)",
+      "anchor": "[Object]",
+      "calm_zone": "right",
+      "calm_zone_note": "Above the door — keep low-detail; story text sits there."
+    },
+    {
+      "n": 4,
+      "text": "Next, [Name] packs a very important box: the first-night box. In go pyjamas. In goes the bedtime book. In goes [Name]'s favourite drawing. And last of all, [Object].",
+      "setting": "Bedroom. [Name] packs a cardboard box: pyjamas, book, a child's crayon drawing, [Object] last. No family photos",
+      "art": "Bedroom. [Name] packs a cardboard box: pyjamas, book, a child's crayon drawing, [Object] last. No family photos",
+      "anchor": "First-night box",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 5,
+      "text": "The big van comes. Strong people carry the beds and the sofa and all the boxes. The first-night box comes in the car, packed where they can find it first.",
+      "setting": "Kerbside: removal van with people carrying the sofa",
+      "art": "Kerbside: removal van with people carrying the sofa; the building is out of frame. [Name] in an age-appropriate car seat, harness on; the first-night box stowed separately in the boot, visible through the back window",
+      "anchor": "Box",
+      "calm_zone": "right",
+      "calm_zone_note": "Sky — keep low-detail; story text sits there."
+    },
+    {
+      "n": 6,
+      "text": "Here it is: the new front door. A different colour. A different number. [Carer] gives [Name] the key. Click. The door swings open.",
+      "setting": "New front door, different colour, no readable number, framed close so it could be a house or a flat. [Name] turns the key",
+      "art": "New front door, different colour, no readable number, framed close so it could be a house or a flat. [Name] turns the key; [Carer] behind",
+      "anchor": "Box at [Carer]'s feet",
+      "calm_zone": "left",
+      "calm_zone_note": "Above the door — keep low-detail; story text sits there."
+    },
+    {
+      "n": 7,
+      "text": "Inside, the rooms are empty. \"Hello!\" calls [Name]. \"Hello… hello… hello…\" say the empty rooms. [Name] laughs. The rooms laugh too. Well, they echo.",
+      "setting": "Empty room. [Name] calls out, hands cupped, laughing",
+      "art": "Empty room. [Name] calls out, hands cupped, laughing",
+      "anchor": "Box",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 8,
+      "text": "This is [Name]'s new room. \"It doesn't look like my old room,\" says [Name]. \"Not yet,\" says [Carer]. \"We can make it ours together. Where shall your bed go?\" \"By that wall. So I can still see the sky.\"",
+      "setting": "New bedroom. [Name] stands thoughtful, then points to a wall away from the window",
+      "art": "New bedroom. [Name] stands thoughtful, then points to a wall away from the window; [Carer] holds the bed frame. Window with no dangling cords near the bed",
+      "anchor": "Box",
+      "calm_zone": "left",
+      "calm_zone_note": "Window — keep low-detail; story text sits there."
+    },
+    {
+      "n": 9,
+      "text": "Before anything else, [Name] opens the first-night box. Pyjamas on the bed. Bedtime book on the pillow. Favourite drawing on the wall. [Object] in the middle of it all.",
+      "setting": "[Name] opens the box",
+      "art": "[Name] opens the box; pyjamas on the bed, book on the pillow, the drawing taped to the wall, [Object] in the middle",
+      "anchor": "Box",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 10,
+      "text": "Dinner is on the floor, with two big moving boxes for a table. Beans on toast, eaten straight from the plates on [Name]'s knees. \"This is the best restaurant,\" says [Name].",
+      "setting": "Floor dinner, two big moving boxes as a table (not the first-night box), beans on toast",
+      "art": "Floor dinner, two big moving boxes as a table (not the first-night box), beans on toast",
+      "anchor": "Box in the corner",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 11,
+      "text": "At bedtime, the ceiling is different. The walls are different. But the bedtime book is the same. The pyjamas are the same. And so is the goodnight kiss.",
+      "setting": "Bedtime in the new room: new ceiling and walls, same pyjamas, [Carer] reading the same book. Bed against the wall, away from the window",
+      "art": "Bedtime in the new room: new ceiling and walls, same pyjamas, [Carer] reading the same book. Bed against the wall, away from the window",
+      "anchor": "[Object]",
+      "calm_zone": "right",
+      "calm_zone_note": "Wall — keep low-detail; story text sits there."
+    },
+    {
+      "n": 12,
+      "text": "In the morning, [Name] looks out of the new window. A girl across the road waves. [Name] waves back. And down the road, there's a park with a red slide.",
+      "setting": "Morning, seen through the new window (a view that works from a house or a flat). A girl across the road waves",
+      "art": "Morning, seen through the new window (a view that works from a house or a flat). A girl across the road waves; a park with a red slide further down. A generic street, never the family's real neighbourhood",
+      "anchor": "[Object]",
+      "calm_zone": "left",
+      "calm_zone_note": "Sky — keep low-detail; story text sits there."
+    },
+    {
+      "n": 13,
+      "text": "[Name] draws the old home: the old door, the old window, the old step. [Carer] sticks it on the new wall. \"I can keep both,\" says [Name].",
+      "setting": "[Name]'s drawing of the old home taped to the new wall",
+      "art": "[Name]'s drawing of the old home taped to the new wall; [Name] points at it",
+      "anchor": "[Object]",
+      "calm_zone": "right",
+      "calm_zone_note": "Wall — keep low-detail; story text sits there."
+    },
+    {
+      "n": 14,
+      "text": "That afternoon, [Name] goes back to the new front door and knocks. Knock, knock. [Carer] opens it wide. \"Welcome home,\" says [Carer]. And it is.",
+      "setting": "A doorstep game, framed close (house or flat): [Name] one step outside the open door, knocking on it",
+      "art": "A doorstep game, framed close (house or flat): [Name] one step outside the open door, knocking on it; [Carer] right there in the doorway, opening it wide. Never alone outside",
+      "anchor": "[Object] in [Name]'s arm",
+      "calm_zone": "left",
+      "calm_zone_note": "Above the door — keep low-detail; story text sits there."
+    }
+  ],
+  "parent_spread": {
+    "you_could_say": "\"Our things are coming with us, and so are we.\"",
+    "try_together": "\"What will you put in your first-night box?\"",
+    "in_real_life": "Pack a first-night box together with familiar things, and keep as much of your usual bedtime routine as you can.",
+    "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
+  },
+  "parent_art": "",
+  "dedication_template": "For [Name], from [Giver]",
+  "last_line": "And it is."
+}

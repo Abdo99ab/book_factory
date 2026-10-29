@@ -1,0 +1,194 @@
+{
+  "title_id": "tells_truth",
+  "approved": true,
+  "version": "v2-imported",
+  "status": "final",
+  "source": "07 · [Name] Tells the Truth — APPROVED v2.1.docx",
+  "family": "growing_skills",
+  "colour": "sage",
+  "age_band": "5-8",
+  "route": "morning_light",
+  "front_band": "READY TO TELL THE TRUTH",
+  "title_template": "[Name] Tells the Truth",
+  "back_question": "Ready to tell the truth, [Name]?",
+  "back_blurb": "Bounce, bounce, CRASH, and [Broken thing] is in three pieces. Nobody saw. [Name] could hide them under a cushion, or tell [Carer]. A warm story about a difficult little moment, finding the words to tell the truth, and what happens next.",
+  "honesty_line": "Illustrated from [Name]'s photo and checked by a person before print.",
+  "spine_title": "[Name] Tells the Truth",
+  "outfit": "cream jumper and sage cardigan",
+  "cover_art": "[Name] in the story's key scene from spread 1 — face large and front-on; upper third calm for the title. Hallway of a UK terrace. [Name] bounces a ball high, joyful; [Broken thing] on a shelf",
+  "title_page": {
+    "band": "READY TO TELL THE TRUTH",
+    "line": "Illustrated from [Name]'s photo",
+    "spot": "Small spot of the ball. No child on this page."
+  },
+  "anchor": {
+    "description": "[Broken thing] on spreads 1–5, 8–10 and 12, drawn identically; the glued version with its crack from spread 8.",
+    "lock_spread": null
+  },
+  "must_not_show": [
+    "punishment, no angry face, no time-out, no lie shown working, no child touching or carrying broken pieces, no sharp or jagged edges, no glass or thin ceramic. The hiding idea appears only as a thought bubble (spread 3)"
+  ],
+  "characters": [],
+  "personalisation_slots": [
+    {
+      "id": "broken_object",
+      "label": "Broken object",
+      "type": "text",
+      "required": true
+    },
+    {
+      "id": "praise_words",
+      "label": "Praise words",
+      "type": "text",
+      "required": false
+    },
+    {
+      "id": "school_name",
+      "label": "School name",
+      "type": "text",
+      "required": false
+    }
+  ],
+  "order_inputs": {
+    "carer": true,
+    "comfort_object": false,
+    "giver": true
+  },
+  "spreads": [
+    {
+      "n": 1,
+      "text": "Bounce. Bounce. BOUNCE! [Name] is playing ball in the hall. The ball goes up to the ceiling and down to the mat. Up and down. Up and down. Higher and higher.",
+      "setting": "Hallway of a UK terrace. [Name] bounces a ball high, joyful",
+      "art": "Hallway of a UK terrace. [Name] bounces a ball high, joyful; [Broken thing] on a shelf",
+      "anchor": "[Broken thing]",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper left — keep low-detail; story text sits there."
+    },
+    {
+      "n": 2,
+      "text": "Bounce… CRASH! The ball hits the shelf, and [Broken thing] wobbles, tips and falls. Crack. Now it is in three pieces on the floor.",
+      "setting": "The ball has hit the shelf",
+      "art": "The ball has hit the shelf; [Broken thing] in three large, clean pieces on the floor, nothing jagged; [Name] surprised, standing back",
+      "anchor": "[Broken thing]",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 3,
+      "text": "[Name] stands very still. The house is very quiet. A thought pops up: I could hide the pieces under a cushion. Nobody would know.",
+      "setting": "[Name] stands still",
+      "art": "[Name] stands still; a thought bubble shows the pieces under a cushion",
+      "anchor": "[Broken thing]",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper right — keep low-detail; story text sits there."
+    },
+    {
+      "n": 4,
+      "text": "Two ways, side by side. Hide the pieces. Or tell [Carer]. [Name]'s tummy feels fizzy. [Name] leaves the pieces just where they fell.",
+      "setting": "[Name] stands over the pieces without touching them, hands at sides, thinking",
+      "art": "[Name] stands over the pieces without touching them, hands at sides, thinking",
+      "anchor": "[Broken thing]",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 5,
+      "text": "[Name] walks to the kitchen, one slow step at a time. [Carer] is humming at the sink and doesn't know yet. Thump, thump goes [Name]'s heart, like a little drum.",
+      "setting": "Hall to kitchen. [Name] walks slowly, empty-handed",
+      "art": "Hall to kitchen. [Name] walks slowly, empty-handed; [Carer] at the sink, back half-turned, humming",
+      "anchor": "[Broken thing] small in the background on the hall floor",
+      "calm_zone": "right",
+      "calm_zone_note": "Wall — keep low-detail; story text sits there."
+    },
+    {
+      "n": 6,
+      "text": "\"[Carer],\" says [Name]. \"I broke [Broken thing]. It was an accident.\" There. It's out.",
+      "setting": "Kitchen. [Name] standing by [Carer], who has turned round",
+      "art": "Kitchen. [Name] standing by [Carer], who has turned round; [Name]'s face serious",
+      "anchor": "None on this spread",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 7,
+      "text": "[Carer] kneels down, eyes soft. \"[Praise words]\" The fizzy feeling in [Name]'s tummy goes quiet.",
+      "setting": "[Carer] kneels, soft eyes, hand on [Name]'s shoulder",
+      "art": "[Carer] kneels, soft eyes, hand on [Name]'s shoulder",
+      "anchor": "None on this spread",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 8,
+      "text": "[Carer] picks up the pieces carefully. Glue on this bit. [Carer] holds it still, and [Name] counts to twenty. Some of it sticks!",
+      "setting": "Kitchen table. [Carer] glues and holds the join",
+      "art": "Kitchen table. [Carer] glues and holds the join; [Name] sits beside, counting on fingers, hands away from the pieces",
+      "anchor": "[Broken thing]",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 9,
+      "text": "One piece is too small to fix. [Name]'s face crumples. \"It won't ever be the same.\" [Carer] nods. \"No, it won't.\"",
+      "setting": "[Carer] puts the one leftover piece into a small dish on a high shelf",
+      "art": "[Carer] puts the one leftover piece into a small dish on a high shelf; [Name]'s face crumpling a little; [Carer] nodding, gentle",
+      "anchor": "[Broken thing]",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 10,
+      "text": "[Carer] sits down on the floor next to [Name]. \"I'm sad too,\" says [Carer]. \"And I'm glad you told me. You are much more important than [Broken thing].\" [Name] leans in close.",
+      "setting": "[Carer] sits on the floor beside [Name], arm round [Name]",
+      "art": "[Carer] sits on the floor beside [Name], arm round [Name]; [Name] leaning in",
+      "anchor": "[Broken thing] on the table",
+      "calm_zone": "left",
+      "calm_zone_note": "Wall — keep low-detail; story text sits there."
+    },
+    {
+      "n": 11,
+      "text": "At bedtime, [Carer] tucks [Name] in. \"You can always come and tell me when something goes wrong,\" says [Carer]. [Name] smiles all the way under the duvet.",
+      "setting": "Bedtime. [Carer] tucks [Name] in",
+      "art": "Bedtime. [Carer] tucks [Name] in; [Name] smiling under the duvet",
+      "anchor": "[Broken thing] not shown; face check against spread 10",
+      "calm_zone": "right",
+      "calm_zone_note": "Wall — keep low-detail; story text sits there."
+    },
+    {
+      "n": 12,
+      "text": "Next morning, [Broken thing] is back on the shelf, with a thin crack all the way round. [Name] looks at the crack for a long time. It is part of the story now.",
+      "setting": "Morning light. [Broken thing] back on the shelf, a thin glued crack and one small missing piece visible",
+      "art": "Morning light. [Broken thing] back on the shelf, a thin glued crack and one small missing piece visible; [Name] looking up at it, calm",
+      "anchor": "[Broken thing]",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 13,
+      "text": "At [School], [Name] knocks over the paint water. Splosh! \"I did that,\" says [Name]. \"Thank you for telling me,\" says the teacher. They mop it up together.",
+      "setting": "Nursery or school art table",
+      "art": "Nursery or school art table; tipped paint-water pot; [Name] and the teacher mop up together",
+      "anchor": "[Broken thing] not shown",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 14,
+      "text": "Walking home, [Name] stands up very straight, as tall as a lamp post. \"Telling the truth,\" thinks [Name], \"makes me feel tall.\"",
+      "setting": "Pavement home. [Name] stands very straight beside a lamp post",
+      "art": "Pavement home. [Name] stands very straight beside a lamp post; [Carer] beside, smiling",
+      "anchor": "None on this spread",
+      "calm_zone": "left",
+      "calm_zone_note": "Sky — keep low-detail; story text sits there."
+    }
+  ],
+  "parent_spread": {
+    "you_could_say": "\"Thank you for telling me. That was brave.\" Thank the telling first, then sort it out together.",
+    "try_together": "\"How did [Name]'s tummy feel before telling, and after?\"",
+    "in_real_life": "Next time something breaks, say thank you for the telling before anything else. Grown-ups pick up anything sharp.",
+    "read_it_again": "Read it a few nights in a row, and again whenever [Name] asks."
+  },
+  "parent_art": "",
+  "dedication_template": "For [Name], from [Giver]",
+  "last_line": "thinks [Name], \"makes me feel tall.\""
+}

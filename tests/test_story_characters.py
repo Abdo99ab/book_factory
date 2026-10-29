@@ -15,8 +15,10 @@ from pipeline.story_characters import (
     assert_characters_ready,
     characters_for_spread,
     characters_named_in_text,
+    link_character_to_story,
     list_story_characters,
     resolve_sheet_path,
+    sync_character_story_links,
     unapproved_or_missing,
 )
 
@@ -29,18 +31,39 @@ def test_dinosaur_egg_characters_defined_and_approved():
         path = resolve_sheet_path(c, "dinosaur_egg")
         assert path.is_file(), path
         assert c.get("approved") is True
+        assert c.get("title_id") == "dinosaur_egg"
+        assert str(c.get("sheet") or "").startswith("brand/stories/dinosaur_egg/")
     assert_characters_ready("dinosaur_egg")
+
+
+def test_every_character_linked_to_its_story():
+    counts = sync_character_story_links()
+    for title_id, n in counts.items():
+        chars = list_story_characters(title_id)
+        assert len(chars) == n
+        for c in chars:
+            assert c["title_id"] == title_id
+            assert str(c["sheet"]).startswith(f"brand/stories/{title_id}/")
+
+
+def test_link_character_rewrites_foreign_sheet_path():
+    linked = link_character_to_story(
+        {"id": "tide", "name": "Tide", "sheet": "brand/stories/wrong/tide.png"},
+        "ocean_map",
+    )
+    assert linked["title_id"] == "ocean_map"
+    assert linked["sheet"] == "brand/stories/ocean_map/tide.png"
 
 
 def test_characters_for_spread_filters():
     locked = load_locked_story("dinosaur_egg")
     story = {"characters": locked["characters"]}
     s2 = characters_for_spread("dinosaur_egg", story, 2)
-    assert {c["id"] for c in s2} == {"pip"}
+    assert {c["id"] for c in s2} == {"pip", "egg"}
     s11 = characters_for_spread("dinosaur_egg", story, 11)
     assert {c["id"] for c in s11} == {"pip", "pip_mum"}
     s1 = characters_for_spread("dinosaur_egg", story, 1)
-    assert s1 == []
+    assert {c["id"] for c in s1} == {"egg"}
 
 
 def test_cover_art_picks_pip():
@@ -75,7 +98,7 @@ def test_reference_pack_caps_at_four_and_labels(tmp_path: Path):
     Image.new("RGB", (32, 32), (4, 5, 6)).save(char / "character.png")
     inputs = {"title_id": "dinosaur_egg", "name": "Emma"}
     refs, labels, meta = build_reference_pack(tmp_path, inputs, story, n=11)
-    assert len(refs) <= 4
+    assert len(refs) <= 5
     assert labels[0].startswith("Emma's face")
     assert labels[1].startswith("Emma's outfit")
     assert any("Pip" in lab for lab in labels)

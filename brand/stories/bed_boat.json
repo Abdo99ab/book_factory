@@ -1,0 +1,212 @@
+{
+  "title_id": "bed_boat",
+  "approved": true,
+  "version": "v2-imported",
+  "status": "final",
+  "source": "04 · The Night [Name]_s Bed Became a Boat — APPROVED v2.docx",
+  "family": "next_steps",
+  "colour": "rust",
+  "age_band": "3-6",
+  "route": "morning_light",
+  "front_band": "READY FOR THE BIG BED",
+  "title_template": "The Night [Name]'s Bed Became a Boat",
+  "back_question": "Ready for the big bed, [Name]?",
+  "back_blurb": "Wash, pyjamas, teeth, one story, little light. Then [Name]'s big bed sets sail, past pillow islands and a yawning whale, all the way to morning.",
+  "honesty_line": "Illustrated from [Name]'s photo and checked by a person before print.",
+  "spine_title": "The Night [Name]'s Bed Became a Boat",
+  "outfit": "soft striped pyjamas",
+  "cover_art": "[Name] in the story's key scene from spread 1 — face large and front-on; upper third calm for the title. Bedroom, daytime. A low big bed with clear floor around it; [Name] sits on it with a picture book, [Carer] beside for a cuddle",
+  "title_page": {
+    "band": "READY FOR THE BIG BED",
+    "line": "Illustrated from [Name]'s photo",
+    "spot": "Small spot of the bed. No child on this page."
+  },
+  "anchor": {
+    "description": "The bedroom set, built once; [Object] as first mate on every spread. The bed never leaves the room and is never on real water.",
+    "lock_spread": null
+  },
+  "must_not_show": [
+    "monsters, no scary dark corners, no adult in the child's bed, no child leaving the bed, no bouncing, no high bed or unsafe rails, no threats. Night spreads: face check at full brightness before the night grade"
+  ],
+  "characters": [],
+  "personalisation_slots": [
+    {
+      "id": "bed_type",
+      "label": "Bed type",
+      "type": "select",
+      "options": [
+        "toddler bed",
+        "single bed"
+      ],
+      "required": true
+    },
+    {
+      "id": "night_light",
+      "label": "Night light",
+      "type": "select",
+      "options": [
+        "yes",
+        "no"
+      ],
+      "required": true
+    },
+    {
+      "id": "door",
+      "label": "Door",
+      "type": "select",
+      "options": [
+        "open",
+        "closed"
+      ],
+      "required": true
+    },
+    {
+      "id": "exit_line",
+      "label": "Exit line in your words",
+      "type": "text",
+      "required": false
+    }
+  ],
+  "order_inputs": {
+    "carer": true,
+    "comfort_object": true,
+    "giver": true
+  },
+  "spreads": [
+    {
+      "n": 1,
+      "text": "This is [Name]'s big bed. In the day, it is just a bed, for cuddles and for books. \"Tonight,\" says [Carer], \"it sails.\"",
+      "setting": "Bedroom, daytime. A low big bed with clear floor around it",
+      "art": "Bedroom, daytime. A low big bed with clear floor around it; [Name] sits on it with a picture book, [Carer] beside for a cuddle",
+      "anchor": "Bed, [Object] on the pillow",
+      "calm_zone": "right",
+      "calm_zone_note": "Wall above the bed — keep low-detail; story text sits there."
+    },
+    {
+      "n": 2,
+      "text": "First, a wash. Splish, splash. Warm water on hands and face. A soft towel. Pat, pat. \"A sailor is clean,\" says [Carer].",
+      "setting": "Bathroom basin. [Name] washes face",
+      "art": "Bathroom basin. [Name] washes face; towel ready",
+      "anchor": "[Object] on the bathroom stool",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 3,
+      "text": "Then pyjamas. One arm in. Two arms in. One leg, two legs. Buttons… done! \"A sailor is warm,\" says [Name].",
+      "setting": "Bedroom. [Name] does up pyjama buttons, proud",
+      "art": "Bedroom. [Name] does up pyjama buttons, proud",
+      "anchor": "Bed in background, [Object]",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 4,
+      "text": "Then teeth. Brush, brush, top and bottom, round and round, back and front. Spit! Splosh. \"A sailor has shiny teeth,\" says [Carer].",
+      "setting": "Bathroom. [Name] brushes teeth with [Carer] crouched beside, helping",
+      "art": "Bathroom. [Name] brushes teeth with [Carer] crouched beside, helping; mirror shows nothing readable",
+      "anchor": "[Object] on the bathroom stool",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper left — keep low-detail; story text sits there."
+    },
+    {
+      "n": 5,
+      "text": "Into the boat. [Object] is the first mate. [Carer] sits on the edge and reads one story. Just one. The best one.",
+      "setting": "[Name] in bed with [Object]",
+      "art": "[Name] in bed with [Object]; [Carer] on the edge reading a picture book (blank cover)",
+      "anchor": "Bed, [Object]",
+      "calm_zone": "right",
+      "calm_zone_note": "Wall — keep low-detail; story text sits there."
+    },
+    {
+      "n": 6,
+      "text": "Big light off. Little light on. [Carer] leaves the door just the way [Name] likes it. The room is soft and gold.",
+      "setting": "Big light off, little light on, warm gold light. Two variants with the same text: a night-light by the bed, or a landing light through the door. Door drawn to the family's setting",
+      "art": "Big light off, little light on, warm gold light. Two variants with the same text: a night-light by the bed, or a landing light through the door. Door drawn to the family's setting",
+      "anchor": "Bed, [Object]",
+      "calm_zone": "left",
+      "calm_zone_note": "Lighter wall area near the little light — keep low-detail; story text sits there."
+    },
+    {
+      "n": 7,
+      "text": "[Carer] gives one kiss. \"[Exit line]. See you in the morning.\" Then [Carer] goes, and the little light keeps watch.",
+      "setting": "[Carer] kisses [Name]'s forehead",
+      "art": "[Carer] kisses [Name]'s forehead; then at the door, calm face",
+      "anchor": "Bed, [Object]",
+      "calm_zone": "right",
+      "calm_zone_note": "Wall above — keep low-detail; story text sits there."
+    },
+    {
+      "n": 8,
+      "text": "[Name] closes [their] eyes. The duvet goes swish, like the sea. Swish, swash. Slowly, slowly, the bed begins to sail.",
+      "setting": "[Name], eyes closed, smiling",
+      "art": "[Name], eyes closed, smiling; duvet folds become gentle waves at the edges; room still visible",
+      "anchor": "Bed, [Object]",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 9,
+      "text": "Past an island made of pillows. Past a whale with a big, slow yawn. A lighthouse blinks. It looks a lot like the little light.",
+      "setting": "Imagined scene around the real bed: pillow island, a gentle yawning whale, a lighthouse shaped like the little light. The bed stays in the room",
+      "art": "Imagined scene around the real bed: pillow island, a gentle yawning whale, a lighthouse shaped like the little light. The bed stays in the room; no real water",
+      "anchor": "Bed, [Object]",
+      "calm_zone": "right",
+      "calm_zone_note": "Sky — keep low-detail; story text sits there."
+    },
+    {
+      "n": 10,
+      "text": "In the night, [Name] wakes. The bed feels new. \"[Carer]?\" [Carer] comes to the door. \"I'm here.\" [Name] hugs [Object]. \"I'm still the captain.\" Eyes close again.",
+      "setting": "Night. [Name] sitting up in bed, calm, hugging [Object]",
+      "art": "Night. [Name] sitting up in bed, calm, hugging [Object]; [Carer] in the doorway, soft light behind. No adult in the bed",
+      "anchor": "Bed, [Object]",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 11,
+      "text": "The boat sails on, slow and quiet. Above, the stars are out. Below, the sea is soft as a duvet. Swish, swash.",
+      "setting": "Gentle starry sea around the bed, the room still visible at the edges",
+      "art": "Gentle starry sea around the bed, the room still visible at the edges; [Name] asleep",
+      "anchor": "Bed, [Object]",
+      "calm_zone": "right",
+      "calm_zone_note": "Stars — keep low-detail; story text sits there."
+    },
+    {
+      "n": 12,
+      "text": "Morning! Sun on the curtains. Birds outside. The boat is a bed again, and the captain is home, snug as anything.",
+      "setting": "Morning sun through curtains",
+      "art": "Morning sun through curtains; [Name] stretching in bed, smiling",
+      "anchor": "Bed, [Object]",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 13,
+      "text": "[Carer] comes in, smiling. \"Good morning, Captain!\" [Name] grins. What's for breakfast? Toast? Porridge? [Name] thinks very hard. Toast, please!",
+      "setting": "[Carer] at the door, smiling, saluting playfully",
+      "art": "[Carer] at the door, smiling, saluting playfully; [Name] sits up grinning",
+      "anchor": "Bed, [Object]",
+      "calm_zone": "right",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    },
+    {
+      "n": 14,
+      "text": "Tonight the bed sails again. Wash. Pyjamas. Teeth. Story. Little light. Then one kiss, and the same words. All aboard, Captain.",
+      "setting": "Evening again. [Name] by the bed with [Object], ready. The five routine icons are set in code under the text, not drawn",
+      "art": "Evening again. [Name] by the bed with [Object], ready. The five routine icons are set in code under the text, not drawn",
+      "anchor": "Bed, [Object]",
+      "calm_zone": "left",
+      "calm_zone_note": "Upper — keep low-detail; story text sits there."
+    }
+  ],
+  "parent_spread": {
+    "you_could_say": "\"[Exit line]. See you in the morning.\" The same words every night.",
+    "try_together": "\"What will your boat sail past tonight?\"",
+    "in_real_life": "If [Name] wakes in the night, offer comfort and use your familiar goodnight words to help [Name] settle back into bed.",
+    "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
+  },
+  "parent_art": "",
+  "dedication_template": "For [Name], from [Giver]",
+  "last_line": "All aboard, Captain."
+}

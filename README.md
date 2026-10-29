@@ -4,6 +4,7 @@ Personalised children’s books from catalogue beats → TJ Books print PDF.
 
 **Design:** [`docs/FACTORY-V2.md`](docs/FACTORY-V2.md)  
 **Brand:** [`brand/Raised Ready — Brand Guidelines v1.md`](brand/Raised%20Ready%20—%20Brand%20Guidelines%20v1.md)  
+**Stories:** ten locked JSONs under `brand/stories/` (from FINAL/APPROVED docx; re-import with `scripts/import_locked_stories.py`)  
 **Printer:** [`brand/chosen_printer_specs.txt`](brand/chosen_printer_specs.txt)  
 **Previous system:** [`legacy_v1/`](legacy_v1/)
 

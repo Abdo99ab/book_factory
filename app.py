@@ -312,7 +312,14 @@ def create_app() -> Flask:
 
     @app.get("/admin/characters")
     def admin_characters():
-        rows = []
+        from pipeline.story_characters import sync_character_story_links
+
+        try:
+            sync_character_story_links()
+        except Exception as error:  # noqa: BLE001
+            logger.info("admin/characters sync links: %s", error)
+
+        groups = []
         for title in list_titles():
             tid = title["title_id"]
             try:
@@ -322,14 +329,17 @@ def create_app() -> Flask:
                 continue
             if not chars:
                 continue
+            story_title = (title.get("title_template") or tid).replace("{name}", "[Name]")
+            rows = []
             for entry in chars:
                 path = resolve_sheet_path(entry, tid)
                 rows.append(
                     {
                         "title_id": tid,
-                        "title": title.get("title_template") or tid,
+                        "title": story_title,
                         "id": entry.get("id"),
                         "name": entry.get("name"),
+                        "kind": entry.get("kind") or "character",
                         "approved": bool(entry.get("approved")),
                         "approved_by": entry.get("approved_by"),
                         "sheet": entry.get("sheet"),
@@ -337,7 +347,15 @@ def create_app() -> Flask:
                         "spreads": entry.get("spreads") or [],
                     }
                 )
-        return render_template("admin_characters.html", rows=rows)
+            groups.append(
+                {
+                    "title_id": tid,
+                    "title": story_title,
+                    "family": title.get("family") or "",
+                    "rows": rows,
+                }
+            )
+        return render_template("admin_characters.html", groups=groups)
 
     @app.get("/admin/characters/<title_id>/<character_id>/sheet")
     def admin_character_sheet(title_id, character_id):

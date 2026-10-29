@@ -9,7 +9,13 @@ from PIL import Image
 
 from pipeline.brand import ROUTE_PRESETS
 from pipeline.catalogue import STORIES_DIR, find_relative_art_refs, load_locked_story
-from pipeline.illustrate import _spread_image_refs, _spread_prompt, build_reference_pack, settings_match
+from pipeline.illustrate import (
+    MAX_REF_IMAGES,
+    _spread_image_refs,
+    _spread_prompt,
+    build_reference_pack,
+    settings_match,
+)
 
 PREAMBLE_SETTING_WORDS = (
     "interior",
@@ -81,6 +87,8 @@ def test_spread_prompt_includes_binding_setting_and_fold_rule():
     assert "CONTINUITY:" in prompt
     assert "No face within 10% of the centre fold" in prompt
     assert "image 1 = Emma's face" in prompt
+    assert "Face never covered or turned away" not in prompt
+    assert "EXPRESSION / GAZE:" in prompt
 
 
 def test_spread_image_refs_face_body_and_prev(tmp_path: Path):
@@ -102,4 +110,4 @@ def test_spread_image_refs_face_body_and_prev(tmp_path: Path):
     assert face in refs and body in refs
     assert prev in refs
     assert any("face" in lab.lower() for lab in labels)
-    assert len(refs) <= 4
+    assert len(refs) <= MAX_REF_IMAGES

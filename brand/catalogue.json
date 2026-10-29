@@ -89,7 +89,7 @@
         "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
       },
       "last_line": "I'm the one who decides. And I decided.",
-      "approved": false,
+      "approved": true,
       "post_grade": null
     },
     "nursery_day": {
@@ -152,7 +152,7 @@
         "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
       },
       "last_line": "Tomorrow we do it again. And you come back again.",
-      "approved": false,
+      "approved": true,
       "post_grade": null
     },
     "bed_boat": {
@@ -222,7 +222,7 @@
         "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
       },
       "last_line": "Tonight it sails again.",
-      "approved": false,
+      "approved": true,
       "post_grade": "night"
     },
     "night_rocket": {
@@ -233,7 +233,7 @@
       "question_form": "Ready for adventure, {name}?",
       "title_template": "{name} and the Night Rocket",
       "age_band": "5-8",
-      "route": "open",
+      "route": "field_guide",
       "outfit": "pyjamas with a small rocket print",
       "anchor": {
         "description": "rocket and helmet; visor never covers the face",
@@ -274,7 +274,7 @@
         "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
       },
       "last_line": "The best captains ask the best questions.",
-      "approved": false,
+      "approved": true,
       "post_grade": "night"
     },
     "dinosaur_egg": {
@@ -321,7 +321,7 @@
       "title_template": "{name}'s Ocean Map",
       "age_band": "5-8",
       "route": "field_guide",
-      "outfit": "striped swimsuit and a light towel cape",
+      "outfit": "rash vest and swim shorts",
       "anchor": {
         "description": "turtle guide and sea-glass compass",
         "state_schedule": null
@@ -364,7 +364,7 @@
         "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
       },
       "last_line": "Wrong turns are part of the map.",
-      "approved": false,
+      "approved": true,
       "post_grade": "underwater"
     },
     "tells_truth": {
@@ -375,7 +375,7 @@
       "question_form": "Ready to tell the truth, {name}?",
       "title_template": "{name} Tells the Truth",
       "age_band": "5-8",
-      "route": "open",
+      "route": "morning_light",
       "outfit": "cream jumper and sage cardigan",
       "anchor": {
         "description": "the broken object the parent chose (spreads 2-9)",
@@ -415,7 +415,7 @@
         "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
       },
       "last_line": "Telling the truth makes me feel tall.",
-      "approved": false,
+      "approved": true,
       "post_grade": null
     },
     "worry_jar": {
@@ -466,7 +466,7 @@
         "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
       },
       "last_line": "Worries are smaller when you share them.",
-      "approved": false,
+      "approved": true,
       "post_grade": null
     },
     "new_front_door": {
@@ -477,7 +477,7 @@
       "question_form": "Ready for a new home, {name}?",
       "title_template": "{name}'s New Front Door",
       "age_band": "5-8",
-      "route": "open",
+      "route": "morning_light",
       "outfit": "travel jumper and a backpack",
       "anchor": {
         "description": "first-night box; old and new home reference sheets",
@@ -531,7 +531,7 @@
         "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
       },
       "last_line": "Home is where my things and my people are.",
-      "approved": false,
+      "approved": true,
       "post_grade": null
     },
     "too_good_picture": {
@@ -593,7 +593,7 @@
         "read_it_again": "Read this story a few nights in a row, and once more just before the day itself."
       },
       "last_line": "I don't have to believe everything I see. I can check.",
-      "approved": false,
+      "approved": true,
       "post_grade": null
     }
   }

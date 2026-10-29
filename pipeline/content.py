@@ -162,7 +162,11 @@ def generate_content(job_dir: Path, inputs: dict, client=None) -> dict:
         "outfit": locked.get("outfit") or title.get("outfit"),
         "anchor": locked.get("anchor") or title.get("anchor"),
         "must_not_show": locked.get("must_not_show") or title.get("must_not_show") or [],
-        "characters": list(locked.get("characters") or []),
+        "characters": [
+            {**c, "title_id": inputs["title_id"]}
+            for c in (locked.get("characters") or [])
+        ],
+        "inworld_lettering": list(locked.get("inworld_lettering") or []),
         "source_version": locked.get("version"),
         "locked": {
             "title": book_title,
@@ -172,6 +176,7 @@ def generate_content(job_dir: Path, inputs: dict, client=None) -> dict:
             "last_line": personalize(locked.get("last_line") or "", inputs),
             "parent_spread": parent,
             "read_it_again": read_again,
+            "inworld_lettering": list(locked.get("inworld_lettering") or []),
         },
     }
 

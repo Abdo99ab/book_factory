@@ -14,8 +14,9 @@ Built from **brand guidelines** + **TJ printer specs** + **locked launch stories
 ## Story docs (source of truth)
 
 - `brand/stories/00 · Read first — …docx` — process rules for all ten titles.
-- `brand/stories/01 · … FINAL CHECK (v2).docx` — **standard** for locked JSON.
-- Factory loads `brand/stories/<title_id>.json` (story 01 → `dinosaur_egg.json`). Drafts are not uploaded / not selectable until FINAL.
+- `brand/stories/01 · … FINAL CHECK (v2).docx` — **standard** for locked JSON; stories 02–10 APPROVED v2 / v2.1.
+- Factory loads `brand/stories/<title_id>.json` for all ten launch titles. Re-import: `python scripts/import_locked_stories.py`.
+- Logos: `assets/brand/B1b_*.png`. In-world lettering: Caveat on Ocean Map spread 1 banner only (Nunito fallback).
 
 Each spread carries: **text** (print as-is), **art** (illustrator brief), **anchor**, **calm_zone** (`left`|`right`) + **calm_zone_note**.
 

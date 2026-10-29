@@ -43,11 +43,14 @@ FAMILY_COLOUR = {
 }
 
 # Spec §5 — font files (filenames under assets/fonts/)
+# ``inworld`` = Caveat (OFL): ONLY for in-story-world lettering set in code over the art
+# (Ocean Map banner name). Never for story text, titles, bands, covers, or ads.
 FONT_FILES = {
     "title": "NotoSerif-SemiBold.ttf",
     "body": "Nunito-Regular.ttf",
     "body_bold": "Nunito-SemiBold.ttf",
     "label": "DMMono-Medium.ttf",
+    "inworld": "Caveat/static/Caveat-Regular.ttf",
 }
 
 # Spec §5 — size scale (pt)
@@ -75,14 +78,13 @@ SIZE_SCALE = {
     "illustrated_from": 12,
 }
 
-# Spec §7 — logo masters under assets/brand/
-# ``logo-main.png`` is the live lockup; older full-colour / one-ink filenames stay as aliases.
+# Spec §7 — logo masters under assets/brand/ (B1b Round 5 lockup + symbol)
 LOGO_FILES = {
-    "main": ASSETS_BRAND / "logo-main.png",
-    "full_colour": ASSETS_BRAND / "logo-main.png",
-    "one_ink": ASSETS_BRAND / "logo-main.png",
-    "mini_r": ASSETS_BRAND / "logo-mini-r.png",
-    "reverse": ASSETS_BRAND / "logo-reverse.png",
+    "main": ASSETS_BRAND / "B1b_colour.png",
+    "full_colour": ASSETS_BRAND / "B1b_colour.png",
+    "one_ink": ASSETS_BRAND / "B1b_one_ink.png",
+    "mini_r": ASSETS_BRAND / "B1b_symbol_colour.png",
+    "reverse": ASSETS_BRAND / "B1b_reverse.png",
 }
 
 # Spec §9 — fixed line, identical in every title

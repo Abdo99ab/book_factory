@@ -174,12 +174,15 @@ Four families, each with one colour, run through the shop, the ads and the spine
 
 Locked 22 Oct: Noto Serif SemiBold for titles, Nunito for story, web and email text, DM Mono Medium for bands and labels. All are free Google Fonts, licensed for print and web.
 
+**In-world lettering (added):** Caveat (Google Fonts, OFL — free for print and commercial use) is used **only** for writing that sits inside the story world and is set in code over the art. For launch, that means the child's name on the Ocean Map banner (spread 1). Never use Caveat for story text, titles, bands, covers, or ads. Test short and long names curved to the banner; if it looks pasted on, use Nunito instead.
+
 **Fixed roles**
 
-- **Wordmark:** artwork from the 06A master file only.
+- **Wordmark:** artwork from the B1b / 06A master file only.
 - **Titles and headlines:** one serif across both routes, so ten titles read as one shelf.
 - **Body (story text, web, email):** one rounded or humanist sans.
 - **Labels and bands:** one monospace or small-caps style, in capitals with wide tracking.
+- **In-world lettering:** Caveat only, as above.
 
 **Options considered (T-A chosen)**
 
@@ -227,7 +230,7 @@ Two illustration languages, one rule above both: the child from the photo is rec
 5. Never introduce the fear the book is about (no monsters in a bedtime or worry book).
 6. Plain pages: no clutter, no flaps; leave a calm zone for the text on every spread.
 7. Every title has one fixed **anchor object** (e.g. the rabbit, Pip the dinosaur, the detective notebook) drawn the same way on every spread: it is the reference for the face and style check.
-8. No text, letters or logos inside the art. All words are set in code.
+8. No text, letters or logos drawn inside the art. All words are set in code — including in-world lettering (Caveat on the Ocean Map banner; Nunito fallback).
 9. Screens, if shown, show nothing readable; no real AI tool is shown being used by a child.
 
 **Resolution for print** (working format 210 × 210 mm + 4 mm bleed)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import re
 from pathlib import Path
 
 from PIL import Image
@@ -29,7 +30,8 @@ from .story_characters import (
     ref_paths_for_characters,
 )
 
-MAX_REF_IMAGES = 4
+# Face + body + up to three story sheets (e.g. Pip, mum, curly shell on spread 13).
+MAX_REF_IMAGES = 5
 
 
 def _decode(result) -> bytes:
@@ -160,6 +162,46 @@ def reference_prompt_block(labels: list[str]) -> str:
     )
 
 
+# Ordered cues: first match in art+text wins. Prefer art wording over a default smile.
+_EXPRESSION_CUES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bsurpris|\bwonder|\beyes wide|\bclunk|\bit'?s an egg", re.I),
+     "surprised / wonder — eyes bright, mouth open in discovery; not a polite smile"),
+    (re.compile(r"\blaugh", re.I),
+     "laughing — bright, open, joyful"),
+    (re.compile(r"\bsmil|\bgentle smile|\bwith a smile", re.I),
+     "warm, natural smile matching the beat"),
+    (re.compile(r"\bdetermin|\bpuffed|\bheavier|\bstep, step", re.I),
+     "determined / effort — set jaw, focused; not a broad smile"),
+    (re.compile(r"\bhums?|\bsnuggl|\bsoft(?:ly)?(?:\s+eyes)?|\bquiet", re.I),
+     "soft, quiet, content — calm face, not a big grin"),
+    (re.compile(r"\beyes closing|\bbedtime|\bgoodnight|\bwhispers|\btucked in|\basleep", re.I),
+     "sleepy / peaceful — eyes heavy or closing, soft almost-smile"),
+    (re.compile(r"\bworr|\bchin begins to wobble|\bdon'?t worry|\bafraid|\bscared|\bnose first", re.I),
+     "gentle concern or care — soft seriousness; not smiling for the camera"),
+    (re.compile(r"\bisn'?t sure|\bwhich way|\bwonders|\bhow do we", re.I),
+     "thoughtful / uncertain — looking at the choice or companion, not the camera"),
+    (re.compile(r"\bwaves?|\bthank you|\bstrokes", re.I),
+     "warm, friendly — natural smile toward the companion or action"),
+    (re.compile(r"\bwatches|\blooking|\blooks", re.I),
+     "attentive — gaze follows the action in the scene, expression matches the beat"),
+)
+
+
+def expression_from_beat(spread: dict) -> str:
+    """Guess the child's expression from story text + art (no default camera-smile)."""
+    art = (spread.get("art") or spread.get("scene") or "").strip()
+    text = (spread.get("text") or "").strip()
+    # Prefer cues in the art brief; fall back to story text.
+    for blob in (art, text, f"{art}\n{text}"):
+        for pattern, phrase in _EXPRESSION_CUES:
+            if pattern.search(blob):
+                return phrase
+    return (
+        "natural expression for this beat — calm and present; "
+        "do not default to a smile or looking at the camera"
+    )
+
+
 def _spread_prompt(
     inputs: dict,
     story: dict,
@@ -183,6 +225,7 @@ def _spread_prompt(
         anchor_desc = str(story_anchor)
     spread_anchor = (spread.get("anchor") or "").strip() or anchor_desc
     must_not = "; ".join(story.get("must_not_show") or title.get("must_not_show") or [])
+    expression = expression_from_beat(spread)
     calm_rule = (
         f"CALM ZONE ({calm.upper()}): keep this area LOW-DETAIL (soft sky / wall / lawn / canopy) "
         f"so printed story text can sit there. Do not put faces, Pip, or busy objects in that zone. "
@@ -209,7 +252,10 @@ def _spread_prompt(
         f"{continuity}"
         f"{calm_rule}\n"
         f"Child ({inputs['name']}) in {outfit}. "
-        f"Face never covered or turned away. "
+        f"EXPRESSION / GAZE: {expression}. "
+        f"Pose, gaze and expression follow the SCENE and story text — "
+        f"do not default to facing the camera or smiling unless the beat asks for it. "
+        f"Keep the face readable when it is the focus of the beat.\n"
         f"Spread anchor: {spread_anchor}. Story anchor lock: {anchor_desc}\n"
         f"No face within 10% of the centre fold. No face or important object on the centre fold. "
         f"No text, letters or logos in the art. "
@@ -391,6 +437,10 @@ def _cover_prompt(kind: str, inputs: dict, story: dict, *, ref_labels: list[str]
     book_title = story.get("title") or ""
     name = inputs.get("name") or ""
     ref_block = reference_prompt_block(ref_labels or [])
+    smile = (
+        f"The child ({name or 'the child'}) has a warm, natural smile — happy and inviting, "
+        f"not a stiff camera grin."
+    )
     if kind == "front":
         zones = front_cover_zones(book_title, name)
         cover_art = (story.get("cover_art") or "").strip()
@@ -400,6 +450,7 @@ def _cover_prompt(kind: str, inputs: dict, story: dict, *, ref_labels: list[str]
         return (
             f"{preset['preamble']}\n"
             f"FRONT COVER for '{book_title}'. Square. {scene} "
+            f"{smile} "
             f"{layout_prompt_rules('front', zones)} "
             f"No carer face. No text in art. Outfit: {outfit}. "
             f"{ref_block} "
@@ -416,6 +467,7 @@ def _cover_prompt(kind: str, inputs: dict, story: dict, *, ref_labels: list[str]
     return (
         f"{preset['preamble']}\n"
         f"BACK COVER for '{book_title}'. Square.{with_carer} "
+        f"{smile} "
         f"{layout_prompt_rules('back', zones)} "
         f"Leave the {corner} of the text band plain (~{BACK_QR_SAFE_MM:g} mm). "
         f"Outfit: {outfit}. {ref_block} {SHARED_NEGATIVES}. {preset['negatives']}."
